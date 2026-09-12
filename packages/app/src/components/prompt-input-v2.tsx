@@ -8,6 +8,8 @@ import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
 import { createEffect, createMemo, on, Show } from "solid-js"
 import { ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
+import { PromptProjectSelector } from "@/components/prompt-project-selector"
+import { createPromptApproval } from "@/pages/session/composer/prompt-approval"
 import { DialogSelectModelUnpaidV2 } from "@/components/dialog-select-model-unpaid-v2"
 import type { PromptInputProps } from "@/components/prompt-input/contracts"
 import { normalizePromptHistoryEntry, promptLength, type PromptHistoryComment } from "@/components/prompt-input/history"
@@ -42,6 +44,7 @@ export type PromptInputV2ComposerProps = {
 export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "submission">
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
+  readonly project?: PromptInputProps["project"]
 }
 
 export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
@@ -58,6 +61,12 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
         variantControlVisible={!props.controller.model.loading}
         attachKeybind={command.keybindParts("file.attach")}
         attachShortcut={command.keybind("file.attach")}
+        leadingControl={
+          <Show when={props.controller.project}>
+            {(controller) => <PromptProjectSelector controller={controller()} />}
+          </Show>
+        }
+        trailingControl={undefined}
         modelControl={
           <PromptInputV2ModelControl
             loading={props.controller.model.loading}
@@ -194,6 +203,10 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     const id = props.controls.session.id
     if (!id) return permission.isAutoAcceptingDirectory(sdk().directory)
     return permission.isAutoAccepting(id, sdk().directory)
+  })
+  const approval = createPromptApproval({
+    sessionID: () => props.controls.session.id,
+    directory: () => sdk().directory,
   })
   const submission = createPromptSubmit({
     prompt,
@@ -400,6 +413,11 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
         onSelect: (value) => props.controls.model.selection.variant.set(value === "default" ? undefined : value),
         keybind: () => command.keybindParts("model.variant.cycle"),
       },
+      approval: {
+        options: approval.options,
+        current: approval.current,
+        onSelect: approval.set,
+      },
       submit: {
         stopping,
         working,
@@ -409,6 +427,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     },
   })
   Object.defineProperty(controller, "model", { get: () => props.controls.model })
+  Object.defineProperty(controller, "project", { get: () => props.project })
 
   command.register("prompt-input", () => [
     {

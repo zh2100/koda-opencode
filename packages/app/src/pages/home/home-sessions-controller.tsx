@@ -2,12 +2,12 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { preloadMarkdown } from "@opencode-ai/session-ui/markdown-cache"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useQuery } from "@tanstack/solid-query"
-import { DateTime } from "luxon"
 import { type Accessor, createEffect, createMemo, createRoot, type JSX, startTransition } from "solid-js"
-import { produce } from "solid-js/store"
+import { createStore, produce } from "solid-js/store"
 import { useCommand } from "@/context/command"
 import {
   loadHomeSessionIndex,
+  loadHomeSessionIndexV1,
   retainHomeSessions,
   type HomeSessionEvents,
 } from "@/context/global-sync/home-session-index"
@@ -17,9 +17,11 @@ import { ServerConnection } from "@/context/server"
 import { sessionHasOpenTab, useTabs } from "@/context/tabs"
 import { compareSessionTime, displayName, errorMessage, projectForSession } from "@/pages/layout/helpers"
 import { useSessionTabAvatarState } from "@/pages/layout/project-avatar-state"
-import { pathKey } from "@/utils/path-key"
+import { pathKey, samePath } from "@/utils/path-key"
+import { Persist, persisted } from "@/utils/persist"
 import { showToast } from "@/utils/toast"
 import { Binary } from "@opencode-ai/core/util/binary"
+import { notifySessionTabsRemoved } from "@/components/titlebar-session-events"
 import { archiveHomeSession } from "../home-session-archive"
 import type { HomeController } from "./home-controller"
 
@@ -31,7 +33,7 @@ export type HomeSessionRecord = {
 }
 
 export type HomeSessionGroup = {
-  id: "today" | "yesterday" | "older"
+  id: string
   title: string
   sessions: HomeSessionRecord[]
 }
@@ -43,11 +45,7 @@ export function createHomeSessionsController(home: HomeController) {
   const command = useCommand()
   const dialog = useDialog()
   const language = useLanguage()
-  const projectDirectories = createMemo(() => {
-    const project = home.project.selected()
-    if (!project) return home.project.list().flatMap(directories)
-    return directories(project)
-  })
+  const projectDirectories = createMemo(() => home.project.list().flatMap(directories))
   const projectByID = createMemo(
     () => new Map(home.project.list().flatMap((project) => (project.id ? [[project.id, project] as const] : []))),
   )
@@ -56,6 +54,7 @@ export function createHomeSessionsController(home: HomeController) {
     queryKey: homeSessions().eventsKey,
     queryFn: async (): Promise<HomeSessionEvents> => ({ sequence: 0, entries: [] }),
     initialData: { sequence: 0, entries: [] } satisfies HomeSessionEvents,
+    staleTime: Infinity,
     enabled: false,
   }))
   const sessionLoad = useQuery(() => ({
@@ -66,22 +65,39 @@ export function createHomeSessionsController(home: HomeController) {
       if (!ctx) return { sessions: [], eventSequence: 0 }
       const cache = homeSessions()
       const eventSequence = cache.eventSequence()
-      const index = await loadHomeSessionIndex(
-        (input, options) => ctx.sdk.client.v2.session.list(input, options),
-        eventSequence,
-        signal,
-      )
+      const fetched =
+        (await ctx.sdk.protocol) === "v1"
+          ? await loadHomeSessionIndexV1(
+              (input, options) => ctx.sdk.client.experimental.session.list(input, options),
+              eventSequence,
+              signal,
+            )
+          : await loadHomeSessionIndex(
+              (input, options) => ctx.sdk.client.v2.session.list(input, options),
+              eventSequence,
+              signal,
+            )
       cache.complete(eventSequence)
-      return index
+      return {
+        sessions: mergeHomeSessions(fetched.sessions, cache.sessions(fetched, sessionEventLoad.data)),
+        eventSequence: fetched.eventSequence,
+      }
     },
     retry: false,
-    staleTime: 30_000,
-    refetchOnMount: true,
+    staleTime: Infinity,
+    refetchOnMount: false,
     refetchOnReconnect: true,
   }))
+  const localSessions = createMemo(() => {
+    const sync = home.server.focusedSync()
+    return projectDirectories().flatMap((directory) => {
+      const [store] = sync.child(directory, { bootstrap: false })
+      return store.session.filter((session) => !session.parentID && typeof session.time?.archived !== "number")
+    })
+  })
   const indexedSessions = createMemo(() =>
     retainHomeSessions(
-      homeSessions().sessions(sessionLoad.data, sessionEventLoad.data),
+      mergeHomeSessions(homeSessions().sessions(sessionLoad.data, sessionEventLoad.data), localSessions()),
       HOME_SESSION_LIMIT,
       Date.now(),
     ),
@@ -95,7 +111,9 @@ export function createHomeSessionsController(home: HomeController) {
     }),
   )
   const records = createMemo(() => allRecords().slice(0, HOME_SESSION_LIMIT))
-  const groups = createMemo(() => groupSessions(records(), language))
+  const [pins, setPins] = persisted(Persist.global("home.session.pins", ["home.session.pins.v1"]), createStore({ ids: [] as string[] }))
+  const pinned = createMemo(() => new Set(pins.ids))
+  const groups = createMemo(() => groupSessions(records(), pinned(), language))
   const prefetched = new Set<string>()
 
   createEffect(() => {
@@ -174,19 +192,18 @@ export function createHomeSessionsController(home: HomeController) {
       searchRecords: allRecords,
     },
     session: {
-      showProjectName: () => !home.project.selected(),
+      showProjectName: () => true,
       server: () => home.selection.value().server,
       canCreate: () => !!home.project.newSession(),
       create: home.project.openNewSession,
       open: (session: Session, options?: OpenSessionOptions) => {
-        const directoryKey = pathKey(session.directory)
         const project =
           home.project
             .list()
             .find(
               (item) =>
-                pathKey(item.worktree) === directoryKey ||
-                item.sandboxes?.some((sandbox) => pathKey(sandbox) === directoryKey),
+                samePath(item.worktree, session.directory) ||
+                item.sandboxes?.some((sandbox) => samePath(sandbox, session.directory)),
             ) ?? projectForSession(session, home.project.list(), projectByID())
         const conn = home.server.focused()
         if (!conn) return
@@ -235,6 +252,41 @@ export function createHomeSessionsController(home: HomeController) {
             }),
         })
       },
+      pinned: (session: Session) => pinned().has(session.id),
+      togglePin: (session: Session) => {
+        if (pins.ids.includes(session.id)) {
+          setPins("ids", pins.ids.filter((id) => id !== session.id))
+          return
+        }
+        setPins("ids", [session.id, ...pins.ids])
+      },
+      remove: async (session: Session) => {
+        const conn = home.server.focused()
+        const ctx = home.server.focusedContext()
+        if (!conn || !ctx) return
+        const [, setStore] = ctx.sync.child(session.directory)
+        try {
+          await ctx.sdk.api.session.remove({ sessionID: session.id, directory: session.directory })
+          setStore(
+            produce((draft) => {
+              const match = Binary.search(draft.session, session.id, (item) => item.id)
+              if (match.found) draft.session.splice(match.index, 1)
+            }),
+          )
+          homeSessions().remove(session.id)
+          if (pins.ids.includes(session.id)) setPins("ids", pins.ids.filter((id) => id !== session.id))
+          notifySessionTabsRemoved({
+            server: ServerConnection.key(conn),
+            directory: session.directory,
+            sessionIDs: [session.id],
+          })
+        } catch (cause) {
+          showToast({
+            title: language.t("session.delete.failed.title"),
+            description: errorMessage(cause, language.t("common.requestFailed")),
+          })
+        }
+      },
     },
     tab: {
       isOpen: (record: HomeSessionRecord) =>
@@ -247,24 +299,43 @@ function directories(project: LocalProject) {
   return [project.worktree, ...(project.sandboxes ?? [])]
 }
 
+function mergeHomeSessions(indexed: Session[], local: Session[]) {
+  const byID = new Map<string, Session>()
+  for (const session of indexed) {
+    if (session?.id) byID.set(session.id, session)
+  }
+  for (const session of local) {
+    if (!session?.id) continue
+    const current = byID.get(session.id)
+    if (
+      !current ||
+      (session.time.updated ?? session.time.created) >= (current.time.updated ?? current.time.created)
+    ) {
+      byID.set(session.id, session)
+    }
+  }
+  return [...byID.values()]
+}
+
 function buildHomeSessionRecords(input: {
   sessions: () => Session[]
   projectDirectories: () => string[]
   projects: () => LocalProject[]
   projectByID: () => Map<string, LocalProject>
 }) {
-  const directories = new Set(input.projectDirectories().map(pathKey))
-  const sessions = input.sessions().filter((session) => directories.has(pathKey(session.directory)))
+  const sessions = input.sessions().filter((session) =>
+    input.projectDirectories().some((directory) => samePath(session.directory, directory)),
+  )
   return [...new Map(sessions.map((session) => [session.id, session] as const)).values()]
     .sort(compareSessionTime)
     .flatMap((session) => {
-      const directory = pathKey(session.directory)
       const project =
         input
           .projects()
           .find(
             (item) =>
-              pathKey(item.worktree) === directory || item.sandboxes?.some((sandbox) => pathKey(sandbox) === directory),
+              samePath(item.worktree, session.directory) ||
+              item.sandboxes?.some((sandbox) => samePath(sandbox, session.directory)),
           ) ?? projectForSession(session, input.projects(), input.projectByID())
       if (!project) return []
       return { session, project, projectName: displayName(project) }
@@ -275,28 +346,33 @@ export function homeSessionSearchKey(record: HomeSessionRecord) {
   return `${pathKey(record.session.directory)}:${record.session.id}`
 }
 
-function groupSessions(records: HomeSessionRecord[], language: ReturnType<typeof useLanguage>): HomeSessionGroup[] {
-  const now = DateTime.local()
-  const yesterday = now.minus({ days: 1 })
-  const todaySessions = records.filter((record) =>
-    DateTime.fromMillis(record.session.time.updated ?? record.session.time.created).hasSame(now, "day"),
-  )
-  const yesterdaySessions = records.filter((record) =>
-    DateTime.fromMillis(record.session.time.updated ?? record.session.time.created).hasSame(yesterday, "day"),
-  )
-  const olderSessions = records.filter((record) => {
-    const time = DateTime.fromMillis(record.session.time.updated ?? record.session.time.created)
-    return !time.hasSame(now, "day") && !time.hasSame(yesterday, "day")
+function groupSessions(
+  records: HomeSessionRecord[],
+  pinned: Set<string>,
+  language: ReturnType<typeof useLanguage>,
+): HomeSessionGroup[] {
+  const pinnedSessions = records.filter((record) => pinned.has(record.session.id))
+  const rest = records.filter((record) => !pinned.has(record.session.id))
+  const byProject = new Map<string, HomeSessionRecord[]>()
+  for (const record of rest) {
+    const key = pathKey(record.project.worktree)
+    const list = byProject.get(key)
+    if (list) list.push(record)
+    else byProject.set(key, [record])
+  }
+  const groups = [...byProject.entries()].map(([id, sessions]) => ({
+    id,
+    title: sessions[0]?.projectName ?? language.t("sidebar.project.recentSessions"),
+    sessions,
+  }))
+  groups.sort((a, b) => {
+    const left = a.sessions[0]?.session
+    const right = b.sessions[0]?.session
+    if (!left || !right) return a.title.localeCompare(b.title)
+    return compareSessionTime(left, right)
   })
-  const olderTitle =
-    todaySessions.length === 0 && yesterdaySessions.length === 0
-      ? language.t("sidebar.project.recentSessions")
-      : language.t("home.sessions.group.older")
-  return [
-    { id: "today" as const, title: language.t("home.sessions.group.today"), sessions: todaySessions },
-    { id: "yesterday" as const, title: language.t("home.sessions.group.yesterday"), sessions: yesterdaySessions },
-    { id: "older" as const, title: olderTitle, sessions: olderSessions },
-  ].filter((group) => group.sessions.length > 0)
+  if (pinnedSessions.length === 0) return groups
+  return [{ id: "pinned", title: language.t("common.pin"), sessions: pinnedSessions }, ...groups]
 }
 
 export type HomeSessionsController = ReturnType<typeof createHomeSessionsController>

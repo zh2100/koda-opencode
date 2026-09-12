@@ -39,18 +39,21 @@ async function rootCommit(dir: string) {
 }
 
 describe("ProjectV2.resolve", () => {
-  it.live("returns global for non-git directory", () =>
+  it.live("returns a path identity for non-git directory", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(
         Effect.promise(() => tmpdir()),
         (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
       )
       const project = yield* ProjectV2.Service
+      const directory = abs(tmp.path)
+      const normalized =
+        process.platform === "win32" ? directory.replace(/\\/g, "/").toLowerCase() : directory.replace(/\\/g, "/")
 
-      const result = yield* project.resolve(abs(tmp.path))
+      const result = yield* project.resolve(directory)
 
-      expect(result.id).toBe(ProjectV2.ID.make("global"))
-      expect(path.resolve(result.directory)).toBe(path.parse(tmp.path).root)
+      expect(result.id).toBe(ProjectV2.ID.make(Hash.fast(`path:${normalized}`)))
+      expect(result.directory).toBe(directory)
       expect(result.previous).toBeUndefined()
       expect(result.vcs).toBeUndefined()
     }),

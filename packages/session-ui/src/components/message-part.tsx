@@ -1595,7 +1595,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                   onOpenChange={props.onToolOpenChange ? handleToolOpenChange : undefined}
                   subtitle={taskSubtitle()}
                   href={taskHref()}
-                  onSubtitleClick={(event) => {
+                   onSubtitleClick={(event) => {
                     if (!data.navigateToSession) return
                     if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
                     const id = taskId()
@@ -1603,6 +1603,11 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                     event.preventDefault()
                     data.navigateToSession(id)
                   }}
+                  onRetry={
+                    part().tool === "task" && taskId() && data.retrySession
+                      ? () => data.retrySession?.(taskId()!)
+                      : undefined
+                  }
                 />
               )
             }}
@@ -1999,6 +2004,12 @@ ToolRegistry.register({
       return value
     })
     const running = createMemo(() => props.status === "pending" || props.status === "running")
+    const failed = createMemo(() => props.status === "error")
+    const waiting = createMemo(() => {
+      const id = childSessionId()
+      if (!id || failed()) return false
+      return (data.store.permission?.[id]?.length ?? 0) > 0
+    })
 
     const href = createMemo(() => sessionLink(childSessionId(), data.sessionHref))
     const clickable = createMemo(() => !!(childSessionId() && (data.navigateToSession || href())))
@@ -2055,9 +2066,31 @@ ToolRegistry.register({
               <Show when={subtitle()}>
                 <span data-slot="basic-tool-tool-subtitle">{subtitle()}</span>
               </Show>
+              <Show when={waiting()}>
+                <span data-slot="basic-tool-tool-subtitle">{i18n.t("ui.tool.task.waiting")}</span>
+              </Show>
+              <Show when={failed()}>
+                <span data-slot="basic-tool-tool-subtitle">{i18n.t("ui.tool.task.failed")}</span>
+              </Show>
             </div>
           </div>
         </div>
+        <Show when={failed() && childSessionId() && data.retrySession}>
+          <button
+            type="button"
+            data-component="task-tool-action"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              const id = childSessionId()
+              if (!id) return
+              data.retrySession?.(id)
+            }}
+            aria-label={i18n.t("ui.tool.task.retry")}
+          >
+            {i18n.t("ui.tool.task.retry")}
+          </button>
+        </Show>
         <Show when={clickable()}>
           <div data-component="task-tool-action">
             <Icon name="square-arrow-top-right" size="small" />

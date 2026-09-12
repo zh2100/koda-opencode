@@ -4,6 +4,7 @@ import { trimSessions } from "./session-trim"
 import { pathKey } from "@/utils/path-key"
 
 export const HOME_V2_SESSION_PAGE_LIMIT = 5_000
+export const HOME_V1_SESSION_PAGE_LIMIT = 5_000
 
 export type HomeSessionEvent = {
   type: "session.created" | "session.updated" | "session.deleted"
@@ -51,6 +52,38 @@ export async function loadHomeSessionIndex(
   }
 }
 
+export async function loadHomeSessionIndexV1(
+  list: (
+    input: { roots: true; archived: false; limit: number; cursor?: number },
+    options: { signal?: AbortSignal },
+  ) => Promise<{ data?: Session[] }>,
+  eventSequence = 0,
+  signal?: AbortSignal,
+) {
+  const data: Session[] = []
+  let cursor: number | undefined
+
+  for (;;) {
+    const page = (
+      await list(
+        {
+          roots: true,
+          archived: false,
+          limit: HOME_V1_SESSION_PAGE_LIMIT,
+          ...(cursor !== undefined ? { cursor } : {}),
+        },
+        { signal },
+      )
+    ).data ?? []
+    data.push(...page)
+    const next = page[page.length - 1]?.time.updated
+    if (page.length < HOME_V1_SESSION_PAGE_LIMIT || next === undefined || next === cursor) {
+      return { sessions: parseHomeSessionIndexV1(data), eventSequence }
+    }
+    cursor = next
+  }
+}
+
 export function appendHomeSessionEvent(current: HomeSessionEvents | undefined, event: HomeSessionEvent) {
   const sequence = (current?.sequence ?? 0) + 1
   return {
@@ -67,10 +100,11 @@ export function trimHomeSessionEvents(current: HomeSessionEvents | undefined, se
 }
 
 export function homeSessionIndexSessions(index: HomeSessionIndex | undefined, events: HomeSessionEvents | undefined) {
-  if (!index) return []
+  const sessions = index?.sessions ?? []
+  const baseline = index?.eventSequence ?? 0
   return (events?.entries ?? [])
-    .filter((entry) => entry.sequence > index.eventSequence)
-    .reduce((sessions, entry) => applyHomeSessionEvent(sessions, entry.event), index.sessions)
+    .filter((entry) => entry.sequence > baseline)
+    .reduce((current, entry) => applyHomeSessionEvent(current, entry.event), sessions)
 }
 
 export function homeSessionIndexRefresh(event: Event["type"], connected: boolean) {
@@ -102,20 +136,18 @@ export function createHomeSessionIndexCache(queryClient: QueryClient, server: st
       return removed.size === 0 ? sessions : sessions.filter((session) => !removed.has(session.id))
     },
     apply(event: HomeSessionEvent) {
-      if (!queryClient.getQueryState(indexKey)) return
       const next = appendHomeSessionEvent(queryClient.getQueryData<HomeSessionEvents>(eventsKey), event)
-      if (queryClient.isFetching({ queryKey: indexKey, exact: true }) > 0) {
-        queryClient.setQueryData(eventsKey, next)
-        return
-      }
+      queryClient.setQueryData(eventsKey, next)
+      if (queryClient.isFetching({ queryKey: indexKey, exact: true }) > 0) return
 
-      const index = queryClient.getQueryData<HomeSessionIndex>(indexKey)
-      if (index) {
-        queryClient.setQueryData<HomeSessionIndex>(indexKey, {
-          sessions: homeSessionIndexSessions(index, next),
-          eventSequence: next.sequence,
-        })
+      const index = queryClient.getQueryData<HomeSessionIndex>(indexKey) ?? {
+        sessions: [],
+        eventSequence: 0,
       }
+      queryClient.setQueryData<HomeSessionIndex>(indexKey, {
+        sessions: homeSessionIndexSessions(index, next),
+        eventSequence: next.sequence,
+      })
       queryClient.setQueryData<HomeSessionEvents>(eventsKey, { sequence: next.sequence, entries: [] })
     },
     remove(sessionID: string) {
@@ -147,6 +179,10 @@ export function parseHomeSessionIndex(sessions: SessionV2Info[]): Session[] {
     if (item.parentID || typeof item.time.archived === "number") return []
     return [toLegacySummary(item)]
   })
+}
+
+export function parseHomeSessionIndexV1(sessions: Session[]): Session[] {
+  return sessions.filter((item) => !item.parentID && typeof item.time.archived !== "number")
 }
 
 export function retainHomeSessions(sessions: Session[], limit: number, now: number) {

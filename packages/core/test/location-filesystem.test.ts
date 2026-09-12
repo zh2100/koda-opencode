@@ -56,6 +56,14 @@ describe("FileSystem", () => {
     ),
   )
 
+  it.live("lists missing directories as empty", () => {
+    const directory = path.join(process.cwd(), `opencode-missing-${Math.random().toString(16).slice(2)}`)
+    return Effect.gen(function* () {
+      const entries = yield* (yield* FileSystem.Service).list()
+      expect(entries).toEqual([])
+    }).pipe(provide(directory))
+  })
+
   it.live("rejects lexical escapes", () =>
     withTmp((directory) =>
       Effect.gen(function* () {

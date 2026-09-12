@@ -15,6 +15,7 @@ import { type LocalProject } from "@/context/layout"
 export const SidebarContent = (props: {
   mobile?: boolean
   opened: Accessor<boolean>
+  railClass?: string
   aimMove: (event: MouseEvent) => void
   projects: Accessor<LocalProject[]>
   renderProject: (project: LocalProject) => JSX.Element
@@ -50,7 +51,7 @@ export const SidebarContent = (props: {
     <div class="flex h-full w-full min-w-0 overflow-hidden">
       <div
         data-component="sidebar-rail"
-        class="w-16 shrink-0 bg-background-base flex flex-col items-center overflow-hidden"
+        class={`shrink-0 bg-background-base flex flex-col items-center overflow-hidden ${props.railClass ?? "w-16"}`}
         onMouseMove={props.aimMove}
       >
         <div class="flex-1 min-h-0 w-full">

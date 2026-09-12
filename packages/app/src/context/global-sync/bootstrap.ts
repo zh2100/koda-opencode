@@ -38,7 +38,7 @@ import {
   normalizeProviderList,
 } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
-import { QueryClient, queryOptions } from "@tanstack/solid-query"
+import { CancelledError, QueryClient, queryOptions } from "@tanstack/solid-query"
 import { loadMcpQuery, loadMcpResourcesQuery } from "../server-sync"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import { ScopedKey, type ServerScope } from "@/utils/server-scope"
@@ -75,8 +75,18 @@ function waitForPaint() {
   })
 }
 
+function isQueryCancelled(error: unknown) {
+  if (error instanceof CancelledError) return true
+  if (error === null || typeof error !== "object") return false
+  const name = "name" in error ? error.name : undefined
+  return name === "CancelledError" || name === "AbortError"
+}
+
 function errors(list: PromiseSettledResult<unknown>[]) {
-  return list.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => item.reason)
+  return list
+    .filter((item): item is PromiseRejectedResult => item.status === "rejected")
+    .map((item) => item.reason)
+    .filter((reason) => !isQueryCancelled(reason))
 }
 
 const providerRev = new Map<string, number>()
@@ -377,12 +387,13 @@ export async function bootstrapDirectory(input: {
       () =>
         input.queryClient
           .ensureQueryData(loadAgentsQuery(input.scope, input.directory, input.api.agent, input.sdk, input.protocol))
-          .then((data) => input.setStore("agent", data)),
+          .then((data) => input.setStore("agent", data))
+          .catch(() => undefined),
       () =>
         retry(async () => {
           if ((await input.protocol) !== "v1") return
           return input.sdk.config.get().then((x) => input.setStore("config", reconcile(x.data!, { merge: false })))
-        }),
+        }).catch(() => undefined),
       () =>
         retry(() =>
           (async () => {
@@ -409,12 +420,12 @@ export async function bootstrapDirectory(input: {
               Object.keys(statuses).map((sessionID) => input.session!.resolve(sessionID).catch(() => undefined)),
             )
           })(),
-        ),
+        ).catch(() => undefined),
       !seededProject &&
         (() =>
-          retry(() => input.api.project.current({ location: { directory: input.directory } })).then((project) =>
-            input.setStore("project", project.id),
-          )),
+          retry(() => input.api.project.current({ location: { directory: input.directory } }))
+            .then((project) => input.setStore("project", project.id))
+            .catch(() => undefined)),
       !seededPath &&
         (() =>
           input.queryClient
@@ -422,7 +433,8 @@ export async function bootstrapDirectory(input: {
             .then((data) => {
               const next = projectID(data.directory ?? input.directory, input.global.project)
               if (next) input.setStore("project", next)
-            })),
+            })
+            .catch(() => undefined)),
       () =>
         retry(async () => {
           if ((await input.protocol) !== "v1") return
@@ -431,12 +443,12 @@ export async function bootstrapDirectory(input: {
             input.setStore("vcs", next)
             if (next) input.vcsCache.setStore("value", next)
           })
-        }),
+        }).catch(() => undefined),
       input.mcp &&
         (() =>
-          loadCommands(input.directory, input.api.command, input.sdk, input.protocol).then((commands) =>
-            input.setStore("command", commands),
-          )),
+          loadCommands(input.directory, input.api.command, input.sdk, input.protocol)
+            .then((commands) => input.setStore("command", commands))
+            .catch(() => undefined)),
       () =>
         input.queryClient.fetchQuery(
           loadReferencesQuery(input.scope, input.directory, input.api.reference, input.sdk, input.protocol),
@@ -476,7 +488,7 @@ export async function bootstrapDirectory(input: {
               }),
             )
           }),
-        ),
+        ).catch(() => undefined),
       () =>
         retry(() =>
           (async () => {
@@ -512,22 +524,23 @@ export async function bootstrapDirectory(input: {
               }),
             )
           }),
-        ),
+        ).catch(() => undefined),
       () => Promise.resolve(input.loadSessions(input.directory)),
       input.mcp &&
         (() =>
-          input.queryClient.fetchQuery(
-            loadMcpQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol),
-          )),
+          input.queryClient
+            .fetchQuery(loadMcpQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol))
+            .catch(() => undefined)),
       input.mcp &&
         (() =>
-          input.queryClient.fetchQuery(
-            loadMcpResourcesQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol),
-          )),
+          input.queryClient
+            .fetchQuery(loadMcpResourcesQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol))
+            .catch(() => undefined)),
       () =>
         input.queryClient
           .fetchQuery(loadProvidersQuery(input.scope, input.directory, input.api, input.sdk, input.protocol))
           .catch((err) => {
+            if (isQueryCancelled(err)) return
             const project = getFilename(input.directory)
             showToast({
               variant: "error",
@@ -541,14 +554,16 @@ export async function bootstrapDirectory(input: {
     const slowErrs = errors(await runAll(slow))
     if (slowErrs.length > 0) {
       console.error("Failed to finish bootstrap instance", slowErrs[0])
-      const project = getFilename(input.directory)
-      showToast({
-        variant: "error",
-        title: input.translate("toast.project.reloadFailed.title", { project }),
-        description: formatServerError(slowErrs[0], input.translate),
-      })
+      if (!input.store.project) {
+        const project = getFilename(input.directory)
+        showToast({
+          variant: "error",
+          title: input.translate("toast.project.reloadFailed.title", { project }),
+          description: formatServerError(slowErrs[0], input.translate),
+        })
+      }
     }
 
-    if (loading && slowErrs.length === 0) input.setStore("status", "complete")
+    if (loading) input.setStore("status", "complete")
   })()
 }

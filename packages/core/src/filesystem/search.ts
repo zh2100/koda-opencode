@@ -32,20 +32,28 @@ export const ripgrepLayer = Layer.effect(
       directories: [] as string[],
     }
     const directories = new Set<string>()
+    const index = (entries: readonly { path: string }[]) => {
+      for (const entry of entries) {
+        if (state.files.includes(entry.path)) continue
+        state.files.push(entry.path)
+        const parts = entry.path.split("/")
+        parts.slice(0, -1).forEach((_, i) => directories.add(parts.slice(0, i + 1).join("/") + path.sep))
+      }
+      state.directories = Array.from(directories)
+    }
     yield* ripgrep
       .find({
         cwd: location.directory,
         pattern: "*",
         limit: location.vcs ? Number.MAX_SAFE_INTEGER : 100_000,
-        onEntry: (entry) =>
-          Effect.sync(() => {
-            state.files.push(entry.path)
-            const parts = entry.path.split("/")
-            parts.slice(0, -1).forEach((_, index) => directories.add(parts.slice(0, index + 1).join("/") + path.sep))
-            state.directories = Array.from(directories)
-          }),
+        onEntry: (entry) => Effect.sync(() => index([entry])),
       })
-      .pipe(Effect.orDie, Effect.asVoid, Effect.forkIn(scope))
+      .pipe(
+        Effect.tap((entries) => Effect.sync(() => index(entries))),
+        Effect.tapError((error) => Effect.logWarning("file search index failed", { error })),
+        Effect.catch(() => Effect.void),
+        Effect.forkIn(scope),
+      )
     return Service.of({
       glob: (input) =>
         Effect.gen(function* () {
@@ -100,6 +108,16 @@ export const ripgrepLayer = Layer.effect(
         }),
       find: (input) =>
         Effect.gen(function* () {
+          if (state.files.length === 0) {
+            const live = yield* ripgrep
+              .find({
+                cwd: location.directory,
+                pattern: "*",
+                limit: location.vcs ? Number.MAX_SAFE_INTEGER : 100_000,
+              })
+              .pipe(Effect.orDie)
+            index(live)
+          }
           const items =
             input.type === "file"
               ? state.files

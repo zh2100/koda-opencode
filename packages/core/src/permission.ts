@@ -130,7 +130,7 @@ const layer = Layer.effect(
 
     const savedRules = EffectRuntime.fnUntraced(function* () {
       return (yield* saved.list({ projectID: location.project.id })).map(
-        (item): Permission.Rule => ({ action: item.action, resource: item.resource, effect: "allow" }),
+        (item): Permission.Rule => ({ action: item.action, resource: item.resource, effect: item.effect }),
       )
     })
 

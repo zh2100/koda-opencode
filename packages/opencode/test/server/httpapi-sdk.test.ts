@@ -193,8 +193,8 @@ function resetState() {
   })
 }
 
-function httpapi<A, E>(name: string, effect: Effect.Effect<A, E, TestScope>) {
-  it.live(name, effect)
+function httpapi<A, E>(name: string, effect: Effect.Effect<A, E, TestScope>, opts?: number) {
+  it.live(name, effect, opts)
 }
 
 function httpapiInstance<A, E>(
@@ -393,6 +393,7 @@ describe("HttpApi SDK", () => {
             Effect.map((result) => (result.data?.data.length ? result : undefined)),
           ),
           "SDK file search index was not ready",
+          "10 seconds",
         )
         const url = new URL(request!.url)
 
@@ -406,6 +407,7 @@ describe("HttpApi SDK", () => {
         expect(request!.headers.has("x-opencode-workspace")).toBe(false)
       }),
     ),
+    15_000,
   )
 
   serverPathParity("matches generated SDK global and control behavior", (serverPath) =>

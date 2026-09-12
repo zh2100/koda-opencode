@@ -14,6 +14,7 @@ import { type ContextItem, type ImageAttachmentPart, type Prompt, type usePrompt
 import { useSDK, type DirectorySDK } from "@/context/sdk"
 import { useSync, type DirectorySync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
+import { pathKey } from "@/utils/path-key"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
@@ -339,6 +340,19 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const currentModel = modelSelection.current()
     const currentAgent = local.agent.current()
     const variant = modelSelection.variant.current()
+    const directory = sdk().directory
+    const registered = layout.projects.list().some(
+      (project) =>
+        pathKey(project.worktree) === pathKey(directory) ||
+        project.sandboxes?.some((sandbox) => pathKey(sandbox) === pathKey(directory)),
+    )
+    if (!registered) {
+      showToast({
+        title: language.t("prompt.toast.projectRequired.title"),
+        description: language.t("prompt.toast.projectRequired.description"),
+      })
+      return
+    }
     if (!currentModel || !currentAgent) {
       showToast({
         title: language.t("prompt.toast.modelAgentRequired.title"),

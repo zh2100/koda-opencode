@@ -6,10 +6,23 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath, RelativePath } from "@opencode-ai/core/schema"
 import { Effect, Layer, Option } from "effect"
+import fuzzysort from "fuzzysort"
 import ignore from "ignore"
 import path from "path"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
+
+function isIgnored(
+  ignored: { ignores: (path: string) => boolean },
+  projectDirectory: string,
+  directory: string,
+  itemPath: string,
+  dir: boolean,
+) {
+  const relative = path.relative(projectDirectory, path.resolve(directory, itemPath)).replaceAll("\\", "/")
+  if (!relative || relative === "." || path.isAbsolute(relative) || relative.startsWith("../")) return false
+  return ignored.ignores(relative + (dir ? "/" : ""))
+}
 
 export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handlers) =>
   Effect.gen(function* () {
@@ -47,7 +60,22 @@ export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handl
       const limit = ctx.query.limit ?? 10
       const type = ctx.query.type ?? (ctx.query.dirs === "false" ? "file" : undefined)
       const started = performance.now()
-      const found = yield* filesystem(FileSystem.Service.use((fs) => fs.find({ query: ctx.query.query, limit, type })))
+      const files = (
+        yield* ripgrep
+          .find({
+            cwd: directory,
+            pattern: "*",
+            limit: 100_000,
+          })
+          .pipe(Effect.orDie)
+      ).map((entry) => entry.path)
+      const dirs = new Set<string>()
+      for (const file of files) {
+        const parts = file.split("/")
+        parts.slice(0, -1).forEach((_, i) => dirs.add(parts.slice(0, i + 1).join("/") + "/"))
+      }
+      const items = type === "file" ? files : type === "directory" ? [...dirs] : [...files, ...dirs]
+      const found = fuzzysort.go(ctx.query.query, items, { limit }).map((item) => item.target)
       yield* Effect.logInfo("find file", {
         query: ctx.query.query,
         type,
@@ -56,7 +84,7 @@ export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handl
         results: found.length,
         duration: Math.round(performance.now() - started),
       })
-      return found.map((item) => item.path)
+      return found
     })
 
     const findSymbol = Effect.fn("FileHttpApi.findSymbol")(function* () {
@@ -84,9 +112,12 @@ export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handl
             path: item.path,
             absolute: path.resolve(location.directory, item.path),
             type: item.type,
-            ignored: ignored.ignores(
-              path.relative(location.project.directory, path.resolve(location.directory, item.path)) +
-                (item.type === "directory" ? "/" : ""),
+            ignored: isIgnored(
+              ignored,
+              location.project.directory,
+              location.directory,
+              item.path,
+              item.type === "directory",
             ),
           }))
         }),

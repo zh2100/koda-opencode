@@ -39,10 +39,9 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
 
     const available = createMemo(() =>
       providers.connected().flatMap((p) =>
-        Object.values(p.models).map((m) => ({
-          ...m,
-          provider: p,
-        })),
+        Object.values(p.models)
+          .filter((m) => m.id !== "grok-4" && !(p.id === "openai" && /^gpt-5\.[23]-codex(?:$|-)/i.test(m.id)))
+          .map((m) => ({ ...m, provider: p })),
       ),
     )
 
@@ -117,6 +116,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       const state = visibility().get(key)
       if (state === "hide") return false
       if (state === "show") return true
+      if (model.providerID === "leidiandonghua") return true
       if (latestSet().has(key)) return true
       const date = release().get(key)
       if (!date?.isValid) return true

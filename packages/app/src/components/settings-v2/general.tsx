@@ -7,7 +7,6 @@ import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
-import { useUpdaterAction } from "../updater-action"
 import { useSettings } from "@/context/settings"
 import { ExternalLink } from "../external-link"
 import { SettingsListV2 } from "./parts/list"
@@ -279,7 +278,6 @@ export const SettingsGeneralV2: Component<{
   const dialog = useDialog()
   const settings = useSettings()
   const mobile = createMediaQuery("(max-width: 767px)")
-  const updater = useUpdaterAction()
   const permissionScope = createPermissionScopeController(() => props.sessionID)
   const shell = createShellSettingsController()
   const appearance = createAppearanceSettingsController()
@@ -486,36 +484,6 @@ export const SettingsGeneralV2: Component<{
     </div>
   )
 
-  const UpdatesSection = () => (
-    <div class="settings-v2-section">
-      <h3 class="settings-v2-section-title">{language.t("settings.general.section.updates")}</h3>
-
-      <SettingsListV2>
-        <SettingsRowV2
-          title={language.t("settings.general.row.releaseNotes.title")}
-          description={language.t("settings.general.row.releaseNotes.description")}
-        >
-          <div data-action="settings-release-notes">
-            <Switch
-              checked={settings.general.releaseNotes()}
-              onChange={(checked) => settings.general.setReleaseNotes(checked)}
-            />
-          </div>
-        </SettingsRowV2>
-
-        <SettingsRowV2
-          title={language.t("settings.updates.row.check.title")}
-          description={language.t("settings.updates.row.check.description")}
-        >
-          <ButtonV2 size="normal" variant="neutral" disabled={!updater.action().run} onClick={() => updater.run()}>
-            {language.t(updater.action().label)}
-          </ButtonV2>
-        </SettingsRowV2>
-      </SettingsListV2>
-    </div>
-  )
-
-  // We can probably remove this, right?
   const DisplaySection = () => (
     <Show when={desktop()}>
       <div class="settings-v2-section">
@@ -558,9 +526,6 @@ export const SettingsGeneralV2: Component<{
 
         <SoundsSection controller={sounds} />
 
-        <Show when={desktop()}>
-          <UpdatesSection />
-        </Show>
 
         <DisplaySection />
 

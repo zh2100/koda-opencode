@@ -356,14 +356,16 @@ export const ShellTool = Tool.define(
     })
 
     const resolvePath = Effect.fn("ShellTool.resolvePath")(function* (text: string, root: string, shell: string) {
-      if (process.platform === "win32") {
-        if (Shell.posix(shell) && text.startsWith("/") && FSUtil.windowsPath(text) === text) {
-          const file = yield* cygpath(shell, text)
-          if (file) return file
-        }
-        return FSUtil.normalizePath(path.resolve(root, FSUtil.windowsPath(text)))
+      if (process.platform !== "win32") return path.resolve(root, text)
+      if (Shell.posix(shell) && text.startsWith("/") && FSUtil.windowsPath(text) === text) {
+        const file = yield* cygpath(shell, text)
+        if (file) return file
       }
-      return path.resolve(root, text)
+      const file = FSUtil.windowsPath(text)
+      // Drive-relative paths (`C:../file`) are cwd-relative. Bun's path.resolve
+      // treats `C:` as a root and turns `C:../x` into `C:\C:\x`.
+      const relative = file.match(/^[A-Za-z]:(?![\\/])(.*)$/)
+      return FSUtil.normalizePath(path.resolve(root, relative ? relative[1] || "." : file))
     })
 
     const argPath = Effect.fn("ShellTool.argPath")(function* (arg: string, cwd: string, ps: boolean, shell: string) {

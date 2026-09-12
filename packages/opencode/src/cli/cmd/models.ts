@@ -1,13 +1,11 @@
 import { EOL } from "os"
 import { Effect } from "effect"
-import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { effectCmd, fail } from "../effect-cmd"
-import { UI } from "../ui"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 
 export const ModelsCommand = effectCmd({
   command: "models [provider]",
-  describe: "list all available models",
+  describe: "list models from user-configured providers",
   builder: (yargs) =>
     yargs
       .positional("provider", {
@@ -18,18 +16,9 @@ export const ModelsCommand = effectCmd({
       .option("verbose", {
         describe: "use more verbose model output (includes metadata like costs)",
         type: "boolean",
-      })
-      .option("refresh", {
-        describe: "refresh the models cache from models.dev",
-        type: "boolean",
       }),
   handler: Effect.fn("Cli.models")(function* (args) {
     const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
-    if (args.refresh) {
-      yield* ModelsDev.Service.use((s) => s.refresh(true))
-      UI.println(UI.Style.TEXT_SUCCESS_BOLD + "Models cache refreshed" + UI.Style.TEXT_NORMAL)
-    }
-
     const provider = yield* Provider.Service
     const providers = yield* provider.list()
 

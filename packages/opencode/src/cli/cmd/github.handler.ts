@@ -17,13 +17,13 @@ import type {
   PullRequestEvent,
 } from "@octokit/webhooks-types"
 import { UI } from "../ui"
-import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { InstanceRef } from "@/effect/instance-ref"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import type { SessionID } from "../../session/schema"
 import { MessageID, PartID } from "../../session/schema"
 import { Provider } from "@/provider/provider"
+import { ProviderV2 } from "@opencode-ai/core/provider"
 import { MessageV2 } from "../../session/message-v2"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -158,7 +158,7 @@ export const githubInstall = Effect.fn("Cli.github.install")(function* () {
   const maybeCtx = yield* InstanceRef
   if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
   const ctx = maybeCtx
-  const modelsDev = yield* ModelsDev.Service
+  const providerSvc = yield* Provider.Service
   const gitSvc = yield* Git.Service
   yield* Effect.promise(async () => {
     {
@@ -167,11 +167,15 @@ export const githubInstall = Effect.fn("Cli.github.install")(function* () {
       const app = await getAppInfo()
       await installGitHubApp()
 
-      const providers = await Effect.runPromise(modelsDev.get()).then((p) => {
-        // TODO: add guide for copilot, for now just hide it
-        delete p["github-copilot"]
-        return p
+      const providers = await Effect.runPromise(providerSvc.list()).then((p) => {
+        const next = { ...p }
+        delete next[ProviderV2.ID.make("github-copilot")]
+        return next
       })
+      if (Object.keys(providers).length === 0) {
+        prompts.log.error("No providers configured. Add a provider in opencode.json first.")
+        throw new UI.CancelledError()
+      }
 
       const provider = await promptProvider()
       const model = await promptModel()

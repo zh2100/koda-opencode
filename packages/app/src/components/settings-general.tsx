@@ -14,7 +14,6 @@ import { usePermission } from "@/context/permission"
 import { usePlatform, type DisplayBackend } from "@/context/platform"
 import { useServerSync } from "@/context/server-sync"
 import { useServerSDK } from "@/context/server-sdk"
-import { useUpdaterAction } from "./updater-action"
 import {
   monoDefault,
   monoFontFamily,
@@ -91,7 +90,6 @@ export const SettingsGeneral: Component = () => {
   const params = useParams()
   const settings = useSettings()
 
-  const updater = useUpdaterAction()
 
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
   const dir = createMemo(() => decode64(params.dir))
@@ -671,35 +669,6 @@ export const SettingsGeneral: Component = () => {
     </div>
   )
 
-  const UpdatesSection = () => (
-    <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.updates")}</h3>
-
-      <SettingsList>
-        <SettingsRow
-          title={language.t("settings.general.row.releaseNotes.title")}
-          description={language.t("settings.general.row.releaseNotes.description")}
-        >
-          <div data-action="settings-release-notes">
-            <Switch
-              checked={settings.general.releaseNotes()}
-              onChange={(checked) => settings.general.setReleaseNotes(checked)}
-            />
-          </div>
-        </SettingsRow>
-
-        <SettingsRow
-          title={language.t("settings.updates.row.check.title")}
-          description={language.t("settings.updates.row.check.description")}
-        >
-          <Button size="small" variant="secondary" disabled={!updater.action().run} onClick={updater.run}>
-            {language.t(updater.action().label)}
-          </Button>
-        </SettingsRow>
-      </SettingsList>
-    </div>
-  )
-
   const DisplaySection = () => (
     <Show when={desktop()}>
       <div class="flex flex-col gap-1">
@@ -764,7 +733,6 @@ export const SettingsGeneral: Component = () => {
 
         <SoundsSection />
 
-        <UpdatesSection />
 
         <DisplaySection />
 

@@ -365,13 +365,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     onMcp: (directory, setStore) => {
       void loadCommands(directory, serverSDK.api.command, sdkFor(directory), serverSDK.protocol)
         .then((commands) => setStore("command", commands))
-        .catch((err) => {
-          showToast({
-            variant: "error",
-            title: language.t("toast.project.reloadFailed.title", { project: getFilename(directory) }),
-            description: formatServerError(err, language.t),
-          })
-        })
+        .catch(() => undefined)
     },
     onDispose: (directory) => {
       const key = directoryKey(directory)
@@ -541,7 +535,8 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
       homeSessions.apply(event)
     }
     homeSessions.refresh(event.type)
-    if (eventType === "integration.connection.updated") void refreshProviders()
+    if (eventType === "integration.connection.updated" || eventType === "catalog.updated" || eventType === "relay.catalog.updated")
+      void refreshProviders()
 
     if (directory === "global") {
       if (eventType === "server.connected" && activeSessionsQuery.data === undefined && !activeSessionsQuery.isFetching)
@@ -591,7 +586,9 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
       event.current?.type === "session.forked" ||
       eventType === "command.updated" ||
       eventType === "config.updated" ||
-      eventType === "agent.updated"
+      eventType === "agent.updated" ||
+      eventType === "catalog.updated" ||
+      eventType === "relay.catalog.updated"
     )
       queue.push(key)
     if (eventType === "mcp.status.changed") void queryClient.invalidateQueries(queryOptionsApi.mcp(key))

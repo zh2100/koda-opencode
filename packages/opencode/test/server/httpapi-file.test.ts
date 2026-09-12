@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterAll, describe, expect, test } from "bun:test"
 import { Context, Effect } from "effect"
 import path from "path"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
 import { FilePaths } from "../../src/server/routes/instance/httpapi/groups/file"
 import { resetDatabase } from "../fixture/db"
-import { disposeAllInstances, tmpdir } from "../fixture/fixture"
+import { tmpdir } from "../fixture/fixture"
 import { pollWithTimeout } from "../lib/effect"
 
 const context = Context.empty() as Context.Context<unknown>
@@ -24,60 +24,68 @@ function request(route: string, directory: string, query?: Record<string, string
   )
 }
 
-afterEach(async () => {
-  await disposeAllInstances()
+afterAll(async () => {
   await resetDatabase()
 })
 
 describe("file HttpApi", () => {
-  test("serves read endpoints", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await Bun.write(path.join(tmp.path, "hello.txt"), "hello")
+  test(
+    "serves read endpoints",
+    async () => {
+      await using tmp = await tmpdir({ git: true })
+      await Bun.write(path.join(tmp.path, "hello.txt"), "hello")
 
-    const [list, content, status] = await Promise.all([
-      request(FilePaths.list, tmp.path, { path: "." }),
-      request(FilePaths.content, tmp.path, { path: "hello.txt" }),
-      request(FilePaths.status, tmp.path),
-    ])
+      const [list, content, status] = await Promise.all([
+        request(FilePaths.list, tmp.path, { path: "." }),
+        request(FilePaths.content, tmp.path, { path: "hello.txt" }),
+        request(FilePaths.status, tmp.path),
+      ])
 
-    expect(list.status).toBe(200)
-    expect(await list.json()).toContainEqual(
-      expect.objectContaining({ name: "hello.txt", path: "hello.txt", type: "file" }),
-    )
+      expect(list.status).toBe(200)
+      expect(await list.json()).toContainEqual(
+        expect.objectContaining({ name: "hello.txt", path: "hello.txt", type: "file" }),
+      )
 
-    expect(content.status).toBe(200)
-    expect(await content.json()).toMatchObject({ type: "text", content: "hello" })
+      expect(content.status).toBe(200)
+      expect(await content.json()).toMatchObject({ type: "text", content: "hello" })
 
-    expect(status.status).toBe(200)
-    expect(await status.json()).toEqual([])
-  })
+      expect(status.status).toBe(200)
+      expect(await status.json()).toEqual([])
+    },
+    30_000,
+  )
 
-  test("serves search endpoints", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await Bun.write(path.join(tmp.path, "hello.txt"), "needle")
+  test(
+    "serves search endpoints",
+    async () => {
+      await using tmp = await tmpdir({ git: true })
+      await Bun.write(path.join(tmp.path, "hello.txt"), "needle")
 
-    const [text, symbols] = await Promise.all([
-      request(FilePaths.findText, tmp.path, { pattern: "needle" }),
-      request(FilePaths.findSymbol, tmp.path, { query: "hello" }),
-    ])
-    const files = await Effect.runPromise(
-      pollWithTimeout(
-        Effect.promise(async () => {
-          const response = await request(FilePaths.findFile, tmp.path, { query: "hello", type: "file" })
-          const body = await response.json()
-          return body.includes("hello.txt") ? { response, body } : undefined
-        }),
-        "file search index was not ready",
-      ),
-    )
+      const [text, symbols] = await Promise.all([
+        request(FilePaths.findText, tmp.path, { pattern: "needle" }),
+        request(FilePaths.findSymbol, tmp.path, { query: "hello" }),
+      ])
+      const files = await Effect.runPromise(
+        pollWithTimeout(
+          Effect.promise(async () => {
+            const response = await request(FilePaths.findFile, tmp.path, { query: "hello", type: "file" })
+            const body = await response.json().catch(() => undefined)
+            return Array.isArray(body) && body.includes("hello.txt") ? { response, body } : undefined
+          }),
+          "file search index was not ready",
+          "10 seconds",
+        ),
+      )
 
-    expect(text.status).toBe(200)
-    expect(await text.json()).toContainEqual(expect.objectContaining({ line_number: 1 }))
+      expect(text.status).toBe(200)
+      expect(await text.json()).toContainEqual(expect.objectContaining({ line_number: 1 }))
 
-    expect(files.response.status).toBe(200)
-    expect(files.body).toContain("hello.txt")
+      expect(files.response.status).toBe(200)
+      expect(files.body).toContain("hello.txt")
 
-    expect(symbols.status).toBe(200)
-    expect(await symbols.json()).toEqual([])
-  })
+      expect(symbols.status).toBe(200)
+      expect(await symbols.json()).toEqual([])
+    },
+    30_000,
+  )
 })

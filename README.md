@@ -1,129 +1,75 @@
-<p align="center">
-  <a href="https://opencode.ai">
-    <picture>
-      <source srcset="packages/console/app/src/asset/logo-ornate-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="packages/console/app/src/asset/logo-ornate-light.svg" media="(prefers-color-scheme: light)">
-      <img src="packages/console/app/src/asset/logo-ornate-light.svg" alt="OpenCode logo">
-    </picture>
-  </a>
-</p>
-<p align="center">The open source AI coding agent.</p>
-<p align="center">
-  <a href="https://opencode.ai/discord"><img alt="Discord" src="https://img.shields.io/discord/1391832426048651334?style=flat-square&label=discord" /></a>
-  <a href="https://www.npmjs.com/package/opencode-ai"><img alt="npm" src="https://img.shields.io/npm/v/opencode-ai?style=flat-square" /></a>
-  <a href="https://github.com/anomalyco/opencode/actions/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/anomalyco/opencode/publish.yml?style=flat-square&branch=dev" /></a>
-</p>
+# Koda Desktop
 
-<p align="center">
-  <a href="README.md">English</a> |
-  <a href="README.zh.md">简体中文</a> |
-  <a href="README.zht.md">繁體中文</a> |
-  <a href="README.ko.md">한국어</a> |
-  <a href="README.de.md">Deutsch</a> |
-  <a href="README.es.md">Español</a> |
-  <a href="README.fr.md">Français</a> |
-  <a href="README.it.md">Italiano</a> |
-  <a href="README.da.md">Dansk</a> |
-  <a href="README.ja.md">日本語</a> |
-  <a href="README.pl.md">Polski</a> |
-  <a href="README.ru.md">Русский</a> |
-  <a href="README.bs.md">Bosanski</a> |
-  <a href="README.ar.md">العربية</a> |
-  <a href="README.no.md">Norsk</a> |
-  <a href="README.br.md">Português (Brasil)</a> |
-  <a href="README.th.md">ไทย</a> |
-  <a href="README.tr.md">Türkçe</a> |
-  <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a> |
-  <a href="README.gr.md">Ελληνικά</a> |
-  <a href="README.vi.md">Tiếng Việt</a>
-</p>
+Koda 是数元AI打造的 AI 编程桌面应用，将项目管理、AI 对话、代码修改和终端工具整合到同一个工作空间，帮助你理解项目、编写代码和排查问题。
 
-[![OpenCode Terminal UI](packages/web/src/assets/lander/screenshot.png)](https://opencode.ai)
+当前版本：**v1.0.0**。
 
----
+[下载安装](https://github.com/zh2100/koda-opencode/releases/tag/Koda) · [GitHub 仓库](https://github.com/zh2100/koda-opencode) · [报告问题](https://github.com/zh2100/koda-opencode/issues/new)
 
-### Installation
+## 主要功能
 
-```bash
-# YOLO
-curl -fsSL https://opencode.ai/install | bash
+- **项目与会话管理**：打开本地项目，按任务组织 AI 对话，继续已有工作。
+- **AI 编程协作**：结合项目上下文进行代码分析、修改和问题排查。
+- **模型与密钥管理**：配置提供商和智联AI密钥，选择账号可用的模型。
+- **开发工具集成**：在工作空间内查看文件、检查修改并使用终端。
+- **扩展能力**：支持配置 MCP 服务与技能，接入更多工具。
 
-# Package managers
-npm i -g opencode-ai@latest        # or bun/pnpm/yarn
-scoop install opencode             # Windows
-choco install opencode             # Windows
-brew install anomalyco/tap/opencode # macOS and Linux (recommended, always up to date)
-brew install opencode              # macOS and Linux (official brew formula, updated less)
-sudo pacman -S opencode            # Arch Linux (Stable)
-paru -S opencode-bin               # Arch Linux (Latest from AUR)
-mise use -g opencode               # Any OS
-nix run nixpkgs#opencode           # or github:anomalyco/opencode for latest dev branch
+## 安装
+
+目前已构建 Windows x64 安装包：`Koda-desktop-win-x64.exe`。
+
+1. 打开[发布页面](https://github.com/zh2100/koda-opencode/releases/tag/Koda)，下载该页面提供的 Windows 安装包。
+2. 运行安装程序，选择安装路径并完成安装。
+3. 启动 Koda，打开本地项目，在设置中配置提供商和模型。
+
+macOS 与 Linux 安装包以发布页面实际提供的文件为准。
+
+## 配置智联AI密钥
+
+进入 **设置 → 提供商 → 智联AI密钥**，填写密钥并勾选需要使用的模型。
+
+点击 **获取密钥** 可打开[密钥管理页面](https://api.leidiandonghua.cn/console/token)。ChatGPT和Grok等需要单独新建密钥。实际可用模型取决于对应密钥的权限和服务端提供的模型。
+
+请勿将密钥提交到 Git 仓库或附在公开的问题报告中。
+
+## 检查更新
+
+在 **帮助 → 检查更新** 中检查 Koda 发布版本。发现新版本时，应用会提示升级，可打开[发布页面](https://github.com/zh2100/koda-opencode/releases/tag/Koda)下载安装包。
+
+## 本地开发与构建
+
+项目使用 Bun 工作区，Bun 版本为 **1.3.14**。在仓库根目录安装依赖：
+
+```powershell
+bun install
 ```
 
-> [!TIP]
-> Remove versions older than 0.1.x before installing.
+启动桌面开发环境：
 
-### Desktop App (BETA)
-
-OpenCode is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/opencode/releases) or [opencode.ai/download](https://opencode.ai/download).
-
-| Platform              | Download                           |
-| --------------------- | ---------------------------------- |
-| macOS (Apple Silicon) | `opencode-desktop-mac-arm64.dmg`   |
-| macOS (Intel)         | `opencode-desktop-mac-x64.dmg`     |
-| Windows               | `opencode-desktop-windows-x64.exe` |
-| Linux                 | `.deb`, `.rpm`, or `.AppImage`     |
-
-```bash
-# macOS (Homebrew)
-brew install --cask opencode-desktop
-# Windows (Scoop)
-scoop bucket add extras; scoop install extras/opencode-desktop
+```powershell
+bun run dev:desktop
 ```
 
-#### Installation Directory
+在 Windows 上构建 v1.0.0 正式版安装包：
 
-The install script respects the following priority order for the installation path:
-
-1. `$OPENCODE_INSTALL_DIR` - Custom installation directory
-2. `$XDG_BIN_DIR` - XDG Base Directory Specification compliant path
-3. `$HOME/bin` - Standard user binary directory (if it exists or can be created)
-4. `$HOME/.opencode/bin` - Default fallback
-
-```bash
-# Examples
-OPENCODE_INSTALL_DIR=/usr/local/bin curl -fsSL https://opencode.ai/install | bash
-XDG_BIN_DIR=$HOME/.local/bin curl -fsSL https://opencode.ai/install | bash
+```powershell
+cd packages/desktop
+$env:OPENCODE_CHANNEL = "prod"
+bun typecheck
+bun run build
+bunx electron-builder --win --x64 --config electron-builder.config.ts --publish never
 ```
 
-### Agents
+安装包输出至 `packages/desktop/dist/Koda-desktop-win-x64.exe`。`prod` 表示正式构建渠道，`dev` 表示开发渠道；构建与打包时需使用同一渠道。
 
-OpenCode includes two built-in agents you can switch between with the `Tab` key.
+测试应在对应包目录执行，不要在仓库根目录运行测试。
 
-- **build** - Default, full-access agent for development work
-- **plan** - Read-only agent for analysis and code exploration
-  - Denies file edits by default
-  - Asks permission before running bash commands
-  - Ideal for exploring unfamiliar codebases or planning changes
+## 反馈与贡献
 
-Also included is a **general** subagent for complex searches and multistep tasks.
-This is used internally and can be invoked using `@general` in messages.
+欢迎通过 [GitHub Issues](https://github.com/zh2100/koda-opencode/issues/new) 报告问题。请提供应用版本、操作系统、复现步骤和必要的错误日志，并移除密钥等敏感信息。
 
-Learn more about [agents](https://opencode.ai/docs/agents).
+## 维护与许可
 
-### Documentation
+维护方：**数元AI**。
 
-For more info on how to configure OpenCode, [**head over to our docs**](https://opencode.ai/docs).
-
-### Contributing
-
-If you're interested in contributing to OpenCode, please read our [contributing docs](./CONTRIBUTING.md) before submitting a pull request.
-
-### Building on OpenCode
-
-If you are working on a project that's related to OpenCode and is using "opencode" as part of its name, for example "opencode-dashboard" or "opencode-mobile", please add a note to your README to clarify that it is not built by the OpenCode team and is not affiliated with us in any way.
-
----
-
-**Join our community** [Discord](https://discord.gg/opencode) | [X.com](https://x.com/opencode)
+本项目遵循 [MIT 许可证](LICENSE)，原有版权及许可声明保留于许可证文件中。

@@ -14,6 +14,7 @@ export const PermissionTable = sqliteTable(
       .references(() => ProjectTable.id, { onDelete: "cascade" }),
     action: text().notNull(),
     resource: text().notNull(),
+    effect: text({ enum: ["allow", "deny", "ask"] }).notNull().default("allow"),
     ...Timestamps,
   },
   (table) => [uniqueIndex("permission_project_action_resource_idx").on(table.project_id, table.action, table.resource)],

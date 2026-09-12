@@ -16,7 +16,7 @@ function hookWithoutAuth(): Hooks {
 }
 
 describe("resolvePluginProviders", () => {
-  test("returns plugin providers not in models.dev", () => {
+  test("returns plugin providers not already configured", () => {
     const result = resolvePluginProviders({
       hooks: [hookWithAuth("portkey")],
       existingProviders: {},
@@ -26,7 +26,21 @@ describe("resolvePluginProviders", () => {
     expect(result).toEqual([{ id: "portkey", name: "portkey" }])
   })
 
-  test("skips providers already in models.dev", () => {
+  test("includes official plugin providers when they are not already configured", () => {
+    const result = resolvePluginProviders({
+      hooks: [hookWithAuth("anthropic"), hookWithAuth("openai"), hookWithAuth("leidiandonghua")],
+      existingProviders: {},
+      disabled: new Set(),
+      providerNames: {},
+    })
+    expect(result).toEqual([
+      { id: "anthropic", name: "anthropic" },
+      { id: "openai", name: "openai" },
+      { id: "leidiandonghua", name: "leidiandonghua" },
+    ])
+  })
+
+  test("skips providers already configured", () => {
     const result = resolvePluginProviders({
       hooks: [hookWithAuth("anthropic")],
       existingProviders: { anthropic: {} },

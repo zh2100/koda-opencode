@@ -27,7 +27,7 @@ import { createSizing, focusTerminalById } from "@/pages/session/helpers"
 import { getTerminalHandoff, setTerminalHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 
-export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
+export function TerminalPanelV2(props: { stacked?: boolean; embedded?: boolean } = {}) {
   const layout = useLayout()
   const terminal = useTerminal()
   const sdk = useSDK()
@@ -38,7 +38,7 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const newLayout = createMemo(() => settings.general.newLayoutDesigns())
-  const opened = createMemo(() => view().terminal.opened())
+  const opened = createMemo(() => props.embedded === true || view().terminal.opened())
   const size = createSizing()
   const height = createMemo(() => layout.terminal.height())
   const close = () => view().terminal.close()
@@ -89,6 +89,10 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
       () => terminal.all().length,
       (count, prevCount) => {
         if (prevCount === undefined || prevCount <= 0 || count !== 0) return
+        if (props.embedded) {
+          setStore("autoCreated", false)
+          return
+        }
         if (!opened()) return
         close()
       },
@@ -172,16 +176,18 @@ export function TerminalPanelV2(props: { stacked?: boolean } = {}) {
       aria-label={language.t("terminal.title")}
       aria-hidden={!opened()}
       inert={!opened()}
-      class="relative shrink-0 overflow-hidden bg-v2-background-bg-base"
       classList={{
-        "w-full": !isDesktop() || stacked(),
+        "relative overflow-hidden bg-v2-background-bg-base": true,
+        "min-h-0 flex-1": props.embedded === true,
+        "shrink-0": props.embedded !== true,
+        "w-full": !isDesktop() || stacked() || props.embedded === true,
         "min-w-0 h-full flex-1": isDesktop() && opened() && !stacked(),
-        "w-0 h-full pointer-events-none": isDesktop() && !opened(),
-        "rounded-[10px] shadow-[var(--v2-elevation-raised)]": isDesktop() && newLayout(),
+        "w-0 h-full pointer-events-none": isDesktop() && !opened() && props.embedded !== true,
+        "rounded-[10px] shadow-[var(--v2-elevation-raised)]": isDesktop() && newLayout() && props.embedded !== true,
         "transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[height] motion-reduce:transition-none":
-          !isDesktop() && !size.active(),
+          !isDesktop() && !size.active() && props.embedded !== true,
       }}
-      style={{ height: panelHeight() }}
+      style={{ height: props.embedded === true ? "100%" : panelHeight() }}
     >
       <div classList={{ "md:hidden": !stacked(), hidden: stacked() }} onPointerDown={() => size.start()}>
         <ResizeHandle

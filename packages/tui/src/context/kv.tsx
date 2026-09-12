@@ -3,7 +3,7 @@ import { createStore, unwrap } from "solid-js/store"
 import { createSimpleContext } from "./helper"
 import { Flock } from "@opencode-ai/core/util/flock"
 import { Global } from "@opencode-ai/core/global"
-import { readJson, writeJsonAtomic } from "../util/persistence"
+import { writeJsonAtomic } from "../util/persistence"
 import { useTuiPaths } from "./runtime"
 import path from "path"
 
@@ -19,7 +19,11 @@ export const { use: useKV, provider: KVProvider } = createSimpleContext({
     // Queue same-process writes so rapid updates persist in order.
     let write = Promise.resolve()
 
-    Flock.withLock(lock, () => readJson<Record<string, unknown>>(file))
+    Flock.withLock(lock, async () => {
+      const data = Bun.file(file)
+      if (!(await data.exists())) return {}
+      return data.json() as Promise<Record<string, unknown>>
+    })
       .then((x) => {
         setStore(x)
       })

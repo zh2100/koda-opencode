@@ -19,11 +19,10 @@ export function createHomeSessionSearchController(home: HomeController, sessions
   let list: HTMLDivElement | undefined
   const query = createMemo(() => state.value.trim())
   const results = createMemo(() => {
+    const records = sessions.data.searchRecords()
     const value = query().toLowerCase()
-    if (!value) return []
-    return sessions.data
-      .searchRecords()
-      .filter((record) => `${record.session.title} ${record.projectName}`.toLowerCase().includes(value))
+    if (!value) return records
+    return records.filter((record) => `${record.session.title} ${record.projectName}`.toLowerCase().includes(value))
   })
   const active = createMemo(() => {
     const records = results()
@@ -61,8 +60,8 @@ export function createHomeSessionSearchController(home: HomeController, sessions
   ])
 
   function focus() {
-    input?.focus()
     setState("focused", true)
+    queueMicrotask(() => input?.focus())
   }
 
   function close() {
@@ -79,6 +78,7 @@ export function createHomeSessionSearchController(home: HomeController, sessions
       value: () => state.value,
       placeholder,
       open,
+      focused: () => state.focused,
       focus,
       input: (value: string) => setState({ value, highlighted: "" }),
       close,

@@ -90,9 +90,20 @@ export function createHomeProjectsController(home: HomeController) {
         if (home.server.health(conn)?.healthy === false) return
         pickDirectory({
           server: conn,
-          title: language.t("command.project.open"),
+          title: language.t("command.project.openExisting"),
           multiple: true,
           onSelect: (result) => home.project.add(conn, homeProjectDirectories(result)),
+        })
+      },
+      create: (conn: ServerConnection.Any) => {
+        if (home.server.health(conn)?.healthy === false) return
+        void import("@/components/dialog-create-project").then(({ DialogCreateProject }) => {
+          dialog.show(() => (
+            <DialogCreateProject
+              server={conn}
+              onCreated={(directory) => home.project.add(conn, [directory])}
+            />
+          ))
         })
       },
       close: (conn: ServerConnection.Any, directory: string) => {

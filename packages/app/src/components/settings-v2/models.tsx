@@ -9,7 +9,6 @@ import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
 import { useServerSDK } from "@/context/server-sdk"
-import { popularProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
@@ -31,23 +30,10 @@ export const SettingsModelsV2: Component = () => {
   const list = useFilteredList<ModelItem>({
     items: (_filter) => models.list(),
     key: (x) => `${x.provider.id}:${x.id}`,
-    filterKeys: ["provider.name", "name", "id"],
+    filterKeys: ["provider.name", "name", "id", "family"],
     sortBy: (a, b) => a.name.localeCompare(b.name),
-    groupBy: (x) => x.provider.id,
-    sortGroupsBy: (a, b) => {
-      const aIndex = popularProviders.indexOf(a.category)
-      const bIndex = popularProviders.indexOf(b.category)
-      const aPopular = aIndex >= 0
-      const bPopular = bIndex >= 0
-
-      if (aPopular && !bPopular) return -1
-      if (!aPopular && bPopular) return 1
-      if (aPopular && bPopular) return aIndex - bIndex
-
-      const aName = a.items[0].provider.name
-      const bName = b.items[0].provider.name
-      return aName.localeCompare(bName)
-    },
+    groupBy: (x) => x.family || x.provider.name,
+    sortGroupsBy: (a, b) => a.category.localeCompare(b.category),
   })
 
   return (
@@ -142,12 +128,12 @@ export const SettingsModelsV2: Component = () => {
                         </span>
                         <span class="settings-v2-models-group-label">
                           <ProviderIcon
-                            id={group.category}
+                            id={group.items[0].family || group.items[0].provider.id}
                             width={PROVIDER_ICON_SIZE}
                             height={PROVIDER_ICON_SIZE}
                             class="settings-v2-models-provider-icon shrink-0"
                           />
-                          <span class="settings-v2-section-title">{group.items[0].provider.name}</span>
+                          <span class="settings-v2-section-title">{group.category}</span>
                         </span>
                       </button>
                     </h3>

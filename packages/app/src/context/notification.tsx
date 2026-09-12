@@ -18,6 +18,19 @@ import { type DraftTab, useTabs } from "./tabs"
 import { requireServerKey } from "@/utils/session-route"
 import type { ServerScope } from "@/utils/server-scope"
 
+function scheduledTaskUpdated(event: unknown) {
+  if (!event || typeof event !== "object" || !("type" in event) || event.type !== "scheduled.task.updated") return
+  if (!("data" in event) || !event.data || typeof event.data !== "object") return
+  const data = event.data as {
+    task?: { name?: string; location?: { directory?: string } }
+    run?: { status?: string; sessionId?: string }
+  }
+  const directory = data.task?.location?.directory
+  const name = data.task?.name
+  if (!directory || !name) return
+  return { task: { name, location: { directory } }, run: data.run }
+}
+
 type NotificationBase = {
   directory?: string
   session?: string
@@ -398,6 +411,28 @@ function createServerNotificationState(input: {
 
   const unsub = serverSDK().event.listen((e) => {
     const event = e.details
+    const scheduled = scheduledTaskUpdated(event.current)
+    if (scheduled) {
+      const run = scheduled.run
+      if (!run || (run.status !== "completed" && run.status !== "failed")) return
+      const directory = scheduled.task.location.directory
+      const sessionID = run.sessionId
+      const href = sessionID ? `/${base64Encode(directory)}/session/${sessionID}` : `/${base64Encode(directory)}`
+      if (run.status === "failed") {
+        if (settings.notifications.errors()) {
+          void platform.notify(language.t("notification.session.error.title"), scheduled.task.name, () =>
+            input.navigate(href),
+          )
+        }
+        return
+      }
+      if (settings.notifications.agent()) {
+        void platform.notify(language.t("notification.session.responseReady.title"), scheduled.task.name, () =>
+          input.navigate(href),
+        )
+      }
+      return
+    }
     if (event.type !== "session.idle" && event.type !== "session.error") return
 
     const directory = e.name

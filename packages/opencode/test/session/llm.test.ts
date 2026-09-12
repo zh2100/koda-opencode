@@ -730,6 +730,23 @@ function configModel(model: ModelsDev.Model) {
   }
 }
 
+function fixtureProviderConfig(providerID: string, modelID: string, options: Record<string, unknown>) {
+  const fixture = loadFixture(providerID, modelID)
+  return {
+    enabled_providers: [providerID],
+    provider: {
+      [providerID]: {
+        name: fixture.provider.name,
+        env: [...fixture.provider.env],
+        npm: fixture.provider.npm,
+        api: fixture.provider.api,
+        models: { [fixture.model.id]: configModel(fixture.model) as ConfigModel },
+        options,
+      },
+    },
+  } satisfies Partial<ConfigV1.Info>
+}
+
 function createEventStream(chunks: unknown[], includeDone = false) {
   const lines = chunks.map((chunk) => `data: ${typeof chunk === "string" ? chunk : JSON.stringify(chunk)}`)
   if (includeDone) {
@@ -891,14 +908,11 @@ describe("session.llm.stream", () => {
         expect(reasoning).toBe("high")
       }),
     {
-      config: () => ({
-        enabled_providers: [vivgridFixture.providerID],
-        provider: {
-          [vivgridFixture.providerID]: {
-            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
-          },
-        },
-      }),
+      config: () =>
+        fixtureProviderConfig(vivgridFixture.providerID, vivgridFixture.modelID, {
+          apiKey: "test-key",
+          baseURL: `${state.server!.url.origin}/v1`,
+        }),
     },
   )
 
@@ -955,14 +969,11 @@ describe("session.llm.stream", () => {
         expect(error.message).toBe("Provider finish_reason: network_error")
       }),
     {
-      config: () => ({
-        enabled_providers: [vivgridFixture.providerID],
-        provider: {
-          [vivgridFixture.providerID]: {
-            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
-          },
-        },
-      }),
+      config: () =>
+        fixtureProviderConfig(vivgridFixture.providerID, vivgridFixture.modelID, {
+          apiKey: "test-key",
+          baseURL: `${state.server!.url.origin}/v1`,
+        }),
     },
   )
 
@@ -1029,14 +1040,11 @@ describe("session.llm.stream", () => {
         expect(assistant && "reasoning_content" in assistant).toBe(false)
       }),
     {
-      config: () => ({
-        enabled_providers: [cerebrasFixture.providerID],
-        provider: {
-          [cerebrasFixture.providerID]: {
-            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
-          },
-        },
-      }),
+      config: () =>
+        fixtureProviderConfig(cerebrasFixture.providerID, cerebrasFixture.modelID, {
+          apiKey: "test-key",
+          baseURL: `${state.server!.url.origin}/v1`,
+        }),
     },
   )
 
@@ -1140,14 +1148,11 @@ describe("session.llm.stream", () => {
         })
       }),
     {
-      config: () => ({
-        enabled_providers: [mistralFixture.providerID],
-        provider: {
-          [mistralFixture.providerID]: {
-            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
-          },
-        },
-      }),
+      config: () =>
+        fixtureProviderConfig(mistralFixture.providerID, mistralFixture.modelID, {
+          apiKey: "test-key",
+          baseURL: `${state.server!.url.origin}/v1`,
+        }),
     },
   )
 
@@ -1203,14 +1208,11 @@ describe("session.llm.stream", () => {
         yield* Effect.promise(() => Promise.race([pending.requestAborted, timeout(500)]).catch(() => undefined))
       }),
     {
-      config: () => ({
-        enabled_providers: [alibabaQwenFixture.providerID],
-        provider: {
-          [alibabaQwenFixture.providerID]: {
-            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
-          },
-        },
-      }),
+      config: () =>
+        fixtureProviderConfig(alibabaQwenFixture.providerID, alibabaQwenFixture.modelID, {
+          apiKey: "test-key",
+          baseURL: `${state.server!.url.origin}/v1`,
+        }),
     },
   )
 
@@ -1271,14 +1273,11 @@ describe("session.llm.stream", () => {
         expect(tools?.some((item) => item.function?.name === "question")).toBe(true)
       }),
     {
-      config: () => ({
-        enabled_providers: [alibabaQwenFixture.providerID],
-        provider: {
-          [alibabaQwenFixture.providerID]: {
-            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
-          },
-        },
-      }),
+      config: () =>
+        fixtureProviderConfig(alibabaQwenFixture.providerID, alibabaQwenFixture.modelID, {
+          apiKey: "test-key",
+          baseURL: `${state.server!.url.origin}/v1`,
+        }),
     },
   )
 
@@ -1934,14 +1933,11 @@ describe("session.llm.stream", () => {
         expect(body.top_p).toBe(0.9)
       }),
     {
-      config: () => ({
-        enabled_providers: [minimaxFixture.providerID],
-        provider: {
-          [minimaxFixture.providerID]: {
-            options: { apiKey: "test-anthropic-key", baseURL: `${state.server!.url.origin}/v1` },
-          },
-        },
-      }),
+      config: () =>
+        fixtureProviderConfig(minimaxFixture.providerID, minimaxFixture.modelID, {
+          apiKey: "test-anthropic-key",
+          baseURL: `${state.server!.url.origin}/v1`,
+        }),
     },
   )
 
@@ -2236,14 +2232,11 @@ describe("session.llm.stream", () => {
         expect(config?.maxOutputTokens).toBe(ProviderTransform.maxOutputTokens(resolved))
       }),
     {
-      config: () => ({
-        enabled_providers: [geminiFixture.providerID],
-        provider: {
-          [geminiFixture.providerID]: {
-            options: { apiKey: "test-google-key", baseURL: `${state.server!.url.origin}/v1beta` },
-          },
-        },
-      }),
+      config: () =>
+        fixtureProviderConfig(geminiFixture.providerID, geminiFixture.modelID, {
+          apiKey: "test-google-key",
+          baseURL: `${state.server!.url.origin}/v1beta`,
+        }),
     },
   )
 })

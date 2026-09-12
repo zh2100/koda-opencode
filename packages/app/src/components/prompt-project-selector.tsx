@@ -35,6 +35,7 @@ export type PromptProjectControls = {
   server?: string
   select: (worktree: string, server?: string) => void
   add: (title: string, server?: string) => void
+  create: (server?: string) => void
 }
 
 const actionPrefix = "action:"
@@ -111,7 +112,7 @@ export function createPromptProjectController(input: {
   }
   const add = (server?: string) => {
     setStore({ open: false, search: "", active: "" })
-    input.controls().add(language.t("command.project.open"), server)
+    input.controls().add(language.t("command.project.openExisting"), server)
   }
   const setSearch = (value: string) => {
     const search = value.trim().toLowerCase()
@@ -136,11 +137,16 @@ export function createPromptProjectController(input: {
     active: () => store.active,
     labels: {
       add: () => language.t("session.new.project.add"),
+      open: () => language.t("session.new.project.open"),
       clear: () => language.t("common.clear"),
       new: () => language.t("session.new.project.new"),
       search: () => language.t("session.new.project.search"),
     },
     add,
+    create: (server?: string) => {
+      setStore({ open: false, search: "", active: "" })
+      input.controls().create(server)
+    },
     select,
     setOpen(open: boolean) {
       if (open) {
@@ -231,6 +237,11 @@ export function PromptProjectSelector(props: {
     dismiss.preventTriggerRestore()
     props.controller.setOpen(false)
     dismiss.afterClose(() => props.controller.add(server))
+  }
+  const selectCreate = (server?: string) => {
+    dismiss.preventTriggerRestore()
+    props.controller.setOpen(false)
+    dismiss.afterClose(() => props.controller.create(server))
   }
   const selectActive = () => {
     const project = props.controller.activeProject()
@@ -401,11 +412,22 @@ export function PromptProjectSelector(props: {
             <Show
               when={props.controller.servers().length > 1}
               fallback={
-                <ProjectAction
-                  server={props.controller.servers()[0]?.key}
-                  controller={props.controller}
-                  onSelect={selectAction}
-                />
+                <>
+                  <ProjectAction
+                    server={props.controller.servers()[0]?.key}
+                    controller={props.controller}
+                    icon="plus"
+                    label={props.controller.labels.new()}
+                    onSelect={selectCreate}
+                  />
+                  <ProjectAction
+                    server={props.controller.servers()[0]?.key}
+                    controller={props.controller}
+                    icon="folder-add-left"
+                    label={props.controller.labels.open()}
+                    onSelect={selectAction}
+                  />
+                </>
               }
             >
               <DropdownMenu.Sub>
@@ -420,7 +442,23 @@ export function PromptProjectSelector(props: {
                 >
                   <Icon name="plus" size="small" />
                   <span data-slot="dropdown-menu-item-label" class="min-w-0 flex-1 truncate leading-5">
-                    {props.controller.labels.add()}
+                    {props.controller.labels.new()}
+                  </span>
+                  <Icon name="chevron-right" size="small" class="shrink-0 text-v2-icon-icon-muted" />
+                </DropdownMenu.SubTrigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.SubContent class="min-w-[180px] overflow-hidden rounded-md border-0 bg-v2-background-bg-layer-01 p-0.5 shadow-[var(--v2-elevation-floating)] focus:outline-none">
+                    <For each={props.controller.servers()}>
+                      {(server) => <ServerAction server={server!} onSelect={selectCreate} />}
+                    </For>
+                  </DropdownMenu.SubContent>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Sub>
+              <DropdownMenu.Sub>
+                <DropdownMenu.SubTrigger class={projectActionClass}>
+                  <Icon name="folder-add-left" size="small" />
+                  <span data-slot="dropdown-menu-item-label" class="min-w-0 flex-1 truncate leading-5">
+                    {props.controller.labels.open()}
                   </span>
                   <Icon name="chevron-right" size="small" class="shrink-0 text-v2-icon-icon-muted" />
                 </DropdownMenu.SubTrigger>
@@ -446,7 +484,7 @@ export function PromptProjectAddButton(props: { controller: PromptProjectControl
       data-action="prompt-project"
       type="button"
       class="flex h-7 min-w-0 max-w-[160px] items-center gap-1.5 rounded-sm px-2 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-faint transition-colors hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
-      onClick={() => props.controller.add()}
+      onClick={() => props.controller.create()}
     >
       <Icon name="folder-add-left" size="small" class="shrink-0 text-v2-icon-icon-muted" />
       <span class="min-w-0 truncate leading-5">{props.controller.labels.new()}</span>
@@ -548,6 +586,8 @@ const projectActionClass =
 function ProjectAction(props: {
   server?: string
   controller: PromptProjectController
+  icon: "plus" | "folder-add-left"
+  label: string
   onSelect: (server?: string) => void
 }) {
   const key = () => props.controller.actionKey(props.server)
@@ -572,10 +612,8 @@ function ProjectAction(props: {
       }}
       onSelect={() => props.onSelect(props.server)}
     >
-      <Icon name="plus" size="small" />
-      <DropdownMenu.ItemLabel class="min-w-0 truncate leading-5">
-        {props.controller.labels.add()}
-      </DropdownMenu.ItemLabel>
+      <Icon name={props.icon} size="small" />
+      <DropdownMenu.ItemLabel class="min-w-0 truncate leading-5">{props.label}</DropdownMenu.ItemLabel>
     </DropdownMenu.Item>
   )
 }

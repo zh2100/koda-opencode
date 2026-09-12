@@ -59,7 +59,6 @@ import { SDKProvider, useSDK } from "@/context/sdk"
 import { WslServersProvider } from "@/wsl/context"
 import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout"
 import LegacyLayout from "@/pages/layout"
-import NewLayout from "@/pages/layout-new"
 import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 import { legacySessionHref, legacySessionServer, requireServerKey, sessionHref } from "./utils/session-route"
@@ -372,7 +371,7 @@ function NewAppLayout(props: ParentProps<{ serverScoped?: JSX.Element }>) {
   return (
     <SelectedServerProviders>
       <ServerScopedProviders serverScoped={props.serverScoped}>
-        <NewLayout>{props.children}</NewLayout>
+        <LegacyLayout>{props.children}</LegacyLayout>
       </ServerScopedProviders>
     </SelectedServerProviders>
   )
@@ -568,12 +567,10 @@ export function AppInterface(props: {
   // route changes. Draft and session routes override only their server-bound data
   // providers beneath it.
   const ServerShell = (shellProps: ParentProps) => (
-    <QueryProvider>
-      <SharedProviders>
-        {props.children}
-        {shellProps.children}
-      </SharedProviders>
-    </QueryProvider>
+    <SharedProviders>
+      {props.children}
+      {shellProps.children}
+    </SharedProviders>
   )
 
   return (
@@ -617,28 +614,28 @@ function Routes(props: { serverScoped?: JSX.Element }) {
 
   return (
     <>
-      <Route
-        component={(routeProps) => (
-          <LegacyServerLayout serverScoped={props.serverScoped}>{routeProps.children}</LegacyServerLayout>
-        )}
-      >
-        <Show when={!settings.general.newLayoutDesigns()}>
-          {
-            <>
-              <Route path="/" component={LegacyHome} />
-              <Route path="/server/:serverKey/session/:id" component={LegacyTargetSessionRoute} />
-            </>
-          }
-        </Show>
-        <Route path="/:dir" component={DirectoryLayout}>
-          <Route path="/" component={() => <Navigate href="session" />} />
-          <Route path="/session/:id?" component={SessionRoute} />
+      <Show when={!settings.general.newLayoutDesigns()}>
+        <Route
+          component={(routeProps) => (
+            <LegacyServerLayout serverScoped={props.serverScoped}>{routeProps.children}</LegacyServerLayout>
+          )}
+        >
+          <Route path="/" component={LegacyHome} />
+          <Route path="/server/:serverKey/session/:id" component={LegacyTargetSessionRoute} />
+          <Route path="/:dir" component={DirectoryLayout}>
+            <Route path="/" component={() => <Navigate href="session" />} />
+            <Route path="/session/:id?" component={SessionRoute} />
+          </Route>
         </Route>
-      </Route>
+      </Show>
       <Show when={settings.general.newLayoutDesigns()}>
         <Route path="/" component={NewHome} />
         <Route path="/:dir/session/:id" component={NewLayoutLegacySessionRedirect} />
         <Route path="/server/:serverKey/session/:id" component={TargetSessionRoute} />
+        <Route path="/:dir" component={DirectoryLayout}>
+          <Route path="/" component={() => <Navigate href="session" />} />
+          <Route path="/session/:id?" component={SessionRoute} />
+        </Route>
       </Show>
       <Route path="/new-session" component={DraftRoute} />
     </>

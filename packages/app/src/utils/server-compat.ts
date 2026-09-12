@@ -187,7 +187,10 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
       //   await legacy(value).session.update({ sessionID: value.sessionID, time: { archived: Date.now() } })
       // },
       async remove(value: Parameters<ServerApi["session"]["remove"]>[0] & LegacyLocation) {
-        await legacy(value).session.delete(value)
+        await legacy(value).session.delete({
+          sessionID: value.sessionID,
+          directory: value.directory,
+        })
       },
       async fork(value: Parameters<ServerApi["session"]["fork"]>[0]) {
         const result = await legacy().session.fork(value)

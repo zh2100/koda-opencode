@@ -45,6 +45,7 @@ export interface PromptInputProps {
   history?: PromptInputHistory
   submission?: PromptInputSubmission
   controls: PromptInputControls
+  project?: import("@/components/prompt-project-selector").PromptProjectController
   ref?: (el: HTMLDivElement) => void
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void

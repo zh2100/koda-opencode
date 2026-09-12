@@ -4,7 +4,6 @@ import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Effect, Layer } from "effect"
-import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Global } from "@opencode-ai/core/global"
@@ -23,6 +22,23 @@ import { InstanceStore } from "@/project/instance-store"
 import { testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { ModelsDev } from "@opencode-ai/core/models-dev"
+import { Relay } from "@opencode-ai/schema/relay"
+import { RelayAuth } from "@opencode-ai/core/relay-auth"
+import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
+import { RelayPolicy } from "@opencode-ai/core/relay-policy"
+import {
+  anthropicProvider,
+  openaiProvider,
+  googleProvider,
+  googleVertexProvider,
+  googleVertexAnthropicProvider,
+  cloudflareGatewayProvider,
+  nvidiaProvider,
+  openrouterProvider,
+  opencodeProvider,
+  leidiandonghuaProvider,
+} from "./catalog-config"
 
 const originalEnv = new Map<string, string | undefined>()
 
@@ -68,7 +84,6 @@ const providerLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
       Config.node,
       Auth.node,
       Plugin.node,
-      ModelsDev.node,
       RuntimeFlags.node,
     ]),
     [[RuntimeFlags.node, RuntimeFlags.layer(flags)]],
@@ -109,16 +124,19 @@ const alphaProviderConfig = {
   },
 }
 
-it.instance("provider loaded from env variable", () =>
-  Effect.gen(function* () {
-    yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")
-    const providers = yield* list
-    expect(providers[ProviderV2.ID.anthropic]).toBeDefined()
-    // Provider should retain its connection source even if custom loaders
-    // merge additional options.
-    expect(providers[ProviderV2.ID.anthropic].source).toBe("env")
-    expect(providers[ProviderV2.ID.anthropic].options.headers["anthropic-beta"]).toBeDefined()
-  }),
+it.instance(
+  "provider loaded from env variable",
+  () =>
+    Effect.gen(function* () {
+      yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")
+      const providers = yield* list
+      expect(providers[ProviderV2.ID.anthropic]).toBeDefined()
+      // Provider should retain its connection source even if custom loaders
+      // merge additional options.
+      expect(providers[ProviderV2.ID.anthropic].source).toBe("env")
+      expect(providers[ProviderV2.ID.anthropic].options.headers["anthropic-beta"]).toBeDefined()
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
 it.instance(
@@ -127,7 +145,7 @@ it.instance(
     const providers = yield* list
     expect(providers[ProviderV2.ID.anthropic]).toBeDefined()
   }),
-  { config: { provider: { anthropic: { options: { apiKey: "config-api-key" } } } } },
+  { config: { provider: { anthropic: { ...anthropicProvider, options: { apiKey: "config-api-key" } } } } },
 )
 
 it.instance(
@@ -137,7 +155,7 @@ it.instance(
     const providers = yield* list
     expect(providers[ProviderV2.ID.anthropic]).toBeUndefined()
   }),
-  { config: { disabled_providers: ["anthropic"] } },
+  { config: { disabled_providers: ["anthropic"], provider: { anthropic: anthropicProvider } } },
 )
 
 it.instance(
@@ -149,7 +167,65 @@ it.instance(
     expect(providers[ProviderV2.ID.anthropic]).toBeDefined()
     expect(providers[ProviderV2.ID.openai]).toBeUndefined()
   }),
-  { config: { enabled_providers: ["anthropic"] } },
+  {
+    config: {
+      enabled_providers: ["anthropic"],
+      provider: { anthropic: anthropicProvider, openai: openaiProvider },
+    },
+  },
+)
+
+it.instance(
+  "overlays checked relay models onto the listed relay provider",
+  Effect.gen(function* () {
+    const providers = yield* list
+    const relay = providers[ProviderV2.ID.leidiandonghua]
+    expect(relay).toBeDefined()
+    expect(relay.models["gpt-5.2"]?.name).toBe("GPT-5.2")
+    expect(relay.models["gpt-5.2"]?.family).toBe("chatgpt")
+    expect(relay.options.baseURL).toBe(RelayPolicy.BaseURL)
+    expect(relay.models["hidden"]).toBeUndefined()
+    expect(relay.models["gpt-5.2"]?.options.apiKey).toBe("chatgpt-key")
+    expect(relay.models["grok-4"]?.options.apiKey).toBe("grok-key")
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        Layer.mock(RelayCatalog.Service, {
+          hasManaged: () => true,
+          visible: () => true,
+          apply: (update) => {
+            update(ProviderV2.ID.leidiandonghua, "gpt-5.2", (model) => {
+              model.name = "GPT-5.2"
+              model.family = "chatgpt"
+              model.enabled = true
+            })
+            update(ProviderV2.ID.leidiandonghua, "grok-4", (model) => {
+              model.name = "Grok 4"
+              model.family = "grok"
+              model.enabled = true
+            })
+            update(ProviderV2.ID.leidiandonghua, "hidden", (model) => {
+              model.enabled = false
+            })
+          },
+        }),
+        Layer.mock(RelayAuth.Service, {
+          get: () =>
+            Effect.succeed({
+              unified: false,
+              hasUnifiedKey: false,
+              vendors: [
+                { id: Relay.VendorID.chatgpt, hasKey: true },
+                { id: Relay.VendorID.grok, hasKey: true },
+              ],
+            } as never),
+          resolve: (vendorId) =>
+            Effect.succeed(vendorId === Relay.VendorID.grok ? "grok-key" : "chatgpt-key"),
+        }),
+      ),
+    ),
+  ),
+  { config: { provider: { leidiandonghua: leidiandonghuaProvider } } },
 )
 
 it.instance(
@@ -162,7 +238,7 @@ it.instance(
     expect(models).toContain("claude-sonnet-4-6")
     expect(models.length).toBe(1)
   }),
-  { config: { provider: { anthropic: { whitelist: ["claude-sonnet-4-6"] } } } },
+  { config: { provider: { anthropic: { ...anthropicProvider, whitelist: ["claude-sonnet-4-6"] } } } },
 )
 
 it.instance(
@@ -174,7 +250,7 @@ it.instance(
     const models = Object.keys(providers[ProviderV2.ID.anthropic].models)
     expect(models).not.toContain("claude-sonnet-4-20250514")
   }),
-  { config: { provider: { anthropic: { blacklist: ["claude-sonnet-4-20250514"] } } } },
+  { config: { provider: { anthropic: { ...anthropicProvider, blacklist: ["claude-sonnet-4-20250514"] } } } },
 )
 
 it.instance(
@@ -189,7 +265,13 @@ it.instance(
   {
     config: {
       provider: {
-        anthropic: { models: { "my-alias": { id: "claude-sonnet-4-20250514", name: "My Custom Alias" } } },
+        anthropic: {
+          ...anthropicProvider,
+          models: {
+            ...anthropicProvider.models,
+            "my-alias": { id: "claude-sonnet-4-20250514", name: "My Custom Alias" },
+          },
+        },
       },
     },
   },
@@ -298,30 +380,45 @@ it.instance(
     expect(providers[ProviderV2.ID.anthropic].options.headerTimeout).toBe(10000)
     expect(providers[ProviderV2.ID.anthropic].options.chunkTimeout).toBe(15000)
   }),
-  { config: { provider: { anthropic: { options: { timeout: 60000, headerTimeout: 10000, chunkTimeout: 15000 } } } } },
+  {
+    config: {
+      provider: {
+        anthropic: {
+          ...anthropicProvider,
+          options: { timeout: 60000, headerTimeout: 10000, chunkTimeout: 15000 },
+        },
+      },
+    },
+  },
 )
 
-it.instance("getModel returns model for valid provider/model", () =>
-  Effect.gen(function* () {
-    yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")
-    const provider = yield* Provider.Service
-    const model = yield* provider.getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-sonnet-4-6"))
-    expect(model).toBeDefined()
-    expect(String(model.providerID)).toBe("anthropic")
-    expect(String(model.id)).toBe("claude-sonnet-4-6")
-    const language = yield* provider.getLanguage(model)
-    expect(language).toBeDefined()
-  }),
+it.instance(
+  "getModel returns model for valid provider/model",
+  () =>
+    Effect.gen(function* () {
+      yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")
+      const provider = yield* Provider.Service
+      const model = yield* provider.getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-sonnet-4-6"))
+      expect(model).toBeDefined()
+      expect(String(model.providerID)).toBe("anthropic")
+      expect(String(model.id)).toBe("claude-sonnet-4-6")
+      const language = yield* provider.getLanguage(model)
+      expect(language).toBeDefined()
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
-it.instance("getModel throws ModelNotFoundError for invalid model", () =>
-  Effect.gen(function* () {
-    yield* set("ANTHROPIC_API_KEY", "test-api-key")
-    const exit = yield* Provider.use
-      .getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("nonexistent-model"))
-      .pipe(Effect.exit)
-    expect(exit._tag).toBe("Failure")
-  }),
+it.instance(
+  "getModel throws ModelNotFoundError for invalid model",
+  () =>
+    Effect.gen(function* () {
+      yield* set("ANTHROPIC_API_KEY", "test-api-key")
+      const exit = yield* Provider.use
+        .getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("nonexistent-model"))
+        .pipe(Effect.exit)
+      expect(exit._tag).toBe("Failure")
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
 it.instance("getModel throws ModelNotFoundError for invalid provider", () =>
@@ -347,13 +444,16 @@ test("parseModel handles model IDs with slashes", () => {
   expect(String(result.modelID)).toBe("anthropic/claude-3-opus")
 })
 
-it.instance("defaultModel returns first available model when no config set", () =>
-  Effect.gen(function* () {
-    yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")
-    const model = yield* Provider.use.defaultModel()
-    expect(model.providerID).toBeDefined()
-    expect(model.modelID).toBeDefined()
-  }),
+it.instance(
+  "defaultModel returns first available model when no config set",
+  () =>
+    Effect.gen(function* () {
+      yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")
+      const model = yield* Provider.use.defaultModel()
+      expect(model.providerID).toBeDefined()
+      expect(model.modelID).toBeDefined()
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
 it.instance(
@@ -364,16 +464,14 @@ it.instance(
     expect(String(model.providerID)).toBe("anthropic")
     expect(String(model.modelID)).toBe("claude-sonnet-4-20250514")
   }),
-  { config: { model: "anthropic/claude-sonnet-4-20250514" } },
+  { config: { model: "anthropic/claude-sonnet-4-20250514", provider: { anthropic: anthropicProvider } } },
 )
 
 it.instance(
   "defaultModel treats empty provider config as no allowlist",
   Effect.gen(function* () {
-    yield* setProcessEnv("ANTHROPIC_API_KEY", "test-api-key")
-    const model = yield* Provider.use.defaultModel()
-    expect(model.providerID).toBeDefined()
-    expect(model.modelID).toBeDefined()
+    const error = yield* Provider.use.defaultModel().pipe(Effect.flip)
+    expect(error).toBeInstanceOf(Provider.NoProvidersError)
   }),
   { config: { provider: {} } },
 )
@@ -446,8 +544,15 @@ it.instance(
     config: {
       provider: {
         anthropic: {
+          ...anthropicProvider,
           options: { apiKey: "test-api-key" },
-          models: { "claude-sonnet-4-6": { options: { customOption: "custom-value" } } },
+          models: {
+            ...anthropicProvider.models,
+            "claude-sonnet-4-6": {
+              ...anthropicProvider.models["claude-sonnet-4-6"],
+              options: { customOption: "custom-value" },
+            },
+          },
         },
       },
     },
@@ -460,17 +565,26 @@ it.instance(
     const providers = yield* list
     expect(providers[ProviderV2.ID.anthropic]).toBeUndefined()
   }),
-  { config: { provider: { anthropic: { options: { apiKey: "test-api-key" }, whitelist: ["nonexistent-model"] } } } },
+  {
+    config: {
+      provider: {
+        anthropic: { ...anthropicProvider, options: { apiKey: "test-api-key" }, whitelist: ["nonexistent-model"] },
+      },
+    },
+  },
 )
 
-it.instance("closest finds model by partial match", () =>
-  Effect.gen(function* () {
-    yield* set("ANTHROPIC_API_KEY", "test-api-key")
-    const result = yield* Provider.use.closest(ProviderV2.ID.anthropic, ["sonnet-4"])
-    expect(result).toBeDefined()
-    expect(String(result?.providerID)).toBe("anthropic")
-    expect(String(result?.modelID)).toContain("sonnet-4")
-  }),
+it.instance(
+  "closest finds model by partial match",
+  () =>
+    Effect.gen(function* () {
+      yield* set("ANTHROPIC_API_KEY", "test-api-key")
+      const result = yield* Provider.use.closest(ProviderV2.ID.anthropic, ["sonnet-4"])
+      expect(result).toBeDefined()
+      expect(String(result?.providerID)).toBe("anthropic")
+      expect(String(result?.modelID)).toContain("sonnet-4")
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
 it.instance("closest returns undefined for nonexistent provider", () =>
@@ -496,7 +610,11 @@ it.instance(
     config: {
       provider: {
         anthropic: {
-          models: { "my-sonnet": { id: "claude-sonnet-4-20250514", name: "My Sonnet Alias" } },
+          ...anthropicProvider,
+          models: {
+            ...anthropicProvider.models,
+            "my-sonnet": { id: "claude-sonnet-4-20250514", name: "My Sonnet Alias" },
+          },
         },
       },
     },
@@ -561,7 +679,15 @@ it.instance(
   }),
   {
     config: {
-      provider: { anthropic: { models: { "claude-sonnet-4-6": { name: "Custom Name for Sonnet" } } } },
+      provider: {
+        anthropic: {
+          ...anthropicProvider,
+          models: {
+            ...anthropicProvider.models,
+            "claude-sonnet-4-6": { ...anthropicProvider.models["claude-sonnet-4-6"], name: "Custom Name for Sonnet" },
+          },
+        },
+      },
     },
   },
 )
@@ -578,7 +704,13 @@ it.instance(
   {
     config: {
       provider: {
-        openai: { models: { "custom-gpt-chat": { id: "gpt-5-chat-latest", name: "Custom GPT Chat" } } },
+        openai: {
+          ...openaiProvider,
+          models: {
+            ...openaiProvider.models,
+            "custom-gpt-chat": { id: "gpt-5-chat-latest", name: "Custom GPT Chat" },
+          },
+        },
       },
     },
   },
@@ -597,8 +729,12 @@ it.instance(
     config: {
       provider: {
         anthropic: {
+          ...anthropicProvider,
           npm: "@ai-sdk/openai-compatible",
-          models: { "claude-sonnet-4-6": { name: "Claude via OpenAI" } },
+          models: {
+            ...anthropicProvider.models,
+            "claude-sonnet-4-6": { ...anthropicProvider.models["claude-sonnet-4-6"], name: "Claude via OpenAI" },
+          },
         },
       },
     },
@@ -612,7 +748,7 @@ it.instance(
     const providers = yield* list
     expect(providers[ProviderV2.ID.openai]).toBeUndefined()
   }),
-  { config: { disabled_providers: ["openai"] } },
+  { config: { disabled_providers: ["openai"], provider: { openai: openaiProvider } } },
 )
 
 it.instance(
@@ -641,6 +777,7 @@ it.instance(
     config: {
       provider: {
         anthropic: {
+          ...anthropicProvider,
           whitelist: ["claude-sonnet-4-6", "claude-opus-4-6"],
           blacklist: ["claude-opus-4-6"],
         },
@@ -704,22 +841,28 @@ it.instance(
   },
 )
 
-it.instance("getSmallModel returns appropriate small model", () =>
-  Effect.gen(function* () {
-    yield* set("ANTHROPIC_API_KEY", "test-api-key")
-    const model = yield* Provider.use.getSmallModel(ProviderV2.ID.anthropic)
-    expect(model).toBeDefined()
-    expect(model?.id).toContain("haiku")
-  }),
+it.instance(
+  "getSmallModel returns appropriate small model",
+  () =>
+    Effect.gen(function* () {
+      yield* set("ANTHROPIC_API_KEY", "test-api-key")
+      const model = yield* Provider.use.getSmallModel(ProviderV2.ID.anthropic)
+      expect(model).toBeDefined()
+      expect(model?.id).toContain("haiku")
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
-it.instance("getSmallModel prefers Gemini for Google Vertex", () =>
-  Effect.gen(function* () {
-    yield* set("GOOGLE_VERTEX_PROJECT", "test-project")
-    const model = yield* Provider.use.getSmallModel(ProviderV2.ID.googleVertex)
-    expect(model).toBeDefined()
-    expect(model?.id).toContain("gemini")
-  }),
+it.instance(
+  "getSmallModel prefers Gemini for Google Vertex",
+  () =>
+    Effect.gen(function* () {
+      yield* set("GOOGLE_VERTEX_PROJECT", "test-project")
+      const model = yield* Provider.use.getSmallModel(ProviderV2.ID.googleVertex)
+      expect(model).toBeDefined()
+      expect(model?.id).toContain("gemini")
+    }),
+  { config: { provider: { "google-vertex": googleVertexProvider } } },
 )
 
 it.instance(
@@ -818,7 +961,7 @@ it.instance(
     expect(String(model?.providerID)).toBe("anthropic")
     expect(String(model?.id)).toBe("claude-sonnet-4-6")
   }),
-  { config: { small_model: "anthropic/claude-sonnet-4-6" } },
+  { config: { small_model: "anthropic/claude-sonnet-4-6", provider: { anthropic: anthropicProvider } } },
 )
 
 it.instance(
@@ -828,7 +971,7 @@ it.instance(
     const model = yield* Provider.use.getSmallModel(ProviderV2.ID.anthropic)
     expect(model).toBeUndefined()
   }),
-  { config: { small_model: "anthropic/not-a-real-model" } },
+  { config: { small_model: "anthropic/not-a-real-model", provider: { anthropic: anthropicProvider } } },
 )
 
 test("provider.sort prioritizes preferred models", () => {
@@ -860,8 +1003,8 @@ it.instance(
   {
     config: {
       provider: {
-        anthropic: { options: { timeout: 30000 } },
-        openai: { options: { timeout: 60000 } },
+        anthropic: { ...anthropicProvider, options: { timeout: 30000 } },
+        openai: { ...openaiProvider, options: { timeout: 60000 } },
       },
     },
   },
@@ -903,7 +1046,11 @@ it.instance(
     config: {
       provider: {
         anthropic: {
-          models: { sonnet: { id: "claude-sonnet-4-20250514" } },
+          ...anthropicProvider,
+          models: {
+            ...anthropicProvider.models,
+            sonnet: { id: "claude-sonnet-4-20250514" },
+          },
         },
       },
     },
@@ -971,7 +1118,14 @@ it.instance(
     config: {
       provider: {
         anthropic: {
-          models: { "claude-sonnet-4-20250514": { cost: { input: 999, output: 888 } } },
+          ...anthropicProvider,
+          models: {
+            ...anthropicProvider.models,
+            "claude-sonnet-4-20250514": {
+              ...anthropicProvider.models["claude-sonnet-4-20250514"],
+              cost: { input: 999, output: 888 },
+            },
+          },
         },
       },
     },
@@ -1032,7 +1186,11 @@ it.instance(
   {
     // enabled_providers takes precedence — only these are considered
     // Then disabled_providers filters from the enabled set
-    config: { enabled_providers: ["anthropic", "openai"], disabled_providers: ["openai"] },
+    config: {
+      enabled_providers: ["anthropic", "openai"],
+      disabled_providers: ["openai"],
+      provider: { anthropic: anthropicProvider, openai: openaiProvider, google: googleProvider },
+    },
   },
 )
 
@@ -1134,15 +1292,18 @@ it.instance(
   },
 )
 
-it.instance("getModel returns consistent results", () =>
-  Effect.gen(function* () {
-    yield* set("ANTHROPIC_API_KEY", "test-api-key")
-    const model1 = yield* Provider.use.getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-sonnet-4-6"))
-    const model2 = yield* Provider.use.getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-sonnet-4-6"))
-    expect(model1.providerID).toEqual(model2.providerID)
-    expect(model1.id).toEqual(model2.id)
-    expect(model1).toEqual(model2)
-  }),
+it.instance(
+  "getModel returns consistent results",
+  () =>
+    Effect.gen(function* () {
+      yield* set("ANTHROPIC_API_KEY", "test-api-key")
+      const model1 = yield* Provider.use.getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-sonnet-4-6"))
+      const model2 = yield* Provider.use.getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-sonnet-4-6"))
+      expect(model1.providerID).toEqual(model2.providerID)
+      expect(model1.id).toEqual(model2.id)
+      expect(model1).toEqual(model2)
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
 it.instance(
@@ -1165,39 +1326,48 @@ it.instance(
   },
 )
 
-it.instance("ModelNotFoundError includes suggestions for typos", () =>
-  Effect.gen(function* () {
-    yield* set("ANTHROPIC_API_KEY", "test-api-key")
-    const error = yield* Provider.use
-      .getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-sonet-4"))
-      .pipe(Effect.flip)
-    expect(error.suggestions).toBeDefined()
-    expect((error.suggestions ?? []).length).toBeGreaterThan(0)
-    expect(error.message).toContain("Model not found: anthropic/claude-sonet-4")
-    expect(error.message).toContain("Did you mean:")
-  }),
+it.instance(
+  "ModelNotFoundError includes suggestions for typos",
+  () =>
+    Effect.gen(function* () {
+      yield* set("ANTHROPIC_API_KEY", "test-api-key")
+      const error = yield* Provider.use
+        .getModel(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-sonet-4"))
+        .pipe(Effect.flip)
+      expect(error.suggestions).toBeDefined()
+      expect((error.suggestions ?? []).length).toBeGreaterThan(0)
+      expect(error.message).toContain("Model not found: anthropic/claude-sonet-4")
+      expect(error.message).toContain("Did you mean:")
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
-it.instance("ModelNotFoundError for provider includes suggestions", () =>
-  Effect.gen(function* () {
-    yield* set("ANTHROPIC_API_KEY", "test-api-key")
-    const error = yield* Provider.use
-      .getModel(ProviderV2.ID.make("antropic"), ModelV2.ID.make("claude-sonnet-4"))
-      .pipe(Effect.flip)
-    expect(error.suggestions).toBeDefined()
-    expect(error.suggestions).toContain("anthropic")
-  }),
+it.instance(
+  "ModelNotFoundError for provider includes suggestions",
+  () =>
+    Effect.gen(function* () {
+      yield* set("ANTHROPIC_API_KEY", "test-api-key")
+      const error = yield* Provider.use
+        .getModel(ProviderV2.ID.make("antropic"), ModelV2.ID.make("claude-sonnet-4"))
+        .pipe(Effect.flip)
+      expect(error.suggestions).toBeDefined()
+      expect(error.suggestions).toContain("anthropic")
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
-it.instance("ModelNotFoundError suggests catalog models for unloaded providers", () =>
-  Effect.gen(function* () {
-    yield* remove("OPENCODE_API_KEY")
-    const error = yield* Provider.use
-      .getModel(ProviderV2.ID.opencode, ModelV2.ID.make("claude-haiku-fake-model"))
-      .pipe(Effect.flip)
-    if (!Provider.ModelNotFoundError.isInstance(error)) throw error
-    expect(error.suggestions ?? []).toContain("claude-haiku-4-5")
-  }),
+it.instance(
+  "ModelNotFoundError suggests catalog models for unloaded providers",
+  () =>
+    Effect.gen(function* () {
+      yield* remove("OPENCODE_API_KEY")
+      const error = yield* Provider.use
+        .getModel(ProviderV2.ID.opencode, ModelV2.ID.make("kimi-k2.5-fake-model"))
+        .pipe(Effect.flip)
+      if (!Provider.ModelNotFoundError.isInstance(error)) throw error
+      expect(error.suggestions ?? []).toContain("kimi-k2.5-free")
+    }),
+  { config: { provider: { opencode: opencodeProvider } } },
 )
 
 it.instance("getProvider returns undefined for nonexistent provider", () =>
@@ -1207,31 +1377,40 @@ it.instance("getProvider returns undefined for nonexistent provider", () =>
   }),
 )
 
-it.instance("getProvider returns provider info", () =>
-  Effect.gen(function* () {
-    yield* set("ANTHROPIC_API_KEY", "test-api-key")
-    const provider = yield* Provider.use.getProvider(ProviderV2.ID.anthropic)
-    expect(provider).toBeDefined()
-    expect(String(provider?.id)).toBe("anthropic")
-  }),
+it.instance(
+  "getProvider returns provider info",
+  () =>
+    Effect.gen(function* () {
+      yield* set("ANTHROPIC_API_KEY", "test-api-key")
+      const provider = yield* Provider.use.getProvider(ProviderV2.ID.anthropic)
+      expect(provider).toBeDefined()
+      expect(String(provider?.id)).toBe("anthropic")
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
-it.instance("closest returns undefined when no partial match found", () =>
-  Effect.gen(function* () {
-    yield* set("ANTHROPIC_API_KEY", "test-api-key")
-    const result = yield* Provider.use.closest(ProviderV2.ID.anthropic, ["nonexistent-xyz-model"])
-    expect(result).toBeUndefined()
-  }),
+it.instance(
+  "closest returns undefined when no partial match found",
+  () =>
+    Effect.gen(function* () {
+      yield* set("ANTHROPIC_API_KEY", "test-api-key")
+      const result = yield* Provider.use.closest(ProviderV2.ID.anthropic, ["nonexistent-xyz-model"])
+      expect(result).toBeUndefined()
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
-it.instance("closest checks multiple query terms in order", () =>
-  Effect.gen(function* () {
-    yield* set("ANTHROPIC_API_KEY", "test-api-key")
-    // First term won't match, second will
-    const result = yield* Provider.use.closest(ProviderV2.ID.anthropic, ["nonexistent", "haiku"])
-    expect(result).toBeDefined()
-    expect(result?.modelID).toContain("haiku")
-  }),
+it.instance(
+  "closest checks multiple query terms in order",
+  () =>
+    Effect.gen(function* () {
+      yield* set("ANTHROPIC_API_KEY", "test-api-key")
+      // First term won't match, second will
+      const result = yield* Provider.use.closest(ProviderV2.ID.anthropic, ["nonexistent", "haiku"])
+      expect(result).toBeDefined()
+      expect(result?.modelID).toContain("haiku")
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
 it.instance(
@@ -1270,7 +1449,12 @@ it.instance(
   }),
   {
     config: {
-      provider: { anthropic: { options: { headers: { "X-Custom": "custom-value" }, timeout: 30000 } } },
+      provider: {
+        anthropic: {
+          ...anthropicProvider,
+          options: { headers: { "X-Custom": "custom-value" }, timeout: 30000 },
+        },
+      },
     },
   },
 )
@@ -1285,7 +1469,7 @@ it.instance(
       "X-BILLING-INVOKE-ORIGIN": "OpenCode",
     })
   }),
-  { config: { provider: { nvidia: { options: { apiKey: "test-api-key" } } } } },
+  { config: { provider: { nvidia: { ...nvidiaProvider, options: { apiKey: "test-api-key" } } } } },
 )
 
 it.instance(
@@ -1298,7 +1482,11 @@ it.instance(
       "X-BILLING-INVOKE-ORIGIN": "OpenCode",
     })
   }),
-  { config: { provider: { nvidia: { options: { apiKey: "test-api-key", baseURL: "http://localhost:8000/v1" } } } } },
+  {
+    config: {
+      provider: { nvidia: { ...nvidiaProvider, options: { apiKey: "test-api-key", baseURL: "http://localhost:8000/v1" } } },
+    },
+  },
 )
 
 it.instance(
@@ -1311,6 +1499,7 @@ it.instance(
     config: {
       provider: {
         nvidia: {
+          ...nvidiaProvider,
           options: {
             apiKey: "test-api-key",
             baseURL: "http://localhost:8000/v1",
@@ -1335,7 +1524,9 @@ it.instance(
     config: {
       provider: {
         openai: {
+          ...openaiProvider,
           models: {
+            ...openaiProvider.models,
             "my-custom-model": {
               name: "My Custom Model",
               tool_call: true,
@@ -1369,12 +1560,7 @@ it.instance(
   {
     config: {
       provider: {
-        openrouter: {
-          models: {
-            "prime-intellect/intellect-3": {},
-            "deepseek/deepseek-r1-0528": { name: "DeepSeek R1" },
-          },
-        },
+        openrouter: openrouterProvider,
       },
     },
   },
@@ -1601,16 +1787,19 @@ test("public provider info omits invalid models", () => {
   expect(result.models.invalid).toBeUndefined()
 })
 
-it.instance("model variants are generated for reasoning models", () =>
-  Effect.gen(function* () {
-    yield* set("ANTHROPIC_API_KEY", "test-api-key")
-    const providers = yield* list
-    // Claude sonnet 4 has reasoning capability
-    const model = providers[ProviderV2.ID.anthropic].models["claude-sonnet-4-6"]
-    expect(model.capabilities.reasoning).toBe(true)
-    expect(model.variants).toBeDefined()
-    expect(Object.keys(model.variants!).length).toBeGreaterThan(0)
-  }),
+it.instance(
+  "model variants are generated for reasoning models",
+  () =>
+    Effect.gen(function* () {
+      yield* set("ANTHROPIC_API_KEY", "test-api-key")
+      const providers = yield* list
+      // Claude sonnet 4 has reasoning capability
+      const model = providers[ProviderV2.ID.anthropic].models["claude-sonnet-4-6"]
+      expect(model.capabilities.reasoning).toBe(true)
+      expect(model.variants).toBeDefined()
+      expect(Object.keys(model.variants!).length).toBeGreaterThan(0)
+    }),
+  { config: { provider: { anthropic: anthropicProvider } } },
 )
 
 it.instance(
@@ -1628,7 +1817,14 @@ it.instance(
     config: {
       provider: {
         anthropic: {
-          models: { "claude-sonnet-4-6": { variants: { high: { disabled: true } } } },
+          ...anthropicProvider,
+          models: {
+            ...anthropicProvider.models,
+            "claude-sonnet-4-6": {
+              ...anthropicProvider.models["claude-sonnet-4-6"],
+              variants: { high: { disabled: true } },
+            },
+          },
         },
       },
     },
@@ -1648,8 +1844,11 @@ it.instance(
     config: {
       provider: {
         anthropic: {
+          ...anthropicProvider,
           models: {
+            ...anthropicProvider.models,
             "claude-sonnet-4-6": {
+              ...anthropicProvider.models["claude-sonnet-4-6"],
               variants: { high: { thinking: { type: "enabled", budgetTokens: 20000 } } },
             },
           },
@@ -1673,8 +1872,11 @@ it.instance(
     config: {
       provider: {
         anthropic: {
+          ...anthropicProvider,
           models: {
+            ...anthropicProvider.models,
             "claude-sonnet-4-6": {
+              ...anthropicProvider.models["claude-sonnet-4-6"],
               variants: { max: { disabled: false, customField: "test" } },
             },
           },
@@ -1697,8 +1899,11 @@ it.instance(
     config: {
       provider: {
         anthropic: {
+          ...anthropicProvider,
           models: {
+            ...anthropicProvider.models,
             "claude-sonnet-4-6": {
+              ...anthropicProvider.models["claude-sonnet-4-6"],
               variants: {
                 low: { disabled: true },
                 medium: { disabled: true },
@@ -1728,8 +1933,13 @@ it.instance(
     config: {
       provider: {
         anthropic: {
+          ...anthropicProvider,
           models: {
-            "claude-sonnet-4-6": { variants: { high: { extraOption: "custom-value" } } },
+            ...anthropicProvider.models,
+            "claude-sonnet-4-6": {
+              ...anthropicProvider.models["claude-sonnet-4-6"],
+              variants: { high: { extraOption: "custom-value" } },
+            },
           },
         },
       },
@@ -1750,7 +1960,15 @@ it.instance(
   }),
   {
     config: {
-      provider: { openai: { models: { "gpt-5": { variants: { high: { disabled: true } } } } } },
+      provider: {
+        openai: {
+          ...openaiProvider,
+          models: {
+            ...openaiProvider.models,
+            "gpt-5": { ...openaiProvider.models["gpt-5"], variants: { high: { disabled: true } } },
+          },
+        },
+      },
     },
   },
 )
@@ -1861,88 +2079,106 @@ it.instance(
   },
 )
 
-it.instance("Google Vertex: uses REP endpoint for Claude continental multi-regions", () =>
-  Effect.gen(function* () {
-    yield* set("GOOGLE_CLOUD_PROJECT", "test-project")
-    yield* set("VERTEX_LOCATION", "eu")
-    const provider = yield* Provider.Service
-    const model = yield* provider.getModel(
-      ProviderV2.ID.make("google-vertex"),
-      ModelV2.ID.make("claude-sonnet-4-6@default"),
-    )
-    const language = yield* provider.getLanguage(model)
-    expect(languageBaseURL(language)).toBe(
-      "https://aiplatform.eu.rep.googleapis.com/v1/projects/test-project/locations/eu/publishers/anthropic/models",
-    )
-  }),
+it.instance(
+  "Google Vertex: uses REP endpoint for Claude continental multi-regions",
+  () =>
+    Effect.gen(function* () {
+      yield* set("GOOGLE_CLOUD_PROJECT", "test-project")
+      yield* set("VERTEX_LOCATION", "eu")
+      const provider = yield* Provider.Service
+      const model = yield* provider.getModel(
+        ProviderV2.ID.make("google-vertex"),
+        ModelV2.ID.make("claude-sonnet-4-6@default"),
+      )
+      const language = yield* provider.getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1/projects/test-project/locations/eu/publishers/anthropic/models",
+      )
+    }),
+  { config: { provider: { "google-vertex": googleVertexProvider } } },
 )
 
-it.instance("Google Vertex Anthropic: uses REP endpoint for continental multi-regions", () =>
-  Effect.gen(function* () {
-    yield* set("GOOGLE_CLOUD_PROJECT", "test-project")
-    yield* set("VERTEX_LOCATION", "us")
-    const provider = yield* Provider.Service
-    const model = yield* provider.getModel(
-      ProviderV2.ID.make("google-vertex-anthropic"),
-      ModelV2.ID.make("claude-sonnet-4-6@default"),
-    )
-    const language = yield* provider.getLanguage(model)
-    expect(languageBaseURL(language)).toBe(
-      "https://aiplatform.us.rep.googleapis.com/v1/projects/test-project/locations/us/publishers/anthropic/models",
-    )
-  }),
+it.instance(
+  "Google Vertex Anthropic: uses REP endpoint for continental multi-regions",
+  () =>
+    Effect.gen(function* () {
+      yield* set("GOOGLE_CLOUD_PROJECT", "test-project")
+      yield* set("VERTEX_LOCATION", "us")
+      const provider = yield* Provider.Service
+      const model = yield* provider.getModel(
+        ProviderV2.ID.make("google-vertex-anthropic"),
+        ModelV2.ID.make("claude-sonnet-4-6@default"),
+      )
+      const language = yield* provider.getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.us.rep.googleapis.com/v1/projects/test-project/locations/us/publishers/anthropic/models",
+      )
+    }),
+  { config: { provider: { "google-vertex-anthropic": googleVertexAnthropicProvider } } },
 )
 
-it.instance("Google Vertex: keeps regional Claude endpoints unchanged", () =>
-  Effect.gen(function* () {
-    yield* set("GOOGLE_CLOUD_PROJECT", "test-project")
-    yield* set("VERTEX_LOCATION", "europe-west1")
-    const provider = yield* Provider.Service
-    const model = yield* provider.getModel(
-      ProviderV2.ID.make("google-vertex"),
-      ModelV2.ID.make("claude-sonnet-4-6@default"),
-    )
-    const language = yield* provider.getLanguage(model)
-    expect(languageBaseURL(language)).toBe(
-      "https://europe-west1-aiplatform.googleapis.com/v1/projects/test-project/locations/europe-west1/publishers/anthropic/models",
-    )
-  }),
+it.instance(
+  "Google Vertex: keeps regional Claude endpoints unchanged",
+  () =>
+    Effect.gen(function* () {
+      yield* set("GOOGLE_CLOUD_PROJECT", "test-project")
+      yield* set("VERTEX_LOCATION", "europe-west1")
+      const provider = yield* Provider.Service
+      const model = yield* provider.getModel(
+        ProviderV2.ID.make("google-vertex"),
+        ModelV2.ID.make("claude-sonnet-4-6@default"),
+      )
+      const language = yield* provider.getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://europe-west1-aiplatform.googleapis.com/v1/projects/test-project/locations/europe-west1/publishers/anthropic/models",
+      )
+    }),
+  { config: { provider: { "google-vertex": googleVertexProvider } } },
 )
 
-it.instance("Google Vertex: uses REP endpoint for Gemini continental multi-regions", () =>
-  Effect.gen(function* () {
-    yield* set("GOOGLE_CLOUD_PROJECT", "test-project")
-    yield* set("VERTEX_LOCATION", "eu")
-    const provider = yield* Provider.Service
-    const model = yield* provider.getModel(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("gemini-3.5-flash"))
-    const language = yield* provider.getLanguage(model)
-    expect(languageBaseURL(language)).toBe(
-      "https://aiplatform.eu.rep.googleapis.com/v1beta1/projects/test-project/locations/eu/publishers/google",
-    )
-  }),
+it.instance(
+  "Google Vertex: uses REP endpoint for Gemini continental multi-regions",
+  () =>
+    Effect.gen(function* () {
+      yield* set("GOOGLE_CLOUD_PROJECT", "test-project")
+      yield* set("VERTEX_LOCATION", "eu")
+      const provider = yield* Provider.Service
+      const model = yield* provider.getModel(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("gemini-3.5-flash"))
+      const language = yield* provider.getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://aiplatform.eu.rep.googleapis.com/v1beta1/projects/test-project/locations/eu/publishers/google",
+      )
+    }),
+  { config: { provider: { "google-vertex": googleVertexProvider } } },
 )
 
-it.instance("Google Vertex: keeps regional Gemini endpoints unchanged", () =>
-  Effect.gen(function* () {
-    yield* set("GOOGLE_CLOUD_PROJECT", "test-project")
-    yield* set("VERTEX_LOCATION", "europe-west1")
-    const provider = yield* Provider.Service
-    const model = yield* provider.getModel(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("gemini-3.5-flash"))
-    const language = yield* provider.getLanguage(model)
-    expect(languageBaseURL(language)).toBe(
-      "https://europe-west1-aiplatform.googleapis.com/v1beta1/projects/test-project/locations/europe-west1/publishers/google",
-    )
-  }),
+it.instance(
+  "Google Vertex: keeps regional Gemini endpoints unchanged",
+  () =>
+    Effect.gen(function* () {
+      yield* set("GOOGLE_CLOUD_PROJECT", "test-project")
+      yield* set("VERTEX_LOCATION", "europe-west1")
+      const provider = yield* Provider.Service
+      const model = yield* provider.getModel(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("gemini-3.5-flash"))
+      const language = yield* provider.getLanguage(model)
+      expect(languageBaseURL(language)).toBe(
+        "https://europe-west1-aiplatform.googleapis.com/v1beta1/projects/test-project/locations/europe-west1/publishers/google",
+      )
+    }),
+  { config: { provider: { "google-vertex": googleVertexProvider } } },
 )
 
-it.instance("cloudflare-ai-gateway loads with env variables", () =>
-  Effect.gen(function* () {
-    yield* set("CLOUDFLARE_ACCOUNT_ID", "test-account")
-    yield* set("CLOUDFLARE_GATEWAY_ID", "test-gateway")
-    yield* set("CLOUDFLARE_API_TOKEN", "test-token")
-    const providers = yield* list
-    expect(providers[ProviderV2.ID.make("cloudflare-ai-gateway")]).toBeDefined()
-  }),
+it.instance(
+  "cloudflare-ai-gateway loads with env variables",
+  () =>
+    Effect.gen(function* () {
+      yield* set("CLOUDFLARE_ACCOUNT_ID", "test-account")
+      yield* set("CLOUDFLARE_GATEWAY_ID", "test-gateway")
+      yield* set("CLOUDFLARE_API_TOKEN", "test-token")
+      const providers = yield* list
+      expect(providers[ProviderV2.ID.make("cloudflare-ai-gateway")]).toBeDefined()
+    }),
+  { config: { provider: { "cloudflare-ai-gateway": cloudflareGatewayProvider } } },
 )
 
 it.instance(
@@ -1960,7 +2196,12 @@ it.instance(
   }),
   {
     config: {
-      provider: { "cloudflare-ai-gateway": { options: { metadata: { invoked_by: "test", project: "opencode" } } } },
+      provider: {
+        "cloudflare-ai-gateway": {
+          ...cloudflareGatewayProvider,
+          options: { metadata: { invoked_by: "test", project: "opencode" } },
+        },
+      },
     },
   },
 )
@@ -2062,13 +2303,14 @@ it.instance(
     expect(providers[ProviderV2.ID.anthropic]).toBeDefined()
     expect(providers[ProviderV2.ID.openai]).toBeUndefined()
   }),
+  { config: { provider: { anthropic: anthropicProvider, openai: openaiProvider } } },
 )
 
 it.effect("opencode loader keeps paid models when config apiKey is present", () =>
   Effect.gen(function* () {
-    const noneDir = yield* tmpdirScoped()
+    const noneDir = yield* tmpdirScoped({ config: { provider: { opencode: opencodeProvider } } })
     const keyedDir = yield* tmpdirScoped({
-      config: { provider: { opencode: { options: { apiKey: "test-key" } } } },
+      config: { provider: { opencode: { ...opencodeProvider, options: { apiKey: "test-key" } } } },
     })
 
     const listIn = (directory: string) =>
@@ -2087,8 +2329,8 @@ it.effect("opencode loader keeps paid models when config apiKey is present", () 
 
 it.effect("opencode loader keeps paid models when auth exists", () =>
   Effect.gen(function* () {
-    const noneDir = yield* tmpdirScoped()
-    const keyedDir = yield* tmpdirScoped()
+    const noneDir = yield* tmpdirScoped({ config: { provider: { opencode: opencodeProvider } } })
+    const keyedDir = yield* tmpdirScoped({ config: { provider: { opencode: opencodeProvider } } })
 
     const listIn = (directory: string) =>
       Provider.use
@@ -2116,3 +2358,7 @@ it.effect("opencode loader keeps paid models when auth exists", () =>
     expect(keyedCount).toBeGreaterThan(0)
   }).pipe(provideMultiInstance),
 )
+
+test("defaultModelIDs skips providers with no models", () => {
+  expect(Provider.defaultModelIDs({ empty: { models: {} } })).toEqual({})
+})

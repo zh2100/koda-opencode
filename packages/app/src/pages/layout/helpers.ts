@@ -1,6 +1,6 @@
 import { getFilename } from "@opencode-ai/core/util/path"
 import { type Session } from "@opencode-ai/sdk/v2/client"
-import { pathKey } from "@/utils/path-key"
+import { pathKey, samePath } from "@/utils/path-key"
 import type { ServerConnection } from "@/context/server"
 import type { HomeProjectSelection } from "@/context/layout"
 
@@ -16,7 +16,7 @@ export function compareSessionTime(a: Session, b: Session) {
 }
 
 const isRootVisibleSession = (session: Session, directory: string) =>
-  pathKey(session.directory) === pathKey(directory) && !session.parentID && !session.time?.archived
+  samePath(session.directory, directory) && !session.parentID && !session.time?.archived
 
 export const roots = (store: SessionStore) =>
   (store.session ?? []).filter((session) => isRootVisibleSession(session, store.path.directory))
@@ -100,10 +100,10 @@ export function projectForSession<T extends { id?: string; worktree: string; san
 ) {
   const direct = byID.get(session.projectID)
   if (direct) return direct
-  const directory = pathKey(session.directory)
   return projects.find(
     (project) =>
-      pathKey(project.worktree) === directory || project.sandboxes?.some((sandbox) => pathKey(sandbox) === directory),
+      samePath(project.worktree, session.directory) ||
+      project.sandboxes?.some((sandbox) => samePath(sandbox, session.directory)),
   )
 }
 

@@ -12,6 +12,7 @@ import { disposeAllInstances } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { bedrockProvider } from "./catalog-config"
 
 const it = testEffect(LayerNode.compile(LayerNode.group([Provider.node, Env.node])))
 
@@ -77,17 +78,20 @@ it.instance(
       expect(providers[ProviderV2.ID.amazonBedrock]).toBeDefined()
       expect(providers[ProviderV2.ID.amazonBedrock].options?.region).toBe("eu-west-1")
     }),
-  { config: { provider: { "amazon-bedrock": { options: { region: "eu-west-1" } } } } },
+  { config: { provider: { "amazon-bedrock": { ...bedrockProvider, options: { region: "eu-west-1" } } } } },
 )
 
-it.instance("Bedrock: falls back to AWS_REGION env var when no config region", () =>
-  Effect.gen(function* () {
-    yield* set("AWS_REGION", "eu-west-1")
-    yield* set("AWS_PROFILE", "default")
-    const providers = yield* list
-    expect(providers[ProviderV2.ID.amazonBedrock]).toBeDefined()
-    expect(providers[ProviderV2.ID.amazonBedrock].options?.region).toBe("eu-west-1")
-  }),
+it.instance(
+  "Bedrock: falls back to AWS_REGION env var when no config region",
+  () =>
+    Effect.gen(function* () {
+      yield* set("AWS_REGION", "eu-west-1")
+      yield* set("AWS_PROFILE", "default")
+      const providers = yield* list
+      expect(providers[ProviderV2.ID.amazonBedrock]).toBeDefined()
+      expect(providers[ProviderV2.ID.amazonBedrock].options?.region).toBe("eu-west-1")
+    }),
+  { config: { provider: { "amazon-bedrock": bedrockProvider } } },
 )
 
 it.instance(
@@ -102,7 +106,7 @@ it.instance(
       expect(providers[ProviderV2.ID.amazonBedrock]).toBeDefined()
       expect(providers[ProviderV2.ID.amazonBedrock].options?.region).toBe("eu-west-1")
     }),
-  { config: { provider: { "amazon-bedrock": { options: { region: "eu-west-1" } } } } },
+  { config: { provider: { "amazon-bedrock": { ...bedrockProvider, options: { region: "eu-west-1" } } } } },
 )
 
 it.instance(
@@ -187,7 +191,12 @@ it.instance(
     }),
   {
     config: {
-      provider: { "amazon-bedrock": { options: { profile: "my-custom-profile", region: "us-east-1" } } },
+      provider: {
+        "amazon-bedrock": {
+          ...bedrockProvider,
+          options: { profile: "my-custom-profile", region: "us-east-1" },
+        },
+      },
     },
   },
 )
@@ -207,6 +216,7 @@ it.instance(
     config: {
       provider: {
         "amazon-bedrock": {
+          ...bedrockProvider,
           options: { endpoint: "https://bedrock-runtime.us-east-1.vpce-xxxxx.amazonaws.com" },
         },
       },
@@ -226,7 +236,7 @@ it.instance(
       expect(providers[ProviderV2.ID.amazonBedrock]).toBeDefined()
       expect(providers[ProviderV2.ID.amazonBedrock].options?.region).toBe("us-east-1")
     }),
-  { config: { provider: { "amazon-bedrock": { options: { region: "us-east-1" } } } } },
+  { config: { provider: { "amazon-bedrock": { ...bedrockProvider, options: { region: "us-east-1" } } } } },
 )
 
 // Cross-region inference profile prefix handling.
@@ -246,6 +256,7 @@ it.instance(
     config: {
       provider: {
         "amazon-bedrock": {
+          ...bedrockProvider,
           options: { region: "us-east-1" },
           models: { "us.anthropic.claude-opus-4-5-20251101-v1:0": { name: "Claude Opus 4.5 (US)" } },
         },
@@ -269,6 +280,7 @@ it.instance(
     config: {
       provider: {
         "amazon-bedrock": {
+          ...bedrockProvider,
           options: { region: "us-east-1" },
           models: { "global.anthropic.claude-opus-4-5-20251101-v1:0": { name: "Claude Opus 4.5 (Global)" } },
         },
@@ -290,6 +302,7 @@ it.instance(
     config: {
       provider: {
         "amazon-bedrock": {
+          ...bedrockProvider,
           options: { region: "eu-west-1" },
           models: { "eu.anthropic.claude-opus-4-5-20251101-v1:0": { name: "Claude Opus 4.5 (EU)" } },
         },
@@ -311,6 +324,7 @@ it.instance(
     config: {
       provider: {
         "amazon-bedrock": {
+          ...bedrockProvider,
           options: { region: "us-east-1" },
           models: { "anthropic.claude-opus-4-5-20251101-v1:0": { name: "Claude Opus 4.5" } },
         },

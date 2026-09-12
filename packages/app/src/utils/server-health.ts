@@ -1,11 +1,19 @@
 import { usePlatform } from "@/context/platform"
 import { ServerConnection } from "@/context/server"
-import { authTokenFromCredentials, createSdkForServer } from "./server"
-import { ClientError, OpenCode } from "@opencode-ai/client"
+import { createGeneratedApiForServer, createSdkForServer } from "./server"
+import { ClientError } from "../../../client/src/generated/client-error"
 import { Accessor, createEffect, onCleanup } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 
-export type ServerHealth = { healthy: boolean; version?: string }
+export type RelayGates = {
+  relayCoreUi: boolean
+  relayLayout: boolean
+  relaySkills: boolean
+  relayMcp: boolean
+  scheduledTasks: boolean
+}
+
+export type ServerHealth = { healthy: boolean; version?: string; gates?: RelayGates }
 
 interface CheckServerHealthOptions {
   timeoutMs?: number
@@ -85,19 +93,11 @@ export async function checkServerHealth(
       .catch(() => ({ healthy: false }))
   }
   const attempt = async (count: number): Promise<ServerHealth> => {
-    const current = await OpenCode.make({
-      baseUrl: server.url,
-      fetch,
-      headers: server.password
-        ? {
-            Authorization: `Basic ${authTokenFromCredentials({ username: server.username, password: server.password })}`,
-          }
-        : undefined,
-    })
+    const current = await createGeneratedApiForServer({ server, fetch })
       .health.get({ signal })
       .then((x) =>
         typeof x.healthy === "boolean"
-          ? { data: { healthy: x.healthy, version: x.version } }
+          ? { data: { healthy: x.healthy, gates: x.gates } }
           : { error: new Error("Invalid health response") },
       )
       .catch((error) => ({ error }))
@@ -106,7 +106,15 @@ export async function checkServerHealth(
 
     return createSdkForServer({ server, fetch, signal })
       .global.health()
-      .then((x) => (x.error ? next(count, x.error) : { healthy: x.data?.healthy === true, version: x.data?.version }))
+      .then((x) => {
+        if (x.error) return next(count, x.error)
+        const data = x.data as { healthy?: boolean; version?: string; gates?: RelayGates } | undefined
+        return {
+          healthy: data?.healthy === true,
+          version: data?.version,
+          gates: data?.gates,
+        }
+      })
       .catch((error) => next(count, error))
   }
   return attempt(0).finally(() => timeout?.clear?.())

@@ -306,10 +306,27 @@ describe("PermissionV2", () => {
       ).toMatchObject([{ action: "read", resource: "src/*" }])
       const saved = yield* PermissionSaved.Service
       const id = (yield* saved.list())[0]!.id
-      expect(yield* saved.list()).toEqual([{ id, projectID: Project.ID.global, action: "read", resource: "src/*" }])
+      expect(yield* saved.list()).toEqual([
+        { id, projectID: Project.ID.global, action: "read", resource: "src/*", effect: "allow" },
+      ])
       yield* service.assert(assertion({ id: PermissionV2.ID.create("per_next"), resources: ["src/next.ts"] }))
       yield* saved.remove(id)
       expect(yield* saved.list()).toEqual([])
+    }),
+  )
+
+  it.effect("overwrites a saved allow with deny", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "skill", resource: "*", effect: "allow" }])
+      const saved = yield* PermissionSaved.Service
+      yield* saved.add({ projectID: Project.ID.global, action: "skill", resources: ["demo"] })
+      yield* saved.add({ projectID: Project.ID.global, action: "skill", resources: ["demo"], effect: "deny" })
+      const service = yield* PermissionV2.Service
+      expect(yield* service.ask(assertion({ action: "skill", resources: ["demo"] }))).toEqual({
+        id: PermissionV2.ID.create("per_test"),
+        effect: "deny",
+      })
+      expect(yield* saved.list()).toMatchObject([{ action: "skill", resource: "demo", effect: "deny" }])
     }),
   )
 })

@@ -1,28 +1,23 @@
 import { Auth } from "@/auth"
-
 import { Effect } from "effect"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { RootHttpApi } from "../api"
 import { LogInput } from "../groups/control"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 
 export const controlHandlers = HttpApiBuilder.group(RootHttpApi, "control", (handlers) =>
   Effect.gen(function* () {
-    const auth = yield* Auth.Service
-
-    const authSet = Effect.fn("ControlHttpApi.authSet")(function* (ctx: {
+    const authSet = Effect.fn("ControlHttpApi.authSet")(function* (_ctx: {
       params: { providerID: ProviderV2.ID }
       payload: Auth.Info
     }) {
-      yield* auth.set(ctx.params.providerID, ctx.payload).pipe(Effect.orDie)
-      return true
+      return yield* new HttpApiError.BadRequest()
     })
 
-    const authRemove = Effect.fn("ControlHttpApi.authRemove")(function* (ctx: {
+    const authRemove = Effect.fn("ControlHttpApi.authRemove")(function* (_ctx: {
       params: { providerID: ProviderV2.ID }
     }) {
-      yield* auth.remove(ctx.params.providerID).pipe(Effect.orDie)
-      return true
+      return yield* new HttpApiError.BadRequest()
     })
 
     const log = Effect.fn("ControlHttpApi.log")(function* (ctx: { payload: typeof LogInput.Type }) {

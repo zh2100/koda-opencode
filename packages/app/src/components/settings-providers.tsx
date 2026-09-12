@@ -1,148 +1,41 @@
 import { Button } from "@opencode-ai/ui/button"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Checkbox } from "@opencode-ai/ui/checkbox"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
+import { Switch } from "@opencode-ai/ui/switch"
 import { Tag } from "@opencode-ai/ui/tag"
+import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@/utils/toast"
-import { popularProviders, useProviders } from "@/hooks/use-providers"
-import { createMemo, type Component, For, Show } from "solid-js"
+import { type Component, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
-import { useServerProtocol, useServerSDK } from "@/context/server-sdk"
-import { useServerSync } from "@/context/server-sync"
-import { DialogConnectProvider, useProviderConnectController } from "./dialog-connect-provider"
-import { DialogCustomProvider } from "./dialog-custom-provider"
+import { usePlatform } from "@/context/platform"
+import { relayErrorKey, useRelaySettings } from "@/hooks/use-relay-settings"
 import { SettingsList } from "./settings-list"
 import { SettingsServerPicker, SettingsServerScope } from "./settings-server-picker"
 
-type ProviderSource = "env" | "api" | "config" | "custom"
-type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
+const UPSTREAM = "https://api.leidiandonghua.cn/v1"
 
-const PROVIDER_NOTES = [
-  { match: (id: string) => id === "opencode", key: "dialog.provider.opencode.note" },
-  { match: (id: string) => id === "opencode-go", key: "dialog.provider.opencodeGo.tagline" },
-  { match: (id: string) => id === "anthropic", key: "dialog.provider.anthropic.note" },
-  { match: (id: string) => id.startsWith("github-copilot"), key: "dialog.provider.copilot.note" },
-  { match: (id: string) => id === "openai", key: "dialog.provider.openai.note" },
-  { match: (id: string) => id === "google", key: "dialog.provider.google.note" },
-  { match: (id: string) => id === "openrouter", key: "dialog.provider.openrouter.note" },
-  { match: (id: string) => id === "vercel", key: "dialog.provider.vercel.note" },
-] as const
-
-export const SettingsProviders: Component<{ onBack?: () => void }> = (props) => {
+export const SettingsProviders: Component<{ onBack?: () => void }> = () => {
   return (
     <SettingsServerScope>
-      <SettingsProvidersContent onBack={props.onBack} />
+      <SettingsProvidersContent />
     </SettingsServerScope>
   )
 }
 
-const SettingsProvidersContent: Component<{ onBack?: () => void }> = (props) => {
-  const dialog = useDialog()
+const SettingsProvidersContent: Component = () => {
   const language = useLanguage()
-  const serverSDK = useServerSDK()
-  const protocol = useServerProtocol()
-  const serverSync = useServerSync()
-  const providers = useProviders(() => undefined)
-  const providerConnect = useProviderConnectController({ onBack: props.onBack })
+  const platform = usePlatform()
+  const relay = useRelaySettings()
 
-  const connect = (provider?: string) => {
-    providerConnect.select(provider)
-    void dialog.show(() => <DialogConnectProvider controller={providerConnect} />)
-  }
-
-  const connected = createMemo(() => {
-    return providers
-      .connected()
-      .filter((p) => p.id !== "opencode" || Object.values(p.models).find((m) => m.cost?.input))
-  })
-
-  const popular = createMemo(() => {
-    const connectedIDs = new Set(connected().map((p) => p.id))
-    const items = providers
-      .popular()
-      .filter((p) => !connectedIDs.has(p.id))
-      .slice()
-    items.sort((a, b) => popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id))
-    return items
-  })
-
-  const source = (item: ProviderItem): ProviderSource | undefined => {
-    if (!("source" in item)) return
-    const value = item.source
-    if (value === "env" || value === "api" || value === "config" || value === "custom") return value
-    return
-  }
-
-  const type = (item: ProviderItem) => {
-    const current = source(item)
-    if (current === "env") return language.t("settings.providers.tag.environment")
-    if (current === "api") return language.t("provider.connect.method.apiKey")
-    if (current === "config") {
-      if (isConfigCustom(item.id)) return language.t("settings.providers.tag.custom")
-      return language.t("settings.providers.tag.config")
+  const run = async (action: () => Promise<void>) => {
+    try {
+      await action()
+    } catch (error) {
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: language.t(relayErrorKey(error)),
+      })
     }
-    if (current === "custom") return language.t("settings.providers.tag.custom")
-    return language.t("settings.providers.tag.other")
-  }
-
-  const canDisconnect = (item: ProviderItem) =>
-    source(item) !== "env" && (protocol() === "v1" || !isConfigCustom(item.id))
-
-  const note = (id: string) => PROVIDER_NOTES.find((item) => item.match(id))?.key
-
-  const isConfigCustom = (providerID: string) => {
-    const provider = serverSync().data.config.provider?.[providerID]
-    if (!provider) return false
-    if (provider.npm !== "@ai-sdk/openai-compatible") return false
-    if (!provider.models || Object.keys(provider.models).length === 0) return false
-    return true
-  }
-
-  const disableProvider = async (providerID: string, name: string) => {
-    if (protocol() !== "v1") return
-    const before = serverSync().data.config.disabled_providers ?? []
-    const next = before.includes(providerID) ? before : [...before, providerID]
-    serverSync().set("config", "disabled_providers", next)
-
-    await serverSync()
-      .updateConfig({ disabled_providers: next })
-      .then(() => {
-        showToast({
-          variant: "success",
-          icon: "circle-check",
-          title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
-        })
-      })
-      .catch((err: unknown) => {
-        serverSync().set("config", "disabled_providers", before)
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
-      })
-  }
-
-  const disconnect = async (providerID: string, name: string) => {
-    if (isConfigCustom(providerID)) {
-      await serverSDK()
-        .client.auth.remove({ providerID })
-        .catch(() => undefined)
-      await disableProvider(providerID, name)
-      return
-    }
-    await serverSDK()
-      .client.auth.remove({ providerID })
-      .then(async () => {
-        await serverSDK().client.global.dispose()
-        showToast({
-          variant: "success",
-          icon: "circle-check",
-          title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
-        })
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
-      })
   }
 
   return (
@@ -155,110 +48,260 @@ const SettingsProvidersContent: Component<{ onBack?: () => void }> = (props) => 
       </div>
 
       <div class="flex flex-col gap-8 max-w-[720px]">
-        <div class="flex flex-col gap-1" data-component="connected-providers-section">
-          <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.providers.section.connected")}</h3>
-          <SettingsList>
-            <Show
-              when={connected().length > 0}
-              fallback={
-                <div class="py-4 text-14-regular text-text-weak">
-                  {language.t("settings.providers.connected.empty")}
-                </div>
-              }
+        <Show when={relay.store.error}>
+          {(key) => (
+            <div class="flex items-center justify-between gap-4">
+              <span class="text-14-regular text-text-weak">{language.t(key())}</span>
+              <Button size="large" variant="ghost" onClick={() => void relay.reload()}>
+                {language.t("settings.relay.retry")}
+              </Button>
+            </div>
+          )}
+        </Show>
+
+        <SettingsList>
+          <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base">
+            <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span class="text-14-medium text-text-strong">{language.t("settings.relay.unified")}</span>
+              <span class="text-12-regular text-text-weak">{language.t("settings.relay.unified.description")}</span>
+            </div>
+            <Switch
+              checked={relay.store.auth?.unified ?? false}
+              onChange={(checked) => void run(() => relay.setMode(checked))}
+              hideLabel
             >
-              <For each={connected()}>
-                {(item) => (
-                  <div class="group flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base last:border-none">
-                    <div class="flex items-center gap-3 min-w-0">
-                      <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
-                      <span class="text-14-medium text-text-strong truncate">{item.name}</span>
-                      <Tag>{type(item)}</Tag>
-                    </div>
-                    <Show
-                      when={canDisconnect(item)}
-                      fallback={
-                        <span class="text-14-regular text-text-base opacity-0 group-hover:opacity-100 transition-opacity duration-200 pr-3 cursor-default">
-                          {language.t("settings.providers.connected.environmentDescription")}
-                        </span>
-                      }
-                    >
-                      <Button size="large" variant="ghost" onClick={() => void disconnect(item.id, item.name)}>
-                        {language.t("common.disconnect")}
-                      </Button>
-                    </Show>
-                  </div>
-                )}
-              </For>
-            </Show>
+              {language.t("settings.relay.unified")}
+            </Switch>
+          </div>
+          <div class="flex flex-col gap-3 py-3 border-b border-border-weak-base">
+            <span class="text-14-medium text-text-strong">{language.t("settings.relay.unified.key")}</span>
+            <TextField
+              type="password"
+              label={language.t("settings.relay.unified.key")}
+              hideLabel
+              value={relay.store.unifiedKey}
+              placeholder={language.t("settings.relay.key.placeholder")}
+              description={
+                relay.store.auth?.hasUnifiedKey
+                  ? language.t("settings.relay.key.keep")
+                  : language.t("settings.relay.key.placeholder")
+              }
+              onChange={(value) => relay.setStore("unifiedKey", value)}
+            />
+            <div class="flex flex-wrap gap-2">
+              <Button size="large" variant="secondary" onClick={() => void run(relay.saveUnified)}>
+                {language.t("common.save")}
+              </Button>
+              <Show when={relay.store.auth?.hasUnifiedKey}>
+                <Button size="large" variant="ghost" onClick={() => void run(relay.clearUnified)}>
+                  {language.t("settings.relay.clearKey")}
+                </Button>
+              </Show>
+            </div>
+          </div>
+          <div class="py-3">
+            <span class="text-12-regular text-text-weak">
+              {language.t("settings.relay.upstream")}: <bdi dir="ltr">{UPSTREAM}</bdi>
+            </span>
+          </div>
+        </SettingsList>
+
+        <Show when={relay.store.auth?.canRollback}>
+          <SettingsList>
+            <div class="flex items-center justify-between gap-4 py-3">
+              <div class="flex min-w-0 flex-col gap-1">
+                <span class="text-14-medium text-text-strong">{language.t("settings.relay.rollback")}</span>
+                <span class="text-12-regular text-text-weak">{language.t("settings.relay.rollback.description")}</span>
+              </div>
+              <Button size="large" variant="ghost" onClick={() => void run(relay.rollback)}>
+                {language.t("common.reset")}
+              </Button>
+            </div>
+          </SettingsList>
+        </Show>
+
+        <div class="flex flex-col gap-1">
+          <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.relay.title")}</h3>
+          <div class="flex flex-wrap items-center gap-3 pb-2">
+            <Button size="large" variant="secondary" onClick={() => platform.openExternal("https://api.leidiandonghua.cn/console/token")}>
+              {language.t("settings.relay.getKey")}
+            </Button>
+            <p class="text-12-regular text-text-weak">{language.t("settings.relay.getKey.description")}</p>
+          </div>
+          <SettingsList>
+            <For each={relay.store.auth?.vendors ?? []}>
+              {(vendor) => (
+                <VendorCard vendor={vendor} relay={relay} run={run} />
+              )}
+            </For>
           </SettingsList>
         </div>
 
-        <div class="flex flex-col gap-1">
-          <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.providers.section.popular")}</h3>
-          <SettingsList>
-            <For each={popular()}>
-              {(item) => (
-                <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base last:border-none">
-                  <div class="flex flex-col min-w-0">
-                    <div class="flex items-center gap-x-3">
-                      <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
-                      <span class="text-14-medium text-text-strong">{item.name}</span>
-                      <Show when={item.id === "opencode"}>
-                        <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
-                      </Show>
-                      <Show when={item.id === "opencode-go"}>
-                        <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
-                      </Show>
-                    </div>
-                    <Show when={note(item.id)}>
-                      {(key) => <span class="text-12-regular text-text-weak pl-8">{language.t(key())}</span>}
-                    </Show>
-                  </div>
-                  <Button size="large" variant="secondary" icon="plus-small" onClick={() => connect(item.id)}>
-                    {language.t("common.connect")}
-                  </Button>
-                </div>
-              )}
-            </For>
+        <SettingsList>
+          <div class="flex flex-col gap-3 py-3">
+            <span class="text-14-medium text-text-strong">{language.t("settings.relay.add")}</span>
+            <TextField
+              value={relay.store.addName}
+              placeholder={language.t("settings.relay.add.name")}
+              onChange={(value) => relay.setStore("addName", value)}
+            />
+            <TextField
+              type="password"
+              value={relay.store.addKey}
+              placeholder={language.t("settings.relay.key.placeholder")}
+              onChange={(value) => relay.setStore("addKey", value)}
+            />
+            <Button size="large" variant="secondary" icon="plus-small" onClick={() => void run(relay.addVendor)}>
+              {language.t("settings.relay.add")}
+            </Button>
+          </div>
+        </SettingsList>
+      </div>
+    </div>
+  )
+}
 
-            <Show when={protocol() === "v1"}>
-              <div
-                class="flex items-center justify-between gap-4 min-h-16 border-b border-border-weak-base last:border-none flex-wrap py-3"
-                data-component="custom-provider-section"
-              >
-                <div class="flex flex-col min-w-0">
-                  <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <ProviderIcon id="synthetic" class="size-5 shrink-0 icon-strong-base" />
-                    <span class="text-14-medium text-text-strong">{language.t("provider.custom.title")}</span>
-                    <Tag>{language.t("settings.providers.tag.custom")}</Tag>
-                  </div>
-                  <span class="text-12-regular text-text-weak pl-8">
-                    {language.t("settings.providers.custom.description")}
-                  </span>
-                </div>
-                <Button
-                  size="large"
-                  variant="secondary"
-                  icon="plus-small"
-                  onClick={() => {
-                    dialog.show(() => <DialogCustomProvider onBack={dialog.close} />)
-                  }}
-                >
-                  {language.t("common.connect")}
-                </Button>
-              </div>
-            </Show>
-          </SettingsList>
+const VendorCard: Component<{
+  vendor: NonNullable<ReturnType<typeof useRelaySettings>["store"]["auth"]>["vendors"][number]
+  relay: ReturnType<typeof useRelaySettings>
+  run: (action: () => Promise<void>) => Promise<void>
+}> = (props) => {
+  const language = useLanguage()
+  const unified = () => props.relay.store.auth?.unified ?? false
+  const hasKey = () => (unified() ? props.relay.store.auth?.hasUnifiedKey : props.vendor.hasKey)
+  const draft = () => props.relay.draft(props.vendor)
+  const status = () => props.relay.store.status[props.vendor.id]
+  const open = () => props.relay.store.open === props.vendor.id
 
+  return (
+    <div class="flex flex-col gap-3 py-3 border-b border-border-weak-base last:border-none">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-3 min-w-0">
+          <ProviderIcon id={props.vendor.id} class="size-5 shrink-0 icon-strong-base" />
+          <span class="text-14-medium text-text-strong truncate">{props.vendor.name}</span>
+          <Show when={props.vendor.builtin}>
+            <Tag>{language.t("settings.relay.builtin")}</Tag>
+          </Show>
+          <Show when={hasKey()}>
+            <Tag>{language.t("settings.relay.key.set")}</Tag>
+          </Show>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-12-regular text-text-weak">
+            {language.t("settings.relay.models.visible", { count: props.relay.visibleCount(props.vendor.id) })}
+          </span>
+          <Show when={status() === "connected"}>
+            <span class="text-12-regular text-text-weak">
+              {language.t("settings.relay.connected", {
+                count: props.relay.vendorCandidates(props.vendor.id).length,
+              })}
+            </span>
+          </Show>
+          <Show when={status() === "empty"}>
+            <span class="text-12-regular text-text-weak">{language.t("settings.relay.connectedEmpty")}</span>
+          </Show>
           <Button
+            size="large"
             variant="ghost"
-            class="px-0 py-0 mt-5 text-14-medium text-text-interactive-base text-left justify-start hover:bg-transparent active:bg-transparent"
-            onClick={() => connect()}
+            onClick={() => props.relay.setStore("open", open() ? undefined : props.vendor.id)}
           >
-            {language.t("dialog.provider.viewAll")}
+            {language.t("settings.relay.edit")}
           </Button>
         </div>
       </div>
+
+      <Show when={open()}>
+        <div class="flex flex-col gap-3 ps-8">
+          <TextField
+            value={draft().name}
+            onChange={(value) => props.relay.setDraft(props.vendor.id, "name", value)}
+          />
+          <Show
+            when={!unified()}
+            fallback={<span class="text-12-regular text-text-weak">{language.t("settings.relay.unified.using")}</span>}
+          >
+            <TextField
+              type="password"
+              value={draft().key}
+              placeholder={language.t("settings.relay.key.placeholder")}
+              description={props.vendor.hasKey ? language.t("settings.relay.key.keep") : undefined}
+              onChange={(value) => props.relay.setDraft(props.vendor.id, "key", value)}
+            />
+          </Show>
+          <div class="flex flex-wrap gap-2">
+            <Button size="large" variant="secondary" onClick={() => void props.run(() => props.relay.saveVendor(props.vendor))}>
+              {language.t("common.save")}
+            </Button>
+            <Button
+              size="large"
+              variant="ghost"
+              disabled={props.relay.store.testing === props.vendor.id}
+              onClick={() =>
+                void props.run(async () => {
+                  const status = await props.relay.probe(props.vendor.id)
+                  showToast({
+                    title:
+                      status === "connected"
+                        ? language.t("settings.relay.test.ok")
+                        : language.t("settings.relay.test.empty"),
+                  })
+                })
+              }
+            >
+              {props.relay.store.testing === props.vendor.id
+                ? language.t("settings.relay.testing")
+                : language.t("settings.relay.test")}
+            </Button>
+            <Button
+              size="large"
+              variant="ghost"
+              disabled={props.relay.store.fetching === props.vendor.id}
+              onClick={() => void props.run(() => props.relay.fetchModels(props.vendor.id))}
+            >
+              {props.relay.store.fetching === props.vendor.id
+                ? language.t("settings.relay.fetching")
+                : language.t("settings.relay.fetch")}
+            </Button>
+            <Show when={!unified() && props.vendor.hasKey}>
+              <Button size="large" variant="ghost" onClick={() => void props.run(() => props.relay.clearVendorKey(props.vendor))}>
+                {language.t("settings.relay.clearKey")}
+              </Button>
+            </Show>
+            <Show when={!props.vendor.builtin}>
+              <Button size="large" variant="ghost" onClick={() => void props.run(() => props.relay.deleteVendor(props.vendor))}>
+                {language.t("settings.relay.delete")}
+              </Button>
+            </Show>
+          </div>
+          <div class="flex flex-col gap-2">
+            <span class="text-14-medium text-text-strong">
+              {language.t("settings.relay.models.title", { vendor: props.vendor.name })}
+            </span>
+            <Show
+              when={props.relay.vendorCandidates(props.vendor.id).length > 0}
+              fallback={<span class="text-12-regular text-text-weak">{language.t("settings.relay.models.empty")}</span>}
+            >
+              <For each={props.relay.vendorCandidates(props.vendor.id)}>
+                {(item) => (
+                  <Checkbox
+                    checked={props.relay.isVisible(props.vendor.id, item.modelId)}
+                    onChange={(checked) =>
+                      void props.run(() => props.relay.setVisible(props.vendor.id, item.modelId, checked))
+                    }
+                  >
+                    <span class="flex items-center gap-2">
+                      <bdi dir="auto">{item.displayName ?? item.modelId}</bdi>
+                      <Show when={!item.upstreamPresent}>
+                        <Tag>{language.t("settings.relay.models.missing")}</Tag>
+                      </Show>
+                    </span>
+                  </Checkbox>
+                )}
+              </For>
+            </Show>
+          </div>
+        </div>
+      </Show>
     </div>
   )
 }

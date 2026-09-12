@@ -5,9 +5,11 @@ import { Provider } from "../../src/provider/provider"
 import { Effect } from "effect"
 import { testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { digitaloceanProvider } from "./catalog-config"
 
 const DIGITALOCEAN = ProviderV2.ID.make("digitalocean")
 const it = testEffect(LayerNode.compile(Provider.node))
+const digitaloceanConfig = { provider: { digitalocean: digitaloceanProvider } }
 
 const withEnv = <A, E, R>(values: Record<string, string>, effect: Effect.Effect<A, E, R>) =>
   Effect.acquireUseRelease(
@@ -57,7 +59,7 @@ it.instance(
         expect(routerEntries.length).toBe(0)
       }),
     ),
-  { config: {} },
+  { config: digitaloceanConfig },
 )
 
 it.instance(
@@ -84,7 +86,7 @@ it.instance(
         expect(models["router:other-router"]).toBeDefined()
       }),
     ),
-  { config: {} },
+  { config: digitaloceanConfig },
 )
 
 it.instance(
@@ -104,7 +106,7 @@ it.instance(
         expect(models["router:stale-router"]).toBeDefined()
       }),
     ),
-  { config: {} },
+  { config: digitaloceanConfig },
 )
 
 it.instance(
@@ -120,5 +122,5 @@ it.instance(
         expect(Object.keys(models).filter((id) => id.startsWith("router:")).length).toBe(0)
       }),
     ),
-  { config: {} },
+  { config: digitaloceanConfig },
 )

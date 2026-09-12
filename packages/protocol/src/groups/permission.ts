@@ -46,6 +46,23 @@ export const makePermissionGroup = <
       ),
     )
     .add(
+      HttpApiEndpoint.post("permission.saved.add", "/api/permission/saved", {
+        payload: Schema.Struct({
+          projectID: Project.ID,
+          action: Schema.String,
+          resource: Schema.String,
+          effect: Schema.optional(Permission.Effect),
+        }),
+        success: HttpApiSchema.NoContent,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "v2.permission.saved.create",
+          summary: "Save a permission",
+          description: "Save a permission rule for a project action and resource.",
+        }),
+      ),
+    )
+    .add(
       HttpApiEndpoint.delete("permission.saved.remove", "/api/permission/saved/:id", {
         params: { id: PermissionSaved.ID },
         success: HttpApiSchema.NoContent,

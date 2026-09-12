@@ -25,7 +25,6 @@ import { Credential } from "../src/credential"
 import { Database } from "../src/database/database"
 import { EventV2 } from "../src/event"
 import { Global } from "../src/global"
-import { ModelsDev } from "../src/models-dev"
 import { Npm } from "../src/npm"
 import { Project } from "../src/project"
 import { Reference } from "../src/reference"
@@ -80,7 +79,7 @@ describe("LocationServiceMap", () => {
             fs.writeFile(
               path.join(blocked.path, "opencode.json"),
               JSON.stringify({
-                experimental: { policies: [{ effect: "deny", action: "provider.use", resource: "test" }] },
+                experimental: { policies: [{ effect: "deny", action: "provider.use", resource: "leidiandonghua" }] },
               }),
             ),
           )
@@ -89,7 +88,7 @@ describe("LocationServiceMap", () => {
             Effect.gen(function* () {
               yield* Reference.Service
               const catalog = yield* Catalog.Service
-              yield* catalog.transform((editor) => editor.provider.update(ProviderV2.ID.make("test"), () => {}))
+              yield* catalog.transform((editor) => editor.provider.update(ProviderV2.ID.leidiandonghua, () => {}))
               return {
                 providers: yield* catalog.provider.all(),
                 tools: yield* toolDefinitions(yield* ToolRegistry.Service),
@@ -102,7 +101,7 @@ describe("LocationServiceMap", () => {
             )
 
           const blockedState = yield* update(blocked.path)
-          expect(blockedState.providers.some((provider) => provider.id === ProviderV2.ID.make("test"))).toBe(false)
+          expect(blockedState.providers.some((provider) => provider.id === ProviderV2.ID.leidiandonghua)).toBe(false)
           expect(blockedState.tools.map((tool) => tool.name).sort()).toEqual([
             "application_context",
             "apply_patch",
@@ -119,7 +118,7 @@ describe("LocationServiceMap", () => {
             "write",
           ])
           const allowedState = yield* update(allowed.path)
-          expect(allowedState.providers.some((provider) => provider.id === ProviderV2.ID.make("test"))).toBe(true)
+          expect(allowedState.providers.some((provider) => provider.id === ProviderV2.ID.leidiandonghua)).toBe(true)
           expect(allowedState.tools.map((tool) => tool.name).sort()).toEqual([
             "application_context",
             "apply_patch",
@@ -184,6 +183,42 @@ describe("LocationServiceMap", () => {
             _tag: "SessionRunnerModel.ModelUnavailableError",
             providerID: "unavailable",
             modelID: "chat",
+          })
+        }),
+      ),
+    ),
+  )
+
+  it.live("rejects unconfigured providers during location model resolution", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const location = Location.Ref.make({ directory: AbsolutePath.make(dir.path) })
+          const failure = yield* SessionRunnerModel.Service.use((models) =>
+            models.resolve(
+              SessionV2.Info.make({
+                id: SessionV2.ID.make("ses_official_provider"),
+                projectID: ProjectV2.ID.global,
+                title: "test",
+                model: {
+                  id: ModelV2.ID.make("gpt-4o"),
+                  providerID: ProviderV2.ID.openai,
+                },
+                cost: 0,
+                tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+                time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
+                location,
+              }),
+            ),
+          ).pipe(Effect.provide(LocationServiceMap.Service.get(location)), Effect.flip)
+
+          expect(failure).toMatchObject({
+            _tag: "SessionRunnerModel.ModelUnavailableError",
+            providerID: ProviderV2.ID.openai,
+            modelID: "gpt-4o",
           })
         }),
       ),

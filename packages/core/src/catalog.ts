@@ -9,6 +9,8 @@ import { EventV2 } from "./event"
 import { Policy } from "./policy"
 import { State } from "./state"
 import { Integration } from "./integration"
+import { RelayPolicy } from "./relay-policy"
+import { RelayCatalog } from "./relay-catalog"
 
 export type ProviderRecord = {
   provider: ProviderV2.MutableInfo
@@ -67,6 +69,7 @@ const layer = Layer.effect(
     const events = yield* EventV2.Service
     const policy = yield* Policy.Service
     const integrations = yield* Integration.Service
+    const relay = yield* RelayCatalog.Service
 
     const available = (provider: ProviderV2.Info, integration: Integration.Info | undefined) => {
       if (provider.disabled) return false
@@ -120,6 +123,7 @@ const layer = Layer.effect(
               }
               fn(current.provider)
               normalizeApi(current.provider)
+              if (RelayPolicy.allowsProvider(providerID)) current.provider.api.url = RelayPolicy.BaseURL
             },
             remove: (providerID) => {
               draft.providers.delete(providerID)
@@ -209,7 +213,12 @@ const layer = Layer.effect(
 
         available: Effect.fn("CatalogV2.model.available")(function* () {
           const providers = new Set((yield* result.provider.available()).map((provider) => provider.id))
-          return (yield* result.model.all()).filter((model) => providers.has(model.providerID) && model.enabled)
+          return (yield* result.model.all()).filter(
+            (model) =>
+              providers.has(model.providerID) &&
+              model.enabled &&
+              (!RelayPolicy.allowsProvider(model.providerID) || !relay.hasManaged() || relay.visible(model.id)),
+          )
         }),
 
         default: Effect.fn("CatalogV2.model.default")(function* () {
@@ -218,7 +227,11 @@ const layer = Layer.effect(
             const provider = yield* result.provider.get(defaultModel.providerID)
             if (provider && (yield* result.provider.available()).some((item) => item.id === provider.id)) {
               const model = yield* result.model.get(defaultModel.providerID, defaultModel.modelID)
-              if (model?.enabled) return model
+              if (
+                model?.enabled &&
+                (!RelayPolicy.allowsProvider(model.providerID) || !relay.hasManaged() || relay.visible(model.id))
+              )
+                return model
             }
           }
 
@@ -298,4 +311,8 @@ export const locationLayer = layer.pipe(
   Layer.provideMerge(Policy.locationLayer),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [EventV2.node, Policy.node, Integration.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [EventV2.node, Policy.node, Integration.node, RelayCatalog.node],
+})

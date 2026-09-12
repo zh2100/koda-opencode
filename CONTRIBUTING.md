@@ -26,8 +26,26 @@ Want to take on an issue? Leave a comment and a maintainer may assign it to you 
 
 ## Adding New Providers
 
-New providers shouldn't require many if ANY code changes, but if you want to add support for a new provider first make a PR to:
-https://github.com/anomalyco/models.dev
+OpenCode only loads providers declared in user config (`opencode.json` / `opencode.jsonc`). There is no official models.dev catalog.
+
+To add a provider, declare it under `provider` with at least one model. Env vars and `auth.json` still attach credentials to that ID; they do not invent models.
+
+```jsonc
+{
+  "model": "zhilian/grok-4.6",
+  "provider": {
+    "zhilian": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "https://your-gateway/v1" },
+      "models": {
+        "grok-4.6": { "name": "Grok 4.6" }
+      }
+    }
+  }
+}
+```
+
+Vendor SDK adapters (`@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/xai`, …) still work when `npm` points at them. New vendor-specific OAuth or SDK wiring belongs in `packages/core/src/plugin/provider/`.
 
 ## Developing OpenCode
 

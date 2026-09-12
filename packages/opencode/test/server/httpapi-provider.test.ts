@@ -8,6 +8,7 @@ import { TestInstance } from "../fixture/fixture"
 import { markPluginDependenciesReady } from "../fixture/plugin"
 import { testEffect } from "../lib/effect"
 import { httpApiLayer, request } from "./httpapi-layer"
+import { googleProvider } from "../provider/catalog-config"
 
 const testStateLayer = Layer.effectDiscard(
   Effect.acquireRelease(
@@ -17,7 +18,13 @@ const testStateLayer = Layer.effectDiscard(
 )
 
 const it = testEffect(Layer.mergeAll(testStateLayer, LayerNode.compile(FSUtil.node), httpApiLayer))
-const projectOptions = { config: { formatter: false, lsp: false } }
+const projectOptions = {
+  config: {
+    formatter: false,
+    lsp: false,
+    provider: { google: googleProvider },
+  },
+}
 const providerID = "test-oauth-parity"
 const oauthURL = "https://example.com/oauth"
 const oauthInstructions = "Finish OAuth"

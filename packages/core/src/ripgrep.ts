@@ -1,6 +1,6 @@
 export * as Ripgrep from "./ripgrep"
 
-import { Context, Effect, Fiber, Layer, Schema, Stream } from "effect"
+import { Context, Effect, Layer, Schema, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { Entry, Match } from "@opencode-ai/schema/filesystem"
 import { makeGlobalNode } from "./effect/app-node"
@@ -109,36 +109,36 @@ const layer = Layer.effect(
           const handle = yield* process.spawn(
             ChildProcess.make(yield* binary.filepath, input.args, { cwd: input.cwd, extendEnv: true, stdin: "ignore" }),
           )
-          const stderrFiber = yield* collectStream(handle.stderr, ERROR_BYTES).pipe(
-            Effect.map((output) => output.buffer.toString("utf8")),
-            Effect.forkScoped,
-          )
           let observed = 0
-          const rows = yield* Stream.decodeText(handle.stdout).pipe(
-            Stream.splitLines,
-            Stream.filter((line) => line.length > 0),
-            Stream.mapEffect(input.parse),
-            Stream.filter((row): row is A => row !== undefined),
-            Stream.tap((row) => {
-              if (!input.onItem || observed++ >= input.limit) return Effect.void
-              return input.onItem(row)
-            }),
-            Stream.take(input.limit + 1),
-            Stream.runCollect,
-            Effect.map((chunk) => [...chunk]),
+          const [rows, stderr, code] = yield* Effect.all(
+            [
+              Stream.decodeText(handle.stdout).pipe(
+                Stream.splitLines,
+                Stream.filter((line) => line.length > 0),
+                Stream.mapEffect(input.parse),
+                Stream.filter((row): row is A => row !== undefined),
+                Stream.tap((row) => {
+                  if (!input.onItem || observed++ >= input.limit) return Effect.void
+                  return input.onItem(row)
+                }),
+                Stream.take(input.limit + 1),
+                Stream.runCollect,
+                Effect.map((chunk) => [...chunk]),
+              ),
+              collectStream(handle.stderr, ERROR_BYTES).pipe(Effect.map((output) => output.buffer.toString("utf8"))),
+              handle.exitCode,
+            ],
+            { concurrency: "unbounded" },
           )
           const truncated = rows.length > input.limit
           if (truncated) return { items: rows.slice(0, input.limit), truncated, partial: false }
-
-          const code = yield* handle.exitCode
-          const stderr = yield* Fiber.join(stderrFiber)
           if (input.pattern && code === 2 && isInvalidPattern(stderr)) {
             return yield* new InvalidPatternError({ pattern: input.pattern, message: stderr.trim() })
           }
           if (code !== 0 && code !== 1 && code !== 2) {
             return yield* failure(stderr.trim() || `ripgrep failed with code ${code}`)
           }
-          return { items: code === 1 ? [] : rows, truncated: false, partial: code === 2 }
+          return { items: code === 1 && rows.length === 0 ? [] : rows, truncated: false, partial: code === 2 }
         }),
       )
       const abortable = input.signal ? program.pipe(Effect.raceFirst(waitForAbort(input.signal))) : program
@@ -160,6 +160,8 @@ const layer = Layer.effect(
           args: [
             "--no-config",
             "--files",
+            "--no-ignore-parent",
+            "--path-separator=/",
             ...(input.hidden ? ["--hidden"] : []),
             ...(input.follow ? ["--follow"] : []),
             `--glob=${input.pattern}`,
@@ -192,6 +194,8 @@ const layer = Layer.effect(
           args: [
             "--no-config",
             "--files",
+            "--no-ignore-parent",
+            "--path-separator=/",
             ...(input.hidden ? ["--hidden"] : []),
             ...(input.follow ? ["--follow"] : []),
             ...(input.pattern === "*" ? [] : [`--glob=${input.pattern}`]),

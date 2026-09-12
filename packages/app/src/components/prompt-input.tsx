@@ -44,6 +44,9 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ModelSelectorPopover, ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
+import { PromptProjectSelector } from "@/components/prompt-project-selector"
+import { createPromptApproval } from "@/pages/session/composer/prompt-approval"
+import { useSettingsDialog } from "@/components/settings-dialog"
 import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
 import { DialogSelectModelUnpaidV2 } from "@/components/dialog-select-model-unpaid-v2"
 import { useCommand } from "@/context/command"
@@ -127,6 +130,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const permission = usePermission()
   const language = useLanguage()
   const platform = usePlatform()
+  const showSettings = useSettingsDialog()
+  const approval = createPromptApproval({
+    sessionID: () => props.controls.session.id,
+    directory: () => sdk().directory,
+  })
   const tabs = () => props.controls.session.tabs
   let editorRef!: HTMLDivElement
   let fileInputRef: HTMLInputElement | undefined
@@ -1646,6 +1654,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </Button>
               </div>
               <div class="flex items-center gap-1.5 min-w-0 flex-1 h-7">
+                <Show when={props.project}>
+                  {(controller) => <PromptProjectSelector controller={controller()} />}
+                </Show>
                 <Show when={!agentsLoading()}>
                   <div
                     data-component="prompt-agent-control"
@@ -1781,6 +1792,30 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         </TooltipKeybind>
                       </div>
                     </Show>
+                    <Select
+                      size="normal"
+                      options={approval.options().map((item) => item.id)}
+                      current={approval.current()}
+                      label={(id) => approval.options().find((item) => item.id === id)?.label ?? id}
+                      onSelect={(value) => {
+                        if (value) approval.set(value)
+                        restoreFocus()
+                      }}
+                      class="capitalize max-w-[160px] text-text-base"
+                      valueClass="truncate text-13-regular text-text-base"
+                      triggerStyle={control()}
+                      triggerProps={{ "data-action": "prompt-approval" }}
+                      variant="ghost"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="normal"
+                      class="text-13-regular text-text-base"
+                      style={control()}
+                      onClick={() => showSettings()}
+                    >
+                      {language.t("prompt.more")}
+                    </Button>
                   </Show>
                 </Show>
               </div>

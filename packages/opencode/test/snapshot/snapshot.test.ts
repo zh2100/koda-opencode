@@ -21,6 +21,8 @@ const it = testEffect(
 )
 // Windows forbids both * and : in directory names.
 const nonWindowsIt = process.platform === "win32" ? it.live.skip : it.live
+// Creating file/dir symlinks needs Developer Mode or an elevated token.
+const unixInstance = process.platform === "win32" ? it.instance.skip : it.instance
 
 // Git always outputs /-separated paths internally. Snapshot.patch() joins them
 // with path.join (which produces \ on Windows) then normalizes back to /.
@@ -188,7 +190,7 @@ it.instance(
   { git: true },
 )
 
-it.instance(
+unixInstance(
   "symlink handling",
   withTrackedSnapshot(({ tmp, snapshot, before }) =>
     Effect.gen(function* () {
@@ -381,7 +383,7 @@ it.instance(
   { git: true },
 )
 
-it.instance(
+unixInstance(
   "nested symlinks",
   withTrackedSnapshot(({ tmp, snapshot, before }) =>
     Effect.gen(function* () {

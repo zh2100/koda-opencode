@@ -7,7 +7,6 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { type Component, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
-import { popularProviders } from "@/hooks/use-providers"
 import { SettingsList } from "./settings-list"
 import { SettingsServerPicker, SettingsServerScope } from "./settings-server-picker"
 
@@ -47,23 +46,10 @@ const SettingsModelsContent: Component = () => {
   const list = useFilteredList<ModelItem>({
     items: (_filter) => models.list(),
     key: (x) => `${x.provider.id}:${x.id}`,
-    filterKeys: ["provider.name", "name", "id"],
+    filterKeys: ["provider.name", "name", "id", "family"],
     sortBy: (a, b) => a.name.localeCompare(b.name),
-    groupBy: (x) => x.provider.id,
-    sortGroupsBy: (a, b) => {
-      const aIndex = popularProviders.indexOf(a.category)
-      const bIndex = popularProviders.indexOf(b.category)
-      const aPopular = aIndex >= 0
-      const bPopular = bIndex >= 0
-
-      if (aPopular && !bPopular) return -1
-      if (!aPopular && bPopular) return 1
-      if (aPopular && bPopular) return aIndex - bIndex
-
-      const aName = a.items[0].provider.name
-      const bName = b.items[0].provider.name
-      return aName.localeCompare(bName)
-    },
+    groupBy: (x) => x.family || x.provider.name,
+    sortGroupsBy: (a, b) => a.category.localeCompare(b.category),
   })
 
   return (
@@ -110,8 +96,11 @@ const SettingsModelsContent: Component = () => {
               {(group) => (
                 <div class="flex flex-col gap-1">
                   <div class="flex items-center gap-2 pb-2">
-                    <ProviderIcon id={group.category} class="size-5 shrink-0 icon-strong-base" />
-                    <span class="text-14-medium text-text-strong">{group.items[0].provider.name}</span>
+                    <ProviderIcon
+                      id={group.items[0].family || group.items[0].provider.id}
+                      class="size-5 shrink-0 icon-strong-base"
+                    />
+                    <span class="text-14-medium text-text-strong">{group.category}</span>
                   </div>
                   <SettingsList>
                     <For each={group.items}>

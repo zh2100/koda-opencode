@@ -18,7 +18,7 @@ import { iife } from "@/util/iife"
 import { Global } from "@opencode-ai/core/global"
 import path from "path"
 import { pathToFileURL } from "url"
-import { Effect, Layer, Context, Schema, Types } from "effect"
+import { Effect, Layer, Context, Option, Schema, Types } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { EffectPromise } from "@/effect/promise"
@@ -31,6 +31,10 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderError } from "./error"
+import { RelayAuth } from "@opencode-ai/core/relay-auth"
+import { RelayCapability } from "@opencode-ai/core/relay-capability"
+import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
+import { RelayPolicy } from "@opencode-ai/core/relay-policy"
 
 const OPENAI_HEADER_TIMEOUT_DEFAULT = 300_000
 
@@ -1119,7 +1123,9 @@ export function toPublicInfo(provider: Info): Info {
     JSON.stringify(
       {
         ...provider,
-        models: Object.fromEntries(Object.entries(provider.models).filter(([, model]) => Schema.is(Model)(model))),
+        models: Object.fromEntries(
+          Object.entries(provider.models ?? {}).filter(([, model]) => Schema.is(Model)(model)),
+        ),
       },
       (_, value) => {
         if (typeof value === "function" || typeof value === "symbol" || value === undefined) return undefined
@@ -1131,7 +1137,13 @@ export function toPublicInfo(provider: Info): Info {
 }
 
 export function defaultModelIDs<T extends { models: Record<string, { id: string }> }>(providers: Record<string, T>) {
-  return mapValues(providers, (item) => sort(Object.values(item.models))[0].id)
+  return Object.fromEntries(
+    Object.entries(providers).flatMap(([id, item]) => {
+      const model = sort(Object.values(item.models))[0]
+      if (!model) return []
+      return [[id, model.id]]
+    }),
+  )
 }
 
 export class ModelNotFoundError extends Schema.TaggedErrorClass<ModelNotFoundError>()("ProviderModelNotFoundError", {
@@ -1199,6 +1211,7 @@ export interface Interface {
   ) => Effect.Effect<{ providerID: ProviderV2.ID; modelID: string } | undefined>
   readonly getSmallModel: (providerID: ProviderV2.ID) => Effect.Effect<Model | undefined>
   readonly defaultModel: () => Effect.Effect<{ providerID: ProviderV2.ID; modelID: ModelV2.ID }, DefaultModelError>
+  readonly invalidate: () => Effect.Effect<void>
 }
 
 interface State {
@@ -1315,6 +1328,103 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
   }
 }
 
+function overlayRelayModels(
+  catalog: RelayCatalog.Interface,
+  keys: Record<string, string>,
+  current: Record<ProviderV2.ID, Info>,
+) {
+  const providerID = ProviderV2.ID.leidiandonghua
+  const existing = current[providerID]
+  const models: Record<string, Model> = {}
+  catalog.apply((_id, modelID, fn) => {
+    const draft = {
+      name: modelID,
+      family: undefined as string | undefined,
+      enabled: true,
+      status: "active",
+      time: { released: Date.now() },
+      capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
+      limit: { context: 128_000, output: 8192 },
+      api: {
+        id: modelID,
+        type: "aisdk" as const,
+        package: "@ai-sdk/openai-compatible",
+        url: RelayPolicy.BaseURL,
+      },
+      variants: [] as Array<{ id: string; headers: Record<string, string>; body: Record<string, unknown> }>,
+    }
+    fn(draft)
+    if (!draft.enabled) return
+    models[modelID] = {
+      id: ModelV2.ID.make(modelID),
+      providerID,
+      name: draft.name,
+      family: draft.family,
+      api: {
+        id: modelID,
+        url: RelayPolicy.BaseURL,
+        npm: "@ai-sdk/openai-compatible",
+      },
+      status: "active",
+      headers: {},
+      options: keys[draft.family ?? ""] ? { apiKey: keys[draft.family ?? ""] } : {},
+      cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+      limit: {
+        context: draft.limit?.context ?? 128_000,
+        output: draft.limit?.output ?? 8192,
+      },
+      capabilities: {
+        temperature: false,
+        reasoning: RelayCapability.efforts(draft.family ?? "", modelID).length > 0,
+        attachment: true,
+        toolcall: draft.capabilities?.tools ?? true,
+        input: {
+          text: true,
+          audio: false,
+          image: true,
+          video: false,
+          pdf: false,
+        },
+        output: {
+          text: true,
+          audio: false,
+          image: false,
+          video: false,
+          pdf: false,
+        },
+        interleaved: false,
+      },
+      release_date: new Date(draft.time?.released ?? Date.now()).toISOString().slice(0, 10),
+      variants: Object.fromEntries(
+        (Array.isArray(draft.variants) ? draft.variants : []).map((variant) => [variant.id, { ...variant.body }]),
+      ),
+    }
+  })
+  if (!catalog.hasManaged()) return current
+  return {
+    ...Object.fromEntries(
+      Object.entries(current).filter(
+        ([id, provider]) =>
+          id === providerID ||
+          (provider.options.baseURL !== RelayPolicy.BaseURL &&
+            !Object.values(provider.models).some((model) => model.api.url === RelayPolicy.BaseURL)),
+      ),
+    ),
+    [providerID]: {
+      id: providerID,
+      name: existing?.name ?? "雷电动画",
+      source: existing?.source ?? "custom",
+      env: existing?.env ?? [],
+      key: existing?.key,
+      options: {
+        ...existing?.options,
+        baseURL: RelayPolicy.BaseURL,
+      },
+      models,
+    },
+  }
+}
+
 export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
   const models: Record<string, Model> = {}
   for (const [key, model] of Object.entries(provider.models)) {
@@ -1390,16 +1500,13 @@ const layer = Layer.effect(
     const auth = yield* Auth.Service
     const env = yield* Env.Service
     const plugin = yield* Plugin.Service
-    const modelsDevSvc = yield* ModelsDev.Service
     const runtimeFlags = yield* RuntimeFlags.Service
 
     const state = yield* InstanceState.make<State>(() =>
       Effect.gen(function* () {
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
-        const modelsDev = yield* modelsDevSvc.get()
-        const catalog = mapValues(modelsDev, fromModelsDevProvider)
-        const database = mapValues(catalog, toPublicInfo)
+        const database: Record<ProviderV2.ID, Info> = {} as Record<ProviderV2.ID, Info>
 
         const providers: Record<ProviderV2.ID, Info> = {} as Record<ProviderV2.ID, Info>
         const languages = new Map<string, LanguageModelV3>()
@@ -1447,36 +1554,10 @@ const layer = Layer.effect(
           return true
         }
 
-        for (const hook of plugins) {
-          const p = hook.provider
-          const models = p?.models
-          if (!p || !models) continue
-
-          const providerID = ProviderV2.ID.make(p.id)
-          if (disabled.has(providerID)) continue
-
-          const provider = database[providerID]
-          if (!provider) continue
-          const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
-
-          provider.models = yield* Effect.promise(async () => {
-            const next = await models(toPublicInfo(provider), { auth: pluginAuth })
-            return Object.fromEntries(
-              Object.entries(next).map(([id, model]) => [
-                id,
-                {
-                  ...model,
-                  id: ModelV2.ID.make(id),
-                  providerID,
-                },
-              ]),
-            )
-          })
-        }
-
         // extend database from config
         for (const [providerID, provider] of configProviders) {
-          const existing = database[providerID]
+          const id = ProviderV2.ID.make(providerID)
+          const existing = database[id]
           const parsed: Info = {
             id: ProviderV2.ID.make(providerID),
             name: provider.name ?? existing?.name ?? providerID,
@@ -1494,9 +1575,8 @@ const layer = Layer.effect(
               provider.npm ??
               existingModel?.api.npm ??
               // Config-defined gateway models bypass fromModelsDevModel, so resolve the
-              // native passthrough npm here before falling back to the catalog default.
+              // native passthrough npm here before falling back to openai-compatible.
               cloudflareGatewayNpm(providerID, apiID) ??
-              modelsDev[providerID]?.npm ??
               "@ai-sdk/openai-compatible"
             const name = iife(() => {
               if (model.name) return model.name
@@ -1508,7 +1588,7 @@ const layer = Layer.effect(
               api: {
                 id: apiID,
                 npm: apiNpm,
-                url: model.provider?.api ?? provider?.api ?? existingModel?.api.url ?? modelsDev[providerID]?.api ?? "",
+                url: model.provider?.api ?? provider?.api ?? existingModel?.api.url ?? "",
               },
               status: model.status ?? existingModel?.status ?? "active",
               name,
@@ -1572,14 +1652,41 @@ const layer = Layer.effect(
             )
             parsed.models[modelID] = parsedModel
           }
-          database[providerID] = parsed
+          database[id] = parsed
+        }
+
+        for (const hook of plugins) {
+          const p = hook.provider
+          const models = p?.models
+          if (!p || !models) continue
+
+          const providerID = ProviderV2.ID.make(p.id)
+          if (!isProviderAllowed(providerID)) continue
+
+          const provider = database[providerID]
+          if (!provider) continue
+          const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
+
+          provider.models = yield* Effect.promise(async () => {
+            const next = await models(toPublicInfo(provider), { auth: pluginAuth })
+            return Object.fromEntries(
+              Object.entries(next).map(([id, model]) => [
+                id,
+                {
+                  ...model,
+                  id: ModelV2.ID.make(id),
+                  providerID,
+                },
+              ]),
+            )
+          })
         }
 
         // load env
         const envs = yield* env.all()
         for (const [id, provider] of Object.entries(database)) {
           const providerID = ProviderV2.ID.make(id)
-          if (disabled.has(providerID)) continue
+          if (!isProviderAllowed(providerID)) continue
           const apiKey = provider.env.map((item) => envs[item]).find(Boolean)
           if (!apiKey) continue
           mergeProvider(providerID, {
@@ -1592,7 +1699,7 @@ const layer = Layer.effect(
         const auths = yield* auth.all().pipe(Effect.orDie)
         for (const [id, provider] of Object.entries(auths)) {
           const providerID = ProviderV2.ID.make(id)
-          if (disabled.has(providerID)) continue
+          if (!isProviderAllowed(providerID)) continue
           if (provider.type === "api") {
             mergeProvider(providerID, {
               source: "api",
@@ -1605,16 +1712,18 @@ const layer = Layer.effect(
         for (const plugin of plugins) {
           if (!plugin.auth) continue
           const providerID = ProviderV2.ID.make(plugin.auth.provider)
-          if (disabled.has(providerID)) continue
+          if (!isProviderAllowed(providerID)) continue
 
           const stored = yield* auth.get(providerID).pipe(Effect.orDie)
           if (!stored) continue
           if (!plugin.auth.loader) continue
+          const info = database[providerID]
+          if (!info) continue
 
           const options = yield* Effect.promise(() =>
             plugin.auth!.loader!(
               () => bridge.promise(auth.get(providerID).pipe(Effect.orDie)) as any,
-              toPublicInfo(database[plugin.auth!.provider]),
+              toPublicInfo(info),
             ),
           )
           const opts = options ?? {}
@@ -1624,7 +1733,7 @@ const layer = Layer.effect(
 
         for (const [id, fn] of Object.entries(custom(dep))) {
           const providerID = ProviderV2.ID.make(id)
-          if (disabled.has(providerID)) continue
+          if (!isProviderAllowed(providerID)) continue
           const data = database[providerID]
           if (!data) {
             continue
@@ -1643,7 +1752,8 @@ const layer = Layer.effect(
         // load config - re-apply with updated data
         for (const [id, provider] of configProviders) {
           const providerID = ProviderV2.ID.make(id)
-          const partial: Partial<Info> = { source: "config" }
+          const partial: Partial<Info> = {}
+          if (!providers[providerID]) partial.source = "config"
           if (provider.env) partial.env = provider.env
           if (provider.name) partial.name = provider.name
           if (provider.options) partial.options = provider.options
@@ -1717,7 +1827,7 @@ const layer = Layer.effect(
         return {
           models: languages,
           providers,
-          catalog,
+          catalog: database,
           sdk,
           modelLoaders,
           varsLoaders,
@@ -1725,12 +1835,32 @@ const layer = Layer.effect(
       }),
     )
 
-    const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
+    const providers = Effect.fn("Provider.providers")(function* () {
+      const current = yield* InstanceState.use(state, (s) => s.providers)
+      const catalog = Option.getOrUndefined(yield* Effect.serviceOption(RelayCatalog.Service))
+      if (!catalog) return current
+      const auth = Option.getOrUndefined(yield* Effect.serviceOption(RelayAuth.Service))
+      const keys: Record<string, string> = {}
+      if (auth) {
+        const state = yield* auth.get().pipe(Effect.catch(() => Effect.succeed(undefined)))
+        for (const vendor of state?.vendors ?? []) {
+          const key = yield* auth.resolve(vendor.id).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          if (key) keys[vendor.id] = key
+        }
+      }
+      return overlayRelayModels(catalog, keys, current)
+    })
 
-    async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
+    const list = Effect.fn("Provider.list")(() => providers())
+
+    async function resolveSDK(
+      model: Model,
+      s: State,
+      envs: Record<string, string | undefined>,
+      provider = s.providers[model.providerID],
+    ) {
       try {
-        const provider = s.providers[model.providerID]
-        const options = { ...provider.options }
+        const options = { ...provider.options, ...model.options }
 
         if (
           model.providerID === "google-vertex" &&
@@ -1861,13 +1991,13 @@ const layer = Layer.effect(
       }
     }
 
-    const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderV2.ID) =>
-      InstanceState.use(state, (s) => s.providers[providerID]),
-    )
+    const getProvider = Effect.fn("Provider.getProvider")(function* (providerID: ProviderV2.ID) {
+      return (yield* providers())[providerID]
+    })
 
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
       const s = yield* InstanceState.get(state)
-      const provider = s.providers[providerID]
+      const provider = (yield* providers())[providerID]
       if (!provider) {
         const catalogProvider = s.catalog[providerID]
         const suggestions = catalogProvider
@@ -1895,10 +2025,13 @@ const layer = Layer.effect(
       const key = `${model.providerID}/${model.id}`
       if (s.models.has(key)) return s.models.get(key)!
 
-      const provider = s.providers[model.providerID]
+      const provider = (yield* providers())[model.providerID]
+      if (!provider) {
+        return yield* new ModelNotFoundError({ providerID: model.providerID, modelID: model.id })
+      }
       return yield* EffectPromise.refineRejection(
         async () => {
-          const sdk = await resolveSDK(model, s, envs)
+          const sdk = await resolveSDK(model, s, envs, provider)
           const language = s.modelLoaders[model.providerID]
             ? await s.modelLoaders[model.providerID](
                 sdk,
@@ -1921,8 +2054,7 @@ const layer = Layer.effect(
     })
 
     const closest = Effect.fn("Provider.closest")(function* (providerID: ProviderV2.ID, query: string[]) {
-      const s = yield* InstanceState.get(state)
-      const provider = s.providers[providerID]
+      const provider = (yield* providers())[providerID]
       if (!provider) return undefined
       for (const item of query) {
         for (const modelID of Object.keys(provider.models)) {
@@ -1942,8 +2074,7 @@ const layer = Layer.effect(
         )
       }
 
-      const s = yield* InstanceState.get(state)
-      const provider = s.providers[providerID]
+      const provider = (yield* providers())[providerID]
       if (!provider) return undefined
 
       const experimental = yield* plugin.trigger<"experimental.provider.small_model">(
@@ -2005,7 +2136,7 @@ const layer = Layer.effect(
       const cfg = yield* config.get()
       if (cfg.model) return parseModel(cfg.model)
 
-      const s = yield* InstanceState.get(state)
+      const current = yield* providers()
       const recent = yield* fs.readJson(path.join(Global.Path.state, "model.json")).pipe(
         Effect.map((x): { providerID: ProviderV2.ID; modelID: ModelV2.ID }[] => {
           if (!isRecord(x) || !Array.isArray(x.recent)) return []
@@ -2019,14 +2150,14 @@ const layer = Layer.effect(
         Effect.catch(() => Effect.succeed([] as { providerID: ProviderV2.ID; modelID: ModelV2.ID }[])),
       )
       for (const entry of recent) {
-        const provider = s.providers[entry.providerID]
+        const provider = current[entry.providerID]
         if (!provider) continue
         if (!provider.models[entry.modelID]) continue
         return { providerID: entry.providerID, modelID: entry.modelID }
       }
 
       const configured = Object.keys(cfg.provider ?? {})
-      const provider = Object.values(s.providers).find((p) => configured.length === 0 || configured.includes(p.id))
+      const provider = Object.values(current).find((p) => configured.length === 0 || configured.includes(p.id))
       if (!provider) return yield* new NoProvidersError()
       const [model] = sort(Object.values(provider.models))
       if (!model) return yield* new NoModelsError({ providerID: provider.id })
@@ -2036,7 +2167,11 @@ const layer = Layer.effect(
       }
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+    const invalidate = Effect.fn("Provider.invalidate")(function* () {
+      yield* InstanceState.invalidate(state)
+    })
+
+    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel, invalidate })
   }),
 )
 
@@ -2062,7 +2197,7 @@ export function parseModel(model: string) {
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [FSUtil.node, Config.node, Auth.node, Env.node, Plugin.node, ModelsDev.node, RuntimeFlags.node],
+  deps: [FSUtil.node, Config.node, Auth.node, Env.node, Plugin.node, RuntimeFlags.node],
 })
 
 export * as Provider from "./provider"

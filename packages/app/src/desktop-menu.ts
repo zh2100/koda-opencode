@@ -4,6 +4,7 @@ export type DesktopMenuPlatform = "macos" | "windows"
 
 export type DesktopMenuAction =
   | "app.checkForUpdates"
+  | "app.about"
   | "app.relaunch"
   | "edit.undo"
   | "edit.redo"
@@ -77,12 +78,11 @@ export const DESKTOP_MENU: DesktopMenu[] = [
     labelKey: "desktop.menu.app",
     platforms: ["macos"],
     items: [
-      { type: "item", role: "about" },
+      { type: "item", labelKey: "desktop.menu.about", action: "app.about" },
       {
         type: "item",
         labelKey: "desktop.menu.checkForUpdates",
         action: "app.checkForUpdates",
-        enabled: "updater",
       },
       { type: "item", labelKey: "desktop.menu.settings", command: "settings.open", accelerator: { macos: "Cmd+," } },
       { type: "item", labelKey: "desktop.menu.reloadWebview", action: "view.reload" },
@@ -279,19 +279,14 @@ export const DESKTOP_MENU: DesktopMenu[] = [
     id: "help",
     labelKey: "desktop.menu.help",
     items: [
-      { type: "item", labelKey: "desktop.menu.documentation", href: "https://opencode.ai/docs" },
-      { type: "item", labelKey: "desktop.menu.supportForum", href: "https://discord.com/invite/opencode" },
+      { type: "item", labelKey: "desktop.menu.checkForUpdates", action: "app.checkForUpdates" },
+      { type: "item", labelKey: "desktop.menu.about", action: "app.about" },
       { type: "item", labelKey: "desktop.menu.exportLogs", command: "logs.export" },
       { type: "separator" },
       {
         type: "item",
-        labelKey: "desktop.menu.shareFeedback",
-        href: "https://github.com/anomalyco/opencode/issues/new?template=feature_request.yml",
-      },
-      {
-        type: "item",
         labelKey: "desktop.menu.reportBug",
-        href: "https://github.com/anomalyco/opencode/issues/new?template=bug_report.yml",
+        href: "https://github.com/zh2100/koda-opencode/issues/new",
       },
     ],
   },

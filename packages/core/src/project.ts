@@ -78,6 +78,12 @@ const layer = Layer.effect(
       return ID.make(Hash.fast(`git-remote:${normalized}`))
     })
 
+    function normalizePath(input: string) {
+      const value = input.replace(/\\/g, "/")
+      if (process.platform !== "win32") return value
+      return value.toLowerCase()
+    }
+
     function url(input: string) {
       const value = input.trim()
       if (!value) return undefined
@@ -109,7 +115,13 @@ const layer = Layer.effect(
 
     const resolve = Effect.fn("Project.resolve")(function* (input: AbsolutePath) {
       const repo = yield* git.repo.discover(input)
-      if (!repo) return { id: ID.global, directory: AbsolutePath.make(path.parse(input).root), vcs: undefined }
+      if (!repo) {
+        return {
+          id: ID.make(Hash.fast(`path:${normalizePath(input)}`)),
+          directory: input,
+          vcs: undefined,
+        }
+      }
 
       const previous = yield* cached(repo.commonDirectory)
       const id = (yield* remote(repo)) ?? previous ?? (yield* root(repo))

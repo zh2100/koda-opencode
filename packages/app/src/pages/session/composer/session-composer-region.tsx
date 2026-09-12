@@ -60,7 +60,7 @@ export function SessionComposerRegion(props: {
         </Show>
 
         <Show when={controller.showComposer()}>
-          <Show when={controller.dock()}>
+          <Show when={controller.dock() && controller.state.todos().some((todo) => todo.status === "in_progress")}>
             <div
               classList={{
                 "overflow-hidden": true,
@@ -72,8 +72,8 @@ export function SessionComposerRegion(props: {
             >
               <div ref={controller.setDockBodyRef}>
                 <SessionTodoDock
-                  todos={controller.state.todos()}
-                  collapsed={controller.todo.collapsed()}
+                  todos={controller.state.todos().filter((todo) => todo.status === "in_progress")}
+                  collapsed={true}
                   onToggle={controller.todo.onToggle}
                   collapseLabel={language.t("session.todo.collapse")}
                   expandLabel={language.t("session.todo.expand")}

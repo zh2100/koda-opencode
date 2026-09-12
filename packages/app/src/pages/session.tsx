@@ -27,6 +27,7 @@ import { useLocal } from "@/context/local"
 import { FileProvider, selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { createStore } from "solid-js/store"
 import type { SessionReviewLineComment } from "@opencode-ai/session-ui/session-review"
+import { isRTL } from "@kobalte/core/i18n"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Select } from "@opencode-ai/ui/select"
 import { SelectV2 } from "@opencode-ai/ui/v2/select-v2"
@@ -66,10 +67,12 @@ import { promptLength } from "@/components/prompt-input/history"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import {
   createPromptInputController,
+  createPromptProjectControls,
   createSessionComposerController,
   createSessionComposerRegionController,
   SessionComposerRegion,
 } from "@/pages/session/composer"
+import { createPromptProjectController } from "@/components/prompt-project-selector"
 import { createOpenReviewFile, createSessionTabs, createSizing, shouldShowFileTree } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/timeline/message-timeline"
 import { createTimelineModel } from "@/pages/session/timeline/model"
@@ -82,7 +85,16 @@ import {
   sessionPanelWidthMax,
 } from "@/pages/session/session-panel-width"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
-import { sessionPanelLayout } from "@/pages/session/session-panel-layout"
+import {
+  relayRightWidth,
+  relayWorkspaceLayout,
+  RELAY_RIGHT_WIDTH_MAX,
+  RELAY_RIGHT_WIDTH_MIN,
+  sessionPanelLayout,
+} from "@/pages/session/session-panel-layout"
+import { SessionRightPanel } from "@/pages/session/session-right-panel"
+import { Drawer, DrawerContent } from "@/components/ui/drawer"
+import { useRelayGates } from "@/hooks/use-relay-gates"
 import { SessionReviewEmptyChangesV2 } from "@opencode-ai/session-ui/v2/session-review-empty-changes-v2"
 import { SessionReviewEmptyNoGitV2 } from "@opencode-ai/session-ui/v2/session-review-empty-no-git-v2"
 import { SessionReviewV2SidebarToggle } from "@opencode-ai/session-ui/v2/session-review-v2"
@@ -95,6 +107,7 @@ import { useComposerCommands } from "@/pages/session/use-composer-commands"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { Identifier } from "@/utils/id"
+import { pathKey } from "@/utils/path-key"
 import { diffs as list } from "@/utils/diffs"
 import { Persist, persisted } from "@/utils/persist"
 import { extractPromptFromParts } from "@/utils/prompt"
@@ -371,6 +384,7 @@ export default function Page() {
   const location = useLocation()
   const navigate = useNavigate()
   const { params, sessionKey, workspaceKey, tabs, view } = useSessionLayout()
+  const gates = useRelayGates()
   const reviewMode = () => view().review.mode() ?? "git"
   const reviewFile = () => view().review.file()
   const sessionOwnership = createSessionOwnership(sessionKey)
@@ -403,6 +417,11 @@ export default function Page() {
     sessionKey,
     sessionID: () => params.id,
     queryOptions: serverSync().queryOptions,
+  })
+  const projectControls = createPromptProjectControls()
+  const project = createPromptProjectController({
+    controls: projectControls,
+    onDone: () => inputRef?.focus(),
   })
 
   const workspaceTabs = createMemo(() => layout.tabs(workspaceKey))
@@ -462,9 +481,11 @@ export default function Page() {
         opened: layout.fileTree.opened(),
       }),
   )
-  const desktopSessionResizeOpen = createMemo(() =>
-    newSessionDesign() ? desktopV2ReviewOpen() || desktopTerminalOpen() : desktopReviewOpen(),
-  )
+  const relayLayout = createMemo(() => newSessionDesign() && gates().relayLayout)
+  const desktopSessionResizeOpen = createMemo(() => {
+    if (relayLayout()) return false
+    return newSessionDesign() ? desktopV2ReviewOpen() || desktopTerminalOpen() : desktopReviewOpen()
+  })
   const desktopSidePanelOpen = createMemo(() => desktopSessionResizeOpen() || desktopFileTreeOpen())
   let panelRow: HTMLDivElement | undefined
   const [panelRowWidth, setPanelRowWidth] = createSignal<number>()
@@ -496,7 +517,18 @@ export default function Page() {
       split: splitReview(),
     }),
   )
+  const workspaceLayout = createMemo(() => relayWorkspaceLayout(sessionPanelAvailable() ?? 1280))
+  const rightOpened = createMemo(() => layout.fileTree.opened())
+  const rightDocked = createMemo(
+    () => relayLayout() && isDesktop() && workspaceLayout().right === "dock" && rightOpened(),
+  )
+  const rightDrawer = createMemo(() => relayLayout() && (!isDesktop() || workspaceLayout().right !== "dock"))
+  const rightWidth = createMemo(() => relayRightWidth(layout.fileTree.width()))
   const sessionPanelWidth = createMemo(() => {
+    if (relayLayout()) {
+      if (!rightDocked()) return "100%"
+      return `calc(100% - ${rightWidth()}px)`
+    }
     if (!desktopSidePanelOpen()) return "100%"
     if (desktopSessionResizeOpen()) return `${sessionPanelResizedWidth()}px`
     return `calc(100% - ${layout.fileTree.width()}px)`
@@ -669,8 +701,9 @@ export default function Page() {
   const wantsReview = createMemo(() =>
     isDesktop()
       ? desktopFileTreeOpen() ||
-        (desktopReviewOpen() && (activeTab() === "review" || (newSessionDesign() && !!activeFileTab())))
-      : store.mobileTab === "changes",
+        (desktopReviewOpen() && (activeTab() === "review" || (newSessionDesign() && !!activeFileTab()))) ||
+        relayLayout()
+      : store.mobileTab === "changes" || rightDrawer(),
   )
   const vcsMode = createMemo<VcsMode | undefined>(() => {
     const mode = reviewMode()
@@ -699,7 +732,7 @@ export default function Page() {
         : skipToken,
     }
   })
-  const refreshVcs = debounce(() => void queryClient.invalidateQueries({ queryKey: vcsKey() }), 100)
+  const refreshVcs = debounce(() => void queryClient.invalidateQueries({ queryKey: vcsKey() }), 500)
   const reviewDiffs = () => {
     if (reviewMode() === "git" || reviewMode() === "branch")
       // avoids suspense
@@ -714,6 +747,19 @@ export default function Page() {
   }
   const reviewCount = () => reviewDiffs().length
   const hasReview = () => reviewCount() > 0
+  const gitSummary = createMemo(() => {
+    if (sync().project?.vcs !== "git") return
+    return { branch: sync().data.vcs?.branch, dirty: reviewCount() }
+  })
+  const hasRegisteredProject = createMemo(() => {
+    const directory = pathKey(sdk().directory)
+    if (!directory) return false
+    return layout.projects.list().some(
+      (item) =>
+        pathKey(item.worktree) === directory ||
+        item.sandboxes?.some((sandbox) => pathKey(sandbox) === directory),
+    )
+  })
   const reviewReady = () => {
     if (reviewMode() === "git" || reviewMode() === "branch") return !vcsQuery.isPending
     return true
@@ -2185,6 +2231,7 @@ export default function Page() {
                   fallback={
                     <PromptInput
                       controls={inputController()}
+                      project={project}
                       ref={(el) => {
                         inputRef = el
                       }}
@@ -2210,6 +2257,9 @@ export default function Page() {
                     const controller = usePromptInputV2Controller({
                       get controls() {
                         return inputController()
+                      },
+                      get project() {
+                        return project
                       },
                       ref: (el) => {
                         inputRef = el
@@ -2319,7 +2369,98 @@ export default function Page() {
             />
           </Suspense>
         </Show>
-        <Show when={newSessionDesign()}>
+        <Show when={rightDocked()}>
+          <div class="relative min-h-0 h-full shrink-0" style={{ width: `${rightWidth()}px` }}>
+            <div class="absolute inset-y-0 start-0 z-10" onPointerDown={() => size.start()}>
+              <ResizeHandle
+                direction="horizontal"
+                edge="start"
+                size={rightWidth()}
+                min={RELAY_RIGHT_WIDTH_MIN}
+                max={RELAY_RIGHT_WIDTH_MAX}
+                onResize={(width) => {
+                  size.touch()
+                  layout.fileTree.resize(width)
+                }}
+              />
+            </div>
+            <SessionRightPanel
+              hasProject={hasRegisteredProject()}
+              todos={composer.todos()}
+              git={gitSummary()}
+              changes={
+                <Suspense>
+                  <SessionSidePanel
+                    canReview={canReview}
+                    diffs={reviewDiffs}
+                    diffsReady={reviewReady}
+                    empty={reviewEmptyText}
+                    hasReview={hasReview}
+                    reviewHasFocusableContent={() => hasReview() || reviewV2State.sidebarOpened()}
+                    reviewCount={reviewCount}
+                    reviewPanel={reviewPanelV2}
+                    reviewSidebarToggle={(disabled) => (
+                      <SessionReviewV2SidebarToggle
+                        opened={reviewV2State.sidebarOpened()}
+                        disabled={disabled}
+                        onToggle={reviewV2State.toggleSidebar}
+                      />
+                    )}
+                    fileBrowserState={reviewV2State}
+                    activeDiff={activeReviewFile()}
+                    focusReviewDiff={focusReviewDiff}
+                    reviewSnap={ui.reviewSnap}
+                    size={size}
+                    stacked={false}
+                  />
+                </Suspense>
+              }
+            />
+          </div>
+        </Show>
+        <Show when={rightDrawer()}>
+          <Drawer
+            open={rightOpened()}
+            onOpenChange={(open) => (open ? layout.fileTree.open() : layout.fileTree.close())}
+            side={isRTL(language.intl()) ? "left" : "right"}
+          >
+            <DrawerContent class="!w-[320px]">
+              <SessionRightPanel
+                hasProject={hasRegisteredProject()}
+                todos={composer.todos()}
+                git={gitSummary()}
+                changes={
+                  <Suspense>
+                    <SessionSidePanel
+                      canReview={canReview}
+                      diffs={reviewDiffs}
+                      diffsReady={reviewReady}
+                      empty={reviewEmptyText}
+                      hasReview={hasReview}
+                      reviewHasFocusableContent={() => hasReview() || reviewV2State.sidebarOpened()}
+                      reviewCount={reviewCount}
+                      reviewPanel={reviewPanelV2}
+                      reviewSidebarToggle={(disabled) => (
+                        <SessionReviewV2SidebarToggle
+                          opened={reviewV2State.sidebarOpened()}
+                          disabled={disabled}
+                          onToggle={reviewV2State.toggleSidebar}
+                        />
+                      )}
+                      fileBrowserState={reviewV2State}
+                      activeDiff={activeReviewFile()}
+                      focusReviewDiff={focusReviewDiff}
+                      reviewSnap={ui.reviewSnap}
+                      size={size}
+                      stacked={false}
+                    />
+                  </Suspense>
+                }
+              />
+            </DrawerContent>
+          </Drawer>
+        </Show>
+        <Show when={newSessionDesign() && !gates().relayLayout}>
           <Show when={isDesktop() ? desktopV2PanelLayout().visible : terminalOpen()}>
             <div class="min-w-0 h-full flex flex-1 flex-col">
               <Show when={isDesktop() && (desktopV2ReviewOpen() || desktopFileTreeOpen())}>

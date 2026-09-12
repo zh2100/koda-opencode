@@ -23,6 +23,7 @@ export const AddInput = Schema.Struct({
   projectID: ProjectV2.ID,
   action: Schema.String,
   resources: Schema.Array(Schema.String),
+  effect: Schema.Literals(["allow", "deny", "ask"]).pipe(Schema.optional),
 }).annotate({ identifier: "PermissionSaved.AddInput" })
 export type AddInput = typeof AddInput.Type
 
@@ -47,7 +48,13 @@ const layer = Layer.effect(
         .all()
         .pipe(Effect.orDie)
       return rows.map(
-        (row): Info => ({ id: row.id, projectID: row.project_id, action: row.action, resource: row.resource }),
+        (row): Info => ({
+          id: row.id,
+          projectID: row.project_id,
+          action: row.action,
+          resource: row.resource,
+          effect: row.effect,
+        }),
       )
     })
 
@@ -61,9 +68,13 @@ const layer = Layer.effect(
             project_id: input.projectID,
             action: input.action,
             resource,
+            effect: input.effect ?? "allow",
           })),
         )
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+          target: [PermissionTable.project_id, PermissionTable.action, PermissionTable.resource],
+          set: { effect: input.effect ?? "allow" },
+        })
         .run()
         .pipe(Effect.orDie)
     })

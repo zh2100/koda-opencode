@@ -13,7 +13,6 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { For, Show, type Component } from "solid-js"
 import { useLocal } from "@/context/local"
-import { popularProviders } from "@/hooks/use-providers"
 import { useLanguage } from "@/context/language"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogConnectProvider } from "./dialog-connect-provider"
@@ -33,12 +32,12 @@ export const DialogManageModels: Component = () => {
   const handleConnectProvider = () => {
     void dialog.show(() => <DialogConnectProvider directory={directory} />)
   }
-  const providerRank = (id: string) => popularProviders.indexOf(id)
-  const providerList = (providerID: string) => local.model.list().filter((x) => x.provider.id === providerID)
-  const providerVisible = (providerID: string) =>
-    providerList(providerID).every((x) => local.model.visible({ modelID: x.id, providerID: x.provider.id }))
-  const setProviderVisibility = (providerID: string, checked: boolean) => {
-    providerList(providerID).forEach((x) => {
+  const vendorList = (category: string) =>
+    local.model.list().filter((x) => (x.family || x.provider.name) === category)
+  const vendorVisible = (category: string) =>
+    vendorList(category).every((x) => local.model.visible({ modelID: x.id, providerID: x.provider.id }))
+  const setVendorVisibility = (category: string, checked: boolean) => {
+    vendorList(category).forEach((x) => {
       local.model.setVisibility({ modelID: x.id, providerID: x.provider.id }, checked)
     })
   }
@@ -59,39 +58,30 @@ export const DialogManageModels: Component = () => {
         emptyMessage={language.t("dialog.model.empty")}
         key={(x) => `${x?.provider?.id}:${x?.id}`}
         items={local.model.list()}
-        filterKeys={["provider.name", "name", "id"]}
+        filterKeys={["provider.name", "name", "id", "family"]}
         sortBy={(a, b) => a.name.localeCompare(b.name)}
-        groupBy={(x) => x.provider.id}
+        groupBy={(x) => x.family || x.provider.name}
         groupHeader={(group) => {
-          const provider = group.items[0].provider
           return (
             <>
-              <span>{provider.name}</span>
+              <span>{group.category}</span>
               <Tooltip
                 placement="top"
-                value={language.t("dialog.model.manage.provider.toggle", { provider: provider.name })}
+                value={language.t("dialog.model.manage.provider.toggle", { provider: group.category })}
               >
                 <Switch
                   class="-mr-1"
-                  checked={providerVisible(provider.id)}
-                  onChange={(checked) => setProviderVisibility(provider.id, checked)}
+                  checked={vendorVisible(group.category)}
+                  onChange={(checked) => setVendorVisibility(group.category, checked)}
                   hideLabel
                 >
-                  {provider.name}
+                  {group.category}
                 </Switch>
               </Tooltip>
             </>
           )
         }}
-        sortGroupsBy={(a, b) => {
-          const aRank = providerRank(a.items[0].provider.id)
-          const bRank = providerRank(b.items[0].provider.id)
-          const aPopular = aRank >= 0
-          const bPopular = bRank >= 0
-          if (aPopular && !bPopular) return -1
-          if (!aPopular && bPopular) return 1
-          return aRank - bRank
-        }}
+        sortGroupsBy={(a, b) => a.category.localeCompare(b.category)}
         onSelect={(x) => {
           if (!x) return
           const key = { modelID: x.id, providerID: x.provider.id }
@@ -125,11 +115,12 @@ export const DialogManageModelsV2: Component = () => {
   const handleConnectProvider = () => {
     void dialog.show(() => <DialogConnectProvider directory={directory} />)
   }
-  const providerList = (providerID: string) => local.model.list().filter((x) => x.provider.id === providerID)
-  const providerVisible = (providerID: string) =>
-    providerList(providerID).every((x) => local.model.visible({ modelID: x.id, providerID: x.provider.id }))
-  const setProviderVisibility = (providerID: string, checked: boolean) => {
-    providerList(providerID).forEach((x) => {
+  const vendorList = (category: string) =>
+    local.model.list().filter((x) => (x.family || x.provider.name) === category)
+  const vendorVisible = (category: string) =>
+    vendorList(category).every((x) => local.model.visible({ modelID: x.id, providerID: x.provider.id }))
+  const setVendorVisibility = (category: string, checked: boolean) => {
+    vendorList(category).forEach((x) => {
       local.model.setVisibility({ modelID: x.id, providerID: x.provider.id }, checked)
     })
   }
@@ -139,18 +130,10 @@ export const DialogManageModelsV2: Component = () => {
   const list = useFilteredList<ModelItem>({
     items: () => local.model.list(),
     key: (x) => `${x.provider.id}:${x.id}`,
-    filterKeys: ["provider.name", "name", "id"],
+    filterKeys: ["provider.name", "name", "id", "family"],
     sortBy: (a, b) => a.name.localeCompare(b.name),
-    groupBy: (x) => x.provider.id,
-    sortGroupsBy: (a, b) => {
-      const aRank = popularProviders.indexOf(a.category)
-      const bRank = popularProviders.indexOf(b.category)
-      const aPopular = aRank >= 0
-      const bPopular = bRank >= 0
-      if (aPopular && !bPopular) return -1
-      if (!aPopular && bPopular) return 1
-      return aRank - bRank
-    },
+    groupBy: (x) => x.family || x.provider.name,
+    sortGroupsBy: (a, b) => a.category.localeCompare(b.category),
   })
 
   return (
@@ -221,17 +204,22 @@ export const DialogManageModelsV2: Component = () => {
                     <div class="settings-v2-section" data-component="settings-models-provider">
                       <div class="settings-v2-models-group-header justify-between">
                         <div class="flex min-w-0 items-center gap-2">
-                          <ProviderIcon id={group.category} width={16} height={16} class="ml-4 shrink-0" />
-                          <h3 class="settings-v2-section-title">{group.items[0].provider.name}</h3>
+                          <ProviderIcon
+                            id={group.items[0].family || group.items[0].provider.id}
+                            width={16}
+                            height={16}
+                            class="ml-4 shrink-0"
+                          />
+                          <h3 class="settings-v2-section-title">{group.category}</h3>
                         </div>
                         <div>
                           <SwitchV2
                             class="mr-6"
-                            checked={providerVisible(group.category)}
-                            onChange={(checked) => setProviderVisibility(group.category, checked)}
+                            checked={vendorVisible(group.category)}
+                            onChange={(checked) => setVendorVisibility(group.category, checked)}
                             hideLabel
                           >
-                            {group.items[0].provider.name}
+                            {group.category}
                           </SwitchV2>
                         </div>
                       </div>

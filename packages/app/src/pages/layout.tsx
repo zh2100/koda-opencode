@@ -82,6 +82,8 @@ import {
 } from "./layout/sidebar-workspace"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
 import { SidebarContent } from "./layout/sidebar-shell"
+import { HomeSessionSidebar } from "@/pages/home"
+import { useRelayGates } from "@/hooks/use-relay-gates"
 
 export default function LegacyLayout(props: ParentProps) {
   const serverSDK = useServerSDK()
@@ -121,7 +123,10 @@ export default function LegacyLayout(props: ParentProps) {
   const command = useCommand()
   const theme = useTheme()
   const language = useLanguage()
-  createEffect(() => setV2Toast(false))
+  const gates = useRelayGates()
+  const chatSidebar = createMemo(() => settings.general.newLayoutDesigns())
+  const relayRail = createMemo(() => chatSidebar() || gates().relayLayout)
+  createEffect(() => setV2Toast(chatSidebar()))
   const initialDirectory = decode64(params.dir)
   const route = createMemo(() => {
     const slug = params.dir
@@ -143,10 +148,15 @@ export default function LegacyLayout(props: ParentProps) {
     dark: "theme.scheme.dark",
   }
   const colorSchemeLabel = (scheme: ColorScheme) => language.t(colorSchemeKey[scheme])
-  const currentDir = createMemo(() => route().dir)
+  const currentDir = createMemo(() => {
+    if (route().dir) return route().dir
+    const id = params.id
+    if (!id) return ""
+    return serverSync().session.get(id)?.directory ?? ""
+  })
 
   const [state, setState] = createStore({
-    autoselect: !initialDirectory,
+    autoselect: !initialDirectory && !params.id,
     busyWorkspaces: {} as Record<string, boolean>,
     hoverProject: undefined as string | undefined,
     scrollSessionKey: undefined as string | undefined,
@@ -539,6 +549,7 @@ export default function LegacyLayout(props: ParentProps) {
   const [autoselecting] = createResource(async () => {
     await ready.promise
     await layout.ready.promise
+    if (settings.general.newLayoutDesigns()) return
     if (!untrack(() => state.autoselect)) return
 
     const list = layout.projects.list()
@@ -1657,15 +1668,17 @@ export default function LegacyLayout(props: ParentProps) {
   createEffect(
     on(
       () => {
-        return [pageReady(), route().slug, params.id, currentProject()?.worktree, currentDir()] as const
+        return [pageReady(), params.id, currentProject()?.worktree, currentDir()] as const
       },
-      ([ready, slug, id, root, dir]) => {
-        if (!ready || !slug || !dir) {
+      ([ready, id, root, dir]) => {
+        if (!ready || !dir) {
           activeRoute.session = ""
           activeRoute.sessionProject = ""
           activeRoute.directory = ""
           return
         }
+
+        layout.projects.open(dir)
 
         if (!id) {
           activeRoute.session = ""
@@ -1674,7 +1687,7 @@ export default function LegacyLayout(props: ParentProps) {
           return
         }
 
-        const session = `${slug}/${id}`
+        const session = `${id}`
 
         if (!root) {
           activeRoute.session = session
@@ -1703,12 +1716,12 @@ export default function LegacyLayout(props: ParentProps) {
   createEffect(() => {
     document.documentElement.style.setProperty(
       "--dialog-left-margin",
-      `${layout.sidebar.opened() ? layout.sidebar.width() : 48}px`,
+      `${chatSidebar() || layout.sidebar.opened() ? (chatSidebar() ? 280 : layout.sidebar.width()) : relayRail() ? 56 : 48}px`,
     )
   })
 
-  const side = createMemo(() => Math.max(layout.sidebar.width(), 244))
-  const panel = createMemo(() => Math.max(side() - 64, 0))
+  const side = createMemo(() => (chatSidebar() ? 280 : Math.max(layout.sidebar.width(), relayRail() ? 240 : 244)))
+  const panel = createMemo(() => Math.max(side() - (relayRail() ? 56 : 64), 0))
 
   const loadedSessionDirs = new Set<string>()
 
@@ -1924,7 +1937,7 @@ export default function LegacyLayout(props: ParentProps) {
     const project = panelProps.project
     const merged = createMemo(() => panelProps.mobile || (panelProps.merged ?? layout.sidebar.opened()))
     const hover = createMemo(() => !panelProps.mobile && panelProps.merged === false && !layout.sidebar.opened())
-    const empty = createMemo(() => !params.dir && layout.projects.list().length === 0)
+    const empty = createMemo(() => !currentDir() && layout.projects.list().length === 0)
     const projectName = createMemo(() => {
       const item = project()
       if (!item) return ""
@@ -2219,9 +2232,11 @@ export default function LegacyLayout(props: ParentProps) {
   const projects = () => layout.projects.list()
   const projectOverlay = () => <ProjectDragOverlay projects={projects} activeProject={() => store.activeProject} />
   const sidebarContent = (mobile?: boolean) => (
+    <Show when={chatSidebar()} fallback={
     <SidebarContent
       mobile={mobile}
       opened={() => layout.sidebar.opened()}
+      railClass={relayRail() ? "w-14" : undefined}
       aimMove={aim.move}
       projects={projects}
       renderProject={(project) => (
@@ -2243,10 +2258,19 @@ export default function LegacyLayout(props: ParentProps) {
         mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
       }
     />
+    }>
+      <HomeSessionSidebar />
+    </Show>
   )
 
   return (
-    <div class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text">
+    <div
+      classList={{
+        "relative flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text": true,
+        "bg-v2-background-bg-deep": settings.general.newLayoutDesigns(),
+        "bg-background-base": !settings.general.newLayoutDesigns(),
+      }}
+    >
       {autoselecting() ?? ""}
       <Titlebar
         update={titlebarUpdate}
@@ -2270,7 +2294,9 @@ export default function LegacyLayout(props: ParentProps) {
                 "absolute inset-y-0 start-0": true,
                 "z-10": true,
               }}
-              style={{ width: `${side()}px` }}
+              style={{
+                width: chatSidebar() || layout.sidebar.opened() ? `${side()}px` : relayRail() ? "56px" : `${side()}px`,
+              }}
               ref={(el) => {
                 setState("nav", el)
               }}
@@ -2287,7 +2313,7 @@ export default function LegacyLayout(props: ParentProps) {
               <div class="@container w-full h-full contain-strict">{sidebarContent()}</div>
             </nav>
 
-            <Show when={layout.sidebar.opened()}>
+            <Show when={!chatSidebar() && layout.sidebar.opened()}>
               <div
                 class="hidden xl:block absolute inset-y-0 z-30 w-0 overflow-visible"
                 style={{ "inset-inline-start": `${side()}px` }}
@@ -2296,7 +2322,7 @@ export default function LegacyLayout(props: ParentProps) {
                 <ResizeHandle
                   direction="horizontal"
                   size={layout.sidebar.width()}
-                  min={244}
+                  min={relayRail() ? 240 : 244}
                   max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64}
                   onResize={(w) => {
                     setState("sizing", true)
@@ -2310,7 +2336,7 @@ export default function LegacyLayout(props: ParentProps) {
 
             <div
               class="hidden xl:block pointer-events-none absolute top-0 end-0 z-0 border-t border-border-weaker-base"
-              style={{ "inset-inline-start": "calc(4rem + 12px)" }}
+              style={{ "inset-inline-start": relayRail() ? "calc(56px + 12px)" : "calc(4rem + 12px)" }}
             />
 
             <div class="xl:hidden">
@@ -2347,12 +2373,15 @@ export default function LegacyLayout(props: ParentProps) {
                   !state.sizing,
               }}
               style={{
-                "--main-left": layout.sidebar.opened() ? `${side()}px` : "4rem",
+                "--main-left":
+                  chatSidebar() || layout.sidebar.opened() ? `${side()}px` : relayRail() ? "56px" : "4rem",
               }}
             >
               <main
                 classList={{
-                  "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-s xl:rounded-ss-[12px]": true,
+                  "size-full overflow-x-hidden flex flex-col items-start contain-strict": true,
+                  "border-t border-border-weak-base bg-background-base xl:border-s xl:rounded-ss-[12px]": !chatSidebar(),
+                  "bg-v2-background-bg-deep": !!chatSidebar(),
                 }}
               >
                 <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
@@ -2363,7 +2392,9 @@ export default function LegacyLayout(props: ParentProps) {
 
             <div
               classList={{
-                "hidden xl:flex absolute inset-y-0 start-16 z-30": true,
+                "hidden xl:flex absolute inset-y-0 z-30": true,
+                "start-16": !chatSidebar() && !relayRail(),
+                "start-14": !chatSidebar() && relayRail(),
                 "opacity-100 translate-x-0 pointer-events-auto": state.peeked && !layout.sidebar.opened(),
                 "opacity-0 ltr:-translate-x-2 rtl:translate-x-2 pointer-events-none":
                   !state.peeked || layout.sidebar.opened(),
@@ -2395,7 +2426,9 @@ export default function LegacyLayout(props: ParentProps) {
                 "duration-180 ease-out": state.peeked && !layout.sidebar.opened(),
                 "duration-120 ease-in": !state.peeked || layout.sidebar.opened(),
               }}
-              style={{ "inset-inline-start": `calc(4rem + ${panel()}px)` }}
+              style={{
+                "inset-inline-start": relayRail() ? `calc(56px + ${panel()}px)` : `calc(4rem + ${panel()}px)`,
+              }}
             >
               <div class="h-full w-px" style={{ "box-shadow": "var(--shadow-sidebar-overlay)" }} />
             </div>
@@ -2404,7 +2437,7 @@ export default function LegacyLayout(props: ParentProps) {
         {import.meta.env.DEV && import.meta.env.VITE_DISABLE_DEBUG_BAR !== "1" && state.debugTools && <DebugBar />}
       </div>
       <TabsInfoPopup />
-      <ToastRegion v2={false} />
+      <ToastRegion v2={settings.general.newLayoutDesigns()} />
     </div>
   )
 }

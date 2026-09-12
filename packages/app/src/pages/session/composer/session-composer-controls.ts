@@ -1,10 +1,11 @@
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { createQuery } from "@tanstack/solid-query"
 import { useNavigate, useSearchParams } from "@solidjs/router"
-import { type Accessor, createMemo } from "solid-js"
+import { type Accessor, createComponent, createMemo } from "solid-js"
 import type { PromptInputControls } from "@/components/prompt-input/contracts"
 import type { PromptProjectControls } from "@/components/prompt-project-selector"
 import { useDirectoryPicker } from "@/components/directory-picker"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobal } from "@/context/global"
 import { useLayout } from "@/context/layout"
 import { useLocal, type ModelSelection } from "@/context/local"
@@ -69,6 +70,7 @@ export function createPromptProjectControls() {
   const tabs = useTabs()
   const global = useGlobal()
   const pickDirectory = useDirectoryPicker()
+  const dialog = useDialog()
   const [search] = useSearchParams<{ draftId?: string }>()
   const projectServer = () => serverSDK().server
   const projectServerCtx = createMemo(() => global.ensureServerCtx(projectServer()))
@@ -123,11 +125,25 @@ export function createPromptProjectControls() {
     })
   }
 
+  const createProject = (serverKey?: string) => {
+    const conn = serverKey ? server.list.find((conn) => ServerConnection.key(conn) === serverKey) : projectServer()
+    if (!conn) return
+    void import("@/components/dialog-create-project").then(({ DialogCreateProject }) => {
+      dialog.show(() =>
+        createComponent(DialogCreateProject, {
+          server: conn,
+          onCreated: (directory) => selectProject(directory, serverKey),
+        }),
+      )
+    })
+  }
+
   return createMemo<PromptProjectControls>(() => ({
     available: projects(),
     directory: sdk().directory,
     server: server.list.length > 1 ? ServerConnection.key(projectServer()) : undefined,
     select: selectProject,
     add: addProject,
+    create: createProject,
   }))
 }

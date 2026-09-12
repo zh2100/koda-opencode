@@ -10,6 +10,8 @@ import { Location } from "@opencode-ai/core/location"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { Policy } from "@opencode-ai/core/policy"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Relay } from "@opencode-ai/schema/relay"
+import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { location } from "./fixture/location"
 import { testEffect } from "./lib/effect"
@@ -23,9 +25,35 @@ const locationLayer = Layer.succeed(
   Location.Service,
   Location.Service.of(location({ directory: AbsolutePath.make("test") })),
 )
+const relayManaged: Array<{ modelId: string; visible: boolean }> = []
+const relayLayer = Layer.succeed(
+  RelayCatalog.Service,
+  RelayCatalog.Service.of({
+    candidates: () => Effect.succeed([]),
+    managed: () => Effect.succeed([]),
+    hasManaged: () => relayManaged.length > 0,
+    visible: (modelId) => relayManaged.some((item) => item.modelId === modelId && item.visible),
+    refresh: () => Effect.succeed([]),
+    probe: () => Effect.succeed({ count: 0 }),
+    setVisibility: (input) =>
+      Effect.sync(() => {
+        relayManaged.splice(
+          0,
+          relayManaged.length,
+          ...relayManaged.filter((item) => item.modelId !== input.modelId),
+          { modelId: input.modelId, visible: input.visible },
+        )
+        return []
+      }),
+    apply: () => undefined,
+  }),
+)
 const catalogLayer = AppNodeBuilder.build(
-  LayerNode.group([Catalog.node, EventV2.node, Credential.node, Integration.node, Policy.node]),
-  [[Location.node, locationLayer]],
+  LayerNode.group([Catalog.node, EventV2.node, Credential.node, Integration.node, Policy.node, RelayCatalog.node]),
+  [
+    [Location.node, locationLayer],
+    [RelayCatalog.node, relayLayer],
+  ],
 )
 const it = testEffect(catalogLayer)
 
@@ -39,7 +67,7 @@ describe("CatalogV2", () => {
         .pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped)
       yield* Effect.yieldNow
 
-      yield* catalog.transform((editor) => editor.provider.update(ProviderV2.ID.make("test"), () => {}))
+      yield* catalog.transform((editor) => editor.provider.update(ProviderV2.ID.leidiandonghua, () => {}))
 
       expect((yield* Fiber.join(updated)).length).toBe(1)
     }),
@@ -54,28 +82,28 @@ describe("CatalogV2", () => {
     return Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       const credentials = yield* Credential.Service
-      yield* catalog.transform((editor) => editor.provider.update(ProviderV2.ID.make("test"), () => {}))
+      yield* catalog.transform((editor) => editor.provider.update(ProviderV2.ID.leidiandonghua, () => {}))
       yield* credentials.create({
         integrationID,
         label: "First",
         value: Credential.Key.make({ type: "key", key: "first", metadata: { tenant: "one" } }),
       })
 
-      expect((yield* catalog.provider.available()).map((provider) => provider.id)).toEqual([ProviderV2.ID.make("test")])
-      expect(required(yield* catalog.provider.get(ProviderV2.ID.make("test"))).request.body).toEqual({})
+      expect((yield* catalog.provider.available()).map((provider) => provider.id)).toEqual([ProviderV2.ID.leidiandonghua])
+      expect(required(yield* catalog.provider.get(ProviderV2.ID.leidiandonghua)).request.body).toEqual({})
       yield* credentials.create({
         integrationID,
         label: "Second",
         value: Credential.Key.make({ type: "key", key: "second", metadata: { tenant: "two" } }),
       })
-      expect((yield* catalog.provider.available()).map((provider) => provider.id)).toEqual([ProviderV2.ID.make("test")])
-      expect(required(yield* catalog.provider.get(ProviderV2.ID.make("test"))).request.body).toEqual({})
+      expect((yield* catalog.provider.available()).map((provider) => provider.id)).toEqual([ProviderV2.ID.leidiandonghua])
+      expect(required(yield* catalog.provider.get(ProviderV2.ID.leidiandonghua)).request.body).toEqual({})
     }).pipe(Effect.provide(localCatalogLayer))
   })
 
   it.effect("derives availability from a provider's integration", () => {
     const integrationID = Integration.ID.make("gateway")
-    const providerID = ProviderV2.ID.make("remote")
+    const providerID = ProviderV2.ID.leidiandonghua
     const localCatalogLayer = Layer.fresh(
       AppNodeBuilder.build(LayerNode.group([Catalog.node, Credential.node, Integration.node]), [
         [Location.node, locationLayer],
@@ -112,7 +140,7 @@ describe("CatalogV2", () => {
         Effect.gen(function* () {
           const catalog = yield* Catalog.Service
           const integrations = yield* Integration.Service
-          const providerID = ProviderV2.ID.make("test")
+          const providerID = ProviderV2.ID.leidiandonghua
           yield* integrations.transform((editor) =>
             editor.method.update({
               integrationID: Integration.ID.make(providerID),
@@ -134,7 +162,7 @@ describe("CatalogV2", () => {
   it.effect("normalizes provider baseURL into api url", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      const providerID = ProviderV2.ID.make("test")
+      const providerID = ProviderV2.ID.leidiandonghua
       yield* catalog.transform((catalog) =>
         catalog.provider.update(providerID, (provider) => {
           provider.api = {
@@ -149,7 +177,7 @@ describe("CatalogV2", () => {
       expect(required(yield* catalog.provider.get(providerID)).api).toEqual({
         type: "aisdk",
         package: "@ai-sdk/openai-compatible",
-        url: "https://override.example.com",
+        url: "https://api.leidiandonghua.cn/v1",
       })
     }),
   )
@@ -157,7 +185,7 @@ describe("CatalogV2", () => {
   it.effect("normalizes model baseURL into api url", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      const providerID = ProviderV2.ID.make("test")
+      const providerID = ProviderV2.ID.leidiandonghua
       const modelID = ModelV2.ID.make("model")
       yield* catalog.transform((catalog) => {
         catalog.provider.update(providerID, (provider) => {
@@ -191,7 +219,7 @@ describe("CatalogV2", () => {
   it.effect("resolves default model api from provider api", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      const providerID = ProviderV2.ID.make("test")
+      const providerID = ProviderV2.ID.leidiandonghua
       const modelID = ModelV2.ID.make("model")
       yield* catalog.transform((catalog) => {
         catalog.provider.update(providerID, (provider) => {
@@ -208,7 +236,7 @@ describe("CatalogV2", () => {
         id: modelID,
         type: "aisdk",
         package: "@ai-sdk/openai-compatible",
-        url: "https://provider.example.com",
+        url: "https://api.leidiandonghua.cn/v1",
       })
     }),
   )
@@ -216,7 +244,7 @@ describe("CatalogV2", () => {
   it.effect("resolves provider and model request merges", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      const providerID = ProviderV2.ID.make("test")
+      const providerID = ProviderV2.ID.leidiandonghua
       const modelID = ModelV2.ID.make("model")
       yield* catalog.transform((catalog) => {
         catalog.provider.update(providerID, (provider) => {
@@ -242,7 +270,7 @@ describe("CatalogV2", () => {
   it.effect("falls back to newest available model when no default is configured", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      const providerID = ProviderV2.ID.make("test")
+      const providerID = ProviderV2.ID.leidiandonghua
       yield* catalog.transform((catalog) => {
         catalog.provider.update(providerID, () => {})
         catalog.model.update(providerID, ModelV2.ID.make("old"), (model) => {
@@ -260,7 +288,7 @@ describe("CatalogV2", () => {
   it.effect("uses a transform-provided default model until that transform is replaced", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      const providerID = ProviderV2.ID.make("test")
+      const providerID = ProviderV2.ID.leidiandonghua
       const old = ModelV2.ID.make("old")
       const newest = ModelV2.ID.make("new")
       const models = (catalog: Catalog.Draft) => {
@@ -289,31 +317,24 @@ describe("CatalogV2", () => {
   it.effect("ignores a configured default on a disabled provider", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      const disabledProvider = ProviderV2.ID.make("disabled")
-      const enabledProvider = ProviderV2.ID.make("enabled")
-      const disabledModel = ModelV2.ID.make("configured")
-      const fallbackModel = ModelV2.ID.make("fallback")
+      const providerID = ProviderV2.ID.leidiandonghua
+      const configured = ModelV2.ID.make("configured")
       yield* catalog.transform((catalog) => {
-        catalog.provider.update(disabledProvider, (provider) => {
+        catalog.provider.update(providerID, (provider) => {
           provider.disabled = true
         })
-        catalog.model.update(disabledProvider, disabledModel, () => {})
-        catalog.provider.update(enabledProvider, () => {})
-        catalog.model.update(enabledProvider, fallbackModel, () => {})
-        catalog.model.default.set(disabledProvider, disabledModel)
+        catalog.model.update(providerID, configured, () => {})
+        catalog.model.default.set(providerID, configured)
       })
 
-      expect(yield* catalog.model.default()).toMatchObject({
-        providerID: enabledProvider,
-        id: fallbackModel,
-      })
+      expect(yield* catalog.model.default()).toBeUndefined()
     }),
   )
 
   it.effect("small model prefers small keyword candidates before cost scoring", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      const providerID = ProviderV2.ID.make("test")
+      const providerID = ProviderV2.ID.leidiandonghua
       yield* catalog.transform((catalog) => {
         catalog.provider.update(providerID, () => {})
         catalog.model.update(providerID, ModelV2.ID.make("cheap-large"), (model) => {
@@ -338,8 +359,8 @@ describe("CatalogV2", () => {
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       const policy = yield* Policy.Service
-      const providerID = ProviderV2.ID.make("blocked")
-      yield* policy.load([new Policy.Info({ effect: "deny", action: "provider.use", resource: "blocked" })])
+      const providerID = ProviderV2.ID.leidiandonghua
+      yield* policy.load([new Policy.Info({ effect: "deny", action: "provider.use", resource: "leidiandonghua" })])
       yield* catalog.transform((catalog) => {
         catalog.provider.update(providerID, () => {})
         catalog.model.update(providerID, ModelV2.ID.make("model"), () => {})
@@ -348,6 +369,64 @@ describe("CatalogV2", () => {
       expect(yield* catalog.provider.all()).toEqual([])
       expect(yield* catalog.model.all()).toEqual([])
       expect(yield* catalog.provider.get(providerID)).toBeUndefined()
+    }),
+  )
+
+  it.effect("keeps configured providers when policy allows them", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const policy = yield* Policy.Service
+      yield* policy.load([
+        new Policy.Info({ effect: "allow", action: "provider.use", resource: "*" }),
+        new Policy.Info({ effect: "allow", action: "provider.use", resource: "openai" }),
+      ])
+      yield* catalog.transform((catalog) => {
+        catalog.provider.update(ProviderV2.ID.openai, () => {})
+        catalog.model.update(ProviderV2.ID.openai, ModelV2.ID.make("gpt-4o"), () => {})
+        catalog.provider.update(ProviderV2.ID.leidiandonghua, () => {})
+        catalog.model.update(ProviderV2.ID.leidiandonghua, ModelV2.ID.make("gpt-5.2"), () => {})
+      })
+
+      expect((yield* catalog.provider.all()).map((provider) => provider.id)).toEqual([
+        ProviderV2.ID.openai,
+        ProviderV2.ID.leidiandonghua,
+      ])
+      expect((yield* catalog.provider.available()).map((provider) => provider.id)).toEqual([
+        ProviderV2.ID.openai,
+        ProviderV2.ID.leidiandonghua,
+      ])
+      expect((yield* catalog.model.all()).map((model) => model.id)).toEqual([
+        ModelV2.ID.make("gpt-4o"),
+        ModelV2.ID.make("gpt-5.2"),
+      ])
+      expect(yield* catalog.provider.get(ProviderV2.ID.openai)).toBeDefined()
+    }),
+  )
+
+  it.effect("hides unmanaged relay models from available and default selectors", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const relay = yield* RelayCatalog.Service
+      const providerID = ProviderV2.ID.leidiandonghua
+      yield* catalog.transform((draft) => {
+        draft.provider.update(providerID, () => {})
+        draft.model.update(providerID, ModelV2.ID.make("gpt-5.2"), (model) => {
+          model.enabled = true
+        })
+        draft.model.update(providerID, ModelV2.ID.make("grok-4"), (model) => {
+          model.enabled = true
+        })
+        draft.model.default.set(providerID, ModelV2.ID.make("gpt-5.2"))
+      })
+      relayManaged.splice(0, relayManaged.length)
+      yield* relay.setVisibility({
+        vendorId: Relay.VendorID.chatgpt,
+        modelId: ModelV2.ID.make("grok-4"),
+        visible: true,
+      })
+      expect((yield* catalog.model.available()).map((model) => model.id)).toEqual([ModelV2.ID.make("grok-4")])
+      expect((yield* catalog.model.default())?.id).toBe(ModelV2.ID.make("grok-4"))
+      relayManaged.splice(0, relayManaged.length)
     }),
   )
 })

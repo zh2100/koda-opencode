@@ -15,6 +15,7 @@ import { Provider } from "@/provider/provider"
 import { ProviderError } from "@/provider/error"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionRetry } from "@/session/retry"
+import { openaiProvider } from "./catalog-config"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -220,7 +221,20 @@ it.live("OpenAI Codex header and chunk timeout defaults can be disabled by confi
               expect(openai.options.headerTimeout).toBe(false)
               expect(openai.options.chunkTimeout).toBe(false)
             }),
-          { config: { provider: { openai: { options: { headerTimeout: false, chunkTimeout: false } } } } },
+          {
+            config: {
+              provider: {
+                openai: {
+                  ...openaiProvider,
+                  models: {
+                    ...openaiProvider.models,
+                    "gpt-5.4": { name: "GPT-5.4" },
+                  },
+                  options: { headerTimeout: false, chunkTimeout: false },
+                },
+              },
+            },
+          },
         )
       }),
     )
@@ -231,12 +245,14 @@ it.live("OpenAI API auth gets default headerTimeout", () =>
   Effect.gen(function* () {
     yield* withAuthContent(
       Effect.gen(function* () {
-        yield* provideTmpdirInstance(() =>
-          Effect.gen(function* () {
-            const provider = yield* Provider.Service
-            const openai = yield* provider.getProvider(ProviderV2.ID.openai)
-            expect(openai.options.headerTimeout).toBe(300_000)
-          }),
+        yield* provideTmpdirInstance(
+          () =>
+            Effect.gen(function* () {
+              const provider = yield* Provider.Service
+              const openai = yield* provider.getProvider(ProviderV2.ID.openai)
+              expect(openai.options.headerTimeout).toBe(300_000)
+            }),
+          { config: { provider: { openai: openaiProvider } } },
         )
       }),
       { openai: { type: "api", key: "sk-test" } },

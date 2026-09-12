@@ -22,7 +22,7 @@ import {
   sortedRootSessions,
   toggleHomeProjectSelection,
 } from "./helpers"
-import { pathKey } from "@/utils/path-key"
+import { pathKey, samePath } from "@/utils/path-key"
 import { ServerConnection } from "@/context/server"
 
 const serverKey = ServerConnection.Key.make
@@ -124,6 +124,11 @@ describe("layout workspace helpers", () => {
     expect(String(pathKey("C:\\"))).toBe("C:/")
     expect(String(pathKey("C://"))).toBe("C:/")
     expect(String(pathKey("C:///"))).toBe("C:/")
+  })
+
+  test("treats windows paths as case-insensitive", () => {
+    expect(samePath("D:\\opencode", "d:/opencode")).toBe(true)
+    expect(samePath("/tmp/demo", "/tmp/Demo")).toBe(false)
   })
 
   test("keeps local first while preserving known order", () => {

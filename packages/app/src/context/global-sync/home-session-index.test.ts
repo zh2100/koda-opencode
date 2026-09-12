@@ -5,11 +5,14 @@ import {
   applyHomeSessionEvent,
   appendHomeSessionEvent,
   createHomeSessionIndexCache,
+  HOME_V1_SESSION_PAGE_LIMIT,
   HOME_V2_SESSION_PAGE_LIMIT,
   loadHomeSessionIndex,
+  loadHomeSessionIndexV1,
   homeSessionIndexSessions,
   homeSessionIndexRefresh,
   parseHomeSessionIndex,
+  parseHomeSessionIndexV1,
   retainHomeSessions,
 } from "./home-session-index"
 
@@ -40,6 +43,65 @@ describe("Home V2 session index", () => {
 
     expect(result.sessions).toHaveLength(1)
     expect(calls).toEqual([{ limit: HOME_V2_SESSION_PAGE_LIMIT, order: "desc" }])
+  })
+
+  test("loads the Home index with one global V1 request", async () => {
+    const calls: unknown[] = []
+    const result = await loadHomeSessionIndexV1(async (input) => {
+      calls.push(input)
+      return {
+        data: [
+          {
+            id: "root",
+            slug: "root",
+            projectID: "project",
+            directory: "/project",
+            title: "root",
+            version: "",
+            time: { created: 1, updated: 1 },
+          },
+        ],
+      }
+    })
+
+    expect(result.sessions).toHaveLength(1)
+    expect(result.sessions[0]?.directory).toBe("/project")
+    expect(calls).toEqual([{ roots: true, archived: false, limit: HOME_V1_SESSION_PAGE_LIMIT }])
+  })
+
+  test("maps visible V1 roots to Home session summaries", () => {
+    const result = parseHomeSessionIndexV1([
+      {
+        id: "root",
+        slug: "root",
+        projectID: "project",
+        directory: "/project",
+        title: "root",
+        version: "",
+        time: { created: 1, updated: 30 },
+      },
+      {
+        id: "child",
+        slug: "child",
+        projectID: "project",
+        directory: "/project",
+        parentID: "root",
+        title: "child",
+        version: "",
+        time: { created: 1, updated: 40 },
+      },
+      {
+        id: "archived",
+        slug: "archived",
+        projectID: "project",
+        directory: "/project",
+        title: "archived",
+        version: "",
+        time: { created: 1, updated: 50, archived: 50 },
+      },
+    ])
+
+    expect(result.map((item) => item.id)).toEqual(["root"])
   })
 
   test("loads subsequent pages until the session index is complete", async () => {
@@ -147,6 +209,16 @@ describe("Home V2 session index", () => {
     expect(homeSessionIndexSessions({ sessions: initial, eventSequence: 1 }, events)[0]?.title).toBe("current")
   })
 
+  test("replays session events before the Home index has loaded", () => {
+    const created = parseHomeSessionIndex([session({ id: "new" })])[0]
+    const events = appendHomeSessionEvent(undefined, {
+      type: "session.created",
+      properties: { sessionID: created.id, info: created },
+    })
+
+    expect(homeSessionIndexSessions(undefined, events).map((item) => item.id)).toEqual(["new"])
+  })
+
   test("refetches after reconnect, disposal, and session moves", () => {
     expect(homeSessionIndexRefresh("server.connected", false)).toEqual({ connected: true, refetch: false })
     expect(homeSessionIndexRefresh("server.connected", true)).toEqual({ connected: true, refetch: true })
@@ -167,6 +239,23 @@ describe("Home V2 session index", () => {
 
     const index = queryClient.getQueryData<{ sessions: Session[] }>(cache.indexKey)
     expect(index?.sessions.map((item) => item.id)).toEqual(["b"])
+  })
+
+  test("keeps created sessions even before the Home index query is mounted", () => {
+    const queryClient = new QueryClient()
+    const cache = createHomeSessionIndexCache(queryClient, "server")
+    const created = parseHomeSessionIndex([session({ id: "new" })])[0]
+
+    cache.apply({
+      type: "session.created",
+      properties: { sessionID: created.id, info: created },
+    })
+
+    expect(
+      cache
+        .sessions(queryClient.getQueryData(cache.indexKey), queryClient.getQueryData(cache.eventsKey))
+        .map((item) => item.id),
+    ).toEqual(["new"])
   })
 
   test("keeps the session out of the Home list when the index is not mounted", () => {

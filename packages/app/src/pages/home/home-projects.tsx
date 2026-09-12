@@ -20,6 +20,7 @@ export function HomeProjects(props: { projects: HomeProjectsController; scroll: 
       unseenCount={props.projects.project.unseenCount}
       onWheel={props.scroll.viewport.containWheel}
       onChooseProject={props.projects.project.choose}
+      onCreateProject={props.projects.project.create}
       onFocusServer={props.projects.server.focus}
       onToggleCollapsed={props.projects.server.toggleCollapsed}
       onEditServer={props.projects.server.edit}

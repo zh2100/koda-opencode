@@ -1,11 +1,12 @@
 import { Config } from "@/config/config"
+import { RelayGate } from "@opencode-ai/core/relay-gate"
 import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
 import { EffectBridge } from "@/effect/bridge"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Installation } from "@/installation"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
-import { Effect, Queue } from "effect"
+import { Effect, Option, Queue } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
@@ -63,8 +64,9 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
     const installation = yield* Installation.Service
     const bridge = yield* EffectBridge.make()
 
+    const gates = Option.getOrUndefined(yield* Effect.serviceOption(RelayGate.Service))
     const health = Effect.fn("GlobalHttpApi.health")(function* () {
-      return { healthy: true as const, version: InstallationVersion }
+      return { healthy: true as const, version: InstallationVersion, ...(gates ? { gates } : {}) }
     })
 
     const event = Effect.fn("GlobalHttpApi.event")(function* () {

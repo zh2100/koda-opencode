@@ -7,9 +7,13 @@ export function HomeSessions(props: {
   sessions: HomeSessionsController
   search: HomeSessionSearchController
   scroll: HomeScrollController
+  compact?: boolean
+  afterCreate?: import("solid-js").JSX.Element
 }) {
   return (
     <HomeSessionsView
+      compact={props.compact}
+      afterCreate={props.afterCreate}
       language={props.sessions.copy.language}
       groups={props.sessions.data.groups}
       showProjectName={props.sessions.session.showProjectName}
@@ -18,6 +22,7 @@ export function HomeSessions(props: {
       searchValue={props.search.query.value}
       searchPlaceholder={props.search.query.placeholder}
       searchOpen={props.search.query.open}
+      searchFocused={props.search.query.focused}
       searchLoading={props.search.result.loading}
       searchResults={props.search.result.list}
       searchActive={props.search.result.active}
@@ -27,6 +32,9 @@ export function HomeSessions(props: {
       onCreateSession={props.sessions.session.create}
       onOpenSession={props.sessions.session.open}
       onArchiveSession={props.sessions.session.archive}
+      isPinned={props.sessions.session.pinned}
+      onPinSession={props.sessions.session.togglePin}
+      onDeleteSession={props.sessions.session.remove}
       onSetHoverTarget={props.scroll.viewport.setHoverTarget}
       onSetThumbTrack={props.scroll.viewport.setThumbTrack}
       onSetContent={props.scroll.header.setContent}

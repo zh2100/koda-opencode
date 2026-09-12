@@ -3,7 +3,9 @@ export * as SkillGuidance from "./guidance"
 import { makeLocationNode } from "../effect/app-node"
 import { Context, Effect, Layer, Schema } from "effect"
 import { AgentV2 } from "../agent"
+import { Location } from "../location"
 import { PermissionV2 } from "../permission"
+import { PermissionSaved } from "../permission/saved"
 import { SkillV2 } from "../skill"
 import { SystemContext } from "../system-context/index"
 
@@ -41,12 +43,19 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const skills = yield* SkillV2.Service
+    const saved = yield* PermissionSaved.Service
+    const location = yield* Location.Service
 
     return Service.of({
       load: Effect.fn("SkillGuidance.load")(function* (selection) {
         const agent = selection.info
         if (!agent) return SystemContext.empty
-        const permitted = SkillV2.available(yield* skills.list(), agent)
+        const extra = (yield* saved.list({ projectID: location.project.id })).map((item) => ({
+          action: item.action,
+          resource: item.resource,
+          effect: item.effect,
+        }))
+        const permitted = SkillV2.available(yield* skills.list(), agent, extra)
         if (permitted.length === 0 && PermissionV2.evaluate("skill", "*", agent.permissions).effect === "deny")
           return SystemContext.empty
         const available = permitted
@@ -73,4 +82,8 @@ const layer = Layer.effect(
 
 export const locationLayer = layer
 
-export const node = makeLocationNode({ service: Service, layer, deps: [SkillV2.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [SkillV2.node, PermissionSaved.node, Location.node],
+})

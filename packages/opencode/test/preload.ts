@@ -54,9 +54,19 @@ const cacheDir = path.join(dir, "cache", "opencode")
 await fs.mkdir(cacheDir, { recursive: true })
 await fs.writeFile(path.join(cacheDir, "version"), "14")
 
+// Tests isolate XDG, so the process-global ripgrep cache is empty. Seed it from
+// PATH or the user cache so glob/grep do not download rg from GitHub.
+const rgName = process.platform === "win32" ? "rg.exe" : "rg"
+const rgDest = path.join(cacheDir, "bin", rgName)
+await fs.mkdir(path.join(cacheDir, "bin"), { recursive: true })
+const rgSrc = Bun.which(rgName) ?? path.join(os.homedir(), ".cache", "opencode", "bin", rgName)
+if (rgSrc !== rgDest) await fs.copyFile(rgSrc, rgDest).catch(() => undefined)
+
 // Clear provider and server auth env vars to ensure clean test state
 delete process.env["ANTHROPIC_API_KEY"]
+delete process.env["ANTHROPIC_BASE_URL"]
 delete process.env["OPENAI_API_KEY"]
+delete process.env["OPENAI_BASE_URL"]
 delete process.env["GOOGLE_API_KEY"]
 delete process.env["GOOGLE_GENERATIVE_AI_API_KEY"]
 delete process.env["AZURE_OPENAI_API_KEY"]

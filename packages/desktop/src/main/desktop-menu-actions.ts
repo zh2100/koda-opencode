@@ -1,6 +1,8 @@
-import { BrowserWindow } from "electron"
+import { BrowserWindow, dialog, net } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
-import { createMainWindow, updateTitlebar } from "./windows"
+import { createMainWindow, openExternalURL, updateTitlebar } from "./windows"
+import { nativeT } from "./native-translations"
+import { KODA_VERSION, KODA_RELEASE_URL, newerKodaRelease } from "./koda-release"
 
 export type DesktopMenuActionHandlers = Partial<{
   checkForUpdates: () => void
@@ -14,7 +16,15 @@ export function runDesktopMenuAction(
 ) {
   switch (action) {
     case "app.checkForUpdates":
-      handlers.checkForUpdates?.()
+      void checkKodaUpdate()
+      return
+    case "app.about":
+      void dialog.showMessageBox({
+        type: "info",
+        title: nativeT("desktop.menu.about"),
+        message: nativeT("desktop.about.title", { version: KODA_VERSION }),
+        detail: nativeT("desktop.about.detail"),
+      })
       return
     case "app.relaunch":
       handlers.relaunch?.()
@@ -74,6 +84,37 @@ export function runDesktopMenuAction(
     case "edit.selectAll":
       win?.webContents.selectAll()
       return
+  }
+}
+
+let checking = false
+
+async function checkKodaUpdate() {
+  if (checking) return
+  checking = true
+  try {
+    const response = await net.fetch("https://api.github.com/repos/zh2100/koda-opencode/releases/tags/Koda", {
+      headers: { Accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const version = newerKodaRelease(await response.json())
+    if (!version) {
+      await dialog.showMessageBox({ type: "info", message: nativeT("desktop.updater.dialog.upToDate.message") })
+      return
+    }
+    const result = await dialog.showMessageBox({
+      type: "info",
+      message: nativeT("desktop.koda.update.available", { version }),
+      buttons: [nativeT("desktop.koda.update.open"), nativeT("desktop.updater.dialog.later")],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (result.response === 0) openExternalURL(KODA_RELEASE_URL)
+  } catch {
+    await dialog.showMessageBox({ type: "error", message: nativeT("desktop.updater.dialog.checkFailed.message") })
+  } finally {
+    checking = false
   }
 }
 

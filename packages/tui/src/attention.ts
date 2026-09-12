@@ -152,7 +152,7 @@ export function createTuiAttention(input: {
     try {
       for (const file of soundCandidates(name)) {
         const current = await audio.loadSoundFile(file).catch((error) => {
-          console.debug("failed to load attention sound", { file, error })
+          console.debug("failed to load attention sound", { file, error: String(error) })
           return null
         })
         if (disposed) return false
@@ -161,7 +161,7 @@ export function createTuiAttention(input: {
       }
       return false
     } catch (error) {
-      console.debug("failed to play attention sound", { error })
+      console.debug("failed to play attention sound", { error: String(error) })
       return false
     }
   }
@@ -187,7 +187,7 @@ export function createTuiAttention(input: {
                   normalizeText(request.title, DEFAULT_TITLE, TITLE_LIMIT),
                 )
               } catch (error) {
-                console.debug("failed to trigger attention notification", { error })
+                console.debug("failed to trigger attention notification", { error: String(error) })
                 return false
               }
             })()
@@ -210,7 +210,7 @@ export function createTuiAttention(input: {
           sound,
         }
       } catch (error) {
-        console.debug("failed to handle attention notification", { error })
+        console.debug("failed to handle attention notification", { error: String(error) })
         return {
           ok: false,
           notification: false,

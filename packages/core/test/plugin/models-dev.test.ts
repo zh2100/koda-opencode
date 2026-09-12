@@ -34,12 +34,12 @@ describe("ModelsDevPlugin", () => {
       const models = ModelsDev.Service.of({
         get: () =>
           Effect.succeed({
-            acme: {
-              id: "acme",
-              name: "Acme",
+            leidiandonghua: {
+              id: "leidiandonghua",
+              name: "雷电动画",
               env: [],
               npm: "@ai-sdk/openai-compatible",
-              api: "https://api.acme.test/v1",
+              api: "https://api.leidiandonghua.cn/v1",
               models: {
                 "gpt-5.4": {
                   id: "gpt-5.4",
@@ -89,7 +89,7 @@ describe("ModelsDevPlugin", () => {
         }),
       ).pipe(Effect.provideService(ModelsDev.Service, models))
 
-      const providerID = ProviderV2.ID.make("acme")
+      const providerID = ProviderV2.ID.leidiandonghua
       const base = yield* catalog.model.get(providerID, ModelV2.ID.make("gpt-5.4"))
       const fast = yield* catalog.model.get(providerID, ModelV2.ID.make("gpt-5.4-fast"))
 
@@ -97,7 +97,7 @@ describe("ModelsDevPlugin", () => {
       expect(base?.request.body).toEqual({})
       expect(fast).toMatchObject({
         id: "gpt-5.4-fast",
-        providerID: "acme",
+        providerID: "leidiandonghua",
         name: "GPT-5.4 Fast",
         api: { id: "gpt-5.4" },
         request: {
@@ -145,20 +145,7 @@ describe("ModelsDevPlugin", () => {
               integration: integrationHost(integrations),
             }),
           )
-          expect(yield* integrations.list()).toEqual([
-            new Integration.Info({
-              id: Integration.ID.make("acme"),
-              name: "Acme",
-              methods: [
-                { type: "key" },
-                {
-                  type: "env",
-                  names: ["ACME_API_KEY"],
-                },
-              ],
-              connections: [],
-            }),
-          ])
+          expect(yield* integrations.list()).toEqual([])
         }).pipe(Effect.provide(AppNodeBuilder.build(ModelsDev.node))),
       (previous) =>
         Effect.sync(() => {

@@ -79,6 +79,7 @@ export type ElectronAPI = {
     title?: string
     defaultPath?: string
   }) => Promise<string | string[] | null>
+  mkdir: (path: string) => Promise<boolean>
   openFilePicker: (opts?: {
     multiple?: boolean
     title?: string

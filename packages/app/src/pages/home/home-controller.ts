@@ -95,6 +95,7 @@ export function createHomeController() {
           const location = { directory: item }
           void ctx.sdk.api.file
             .list({ path: ".", location })
+            .catch(() => ({ data: [] }))
             .then(async (files) => {
               if (files.data.length > 0) return ctx.sdk.api.project.current({ location })
               const result = await ctx.sdk.client.project.initGit({ directory: item })

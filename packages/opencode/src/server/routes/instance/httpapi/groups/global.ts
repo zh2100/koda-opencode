@@ -12,6 +12,15 @@ import { described } from "./metadata"
 const GlobalHealth = Schema.Struct({
   healthy: Schema.Literal(true),
   version: Schema.String,
+  gates: Schema.optional(
+    Schema.Struct({
+      relayCoreUi: Schema.Boolean,
+      relayLayout: Schema.Boolean,
+      relaySkills: Schema.Boolean,
+      relayMcp: Schema.Boolean,
+      scheduledTasks: Schema.Boolean,
+    }),
+  ),
 })
 
 const SyncEventSchemas = EventManifest.Latest.values()

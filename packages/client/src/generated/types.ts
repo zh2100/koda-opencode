@@ -74,6 +74,14 @@ export type ProviderNotFoundError = {
 export const isProviderNotFoundError = (value: unknown): value is ProviderNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ProviderNotFoundError"
 
+export type ScheduledTaskNotFoundError = {
+  readonly _tag: "ScheduledTaskNotFoundError"
+  readonly taskID: string
+  readonly message: string
+}
+export const isScheduledTaskNotFoundError = (value: unknown): value is ScheduledTaskNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ScheduledTaskNotFoundError"
+
 export type PermissionNotFoundError = {
   readonly _tag: "PermissionNotFoundError"
   readonly requestID: string
@@ -101,7 +109,18 @@ export type ProjectCopyError = {
 export const isProjectCopyError = (value: unknown): value is ProjectCopyError =>
   typeof value === "object" && value !== null && "name" in value && value["name"] === "ProjectCopyError"
 
-export type HealthGetOutput = { readonly healthy: true }
+export type HealthGetOutput = {
+  readonly healthy: true
+  readonly gates?:
+    | {
+        readonly relayCoreUi: boolean
+        readonly relayLayout: boolean
+        readonly relaySkills: boolean
+        readonly relayMcp: boolean
+        readonly scheduledTasks: boolean
+      }
+    | undefined
+}
 
 export type LocationGetInput = {
   readonly location?: {
@@ -1595,6 +1614,10 @@ export type SessionsInterruptInput = { readonly sessionID: { readonly sessionID:
 
 export type SessionsInterruptOutput = void
 
+export type SessionsResumeInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type SessionsResumeOutput = void
+
 export type SessionsMessageInput = {
   readonly sessionID: { readonly sessionID: string; readonly messageID: string }["sessionID"]
   readonly messageID: { readonly sessionID: string; readonly messageID: string }["messageID"]
@@ -2288,6 +2311,776 @@ export type CredentialsRemoveInput = {
 
 export type CredentialsRemoveOutput = void
 
+export type ServerRelayGetInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type ServerRelayGetOutput = {
+  readonly unified: boolean
+  readonly hasUnifiedKey: boolean
+  readonly vendors: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly builtin: boolean
+    readonly hasKey: boolean
+    readonly updatedAt: number
+    readonly revision: number
+  }>
+  readonly revision: number
+  readonly canRollback: boolean
+}
+
+export type ServerRelayModeInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly unified: {
+    readonly unified: boolean
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["unified"]
+  readonly revision: {
+    readonly unified: boolean
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["revision"]
+  readonly operationId?: {
+    readonly unified: boolean
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["operationId"]
+}
+
+export type ServerRelayModeOutput = {
+  readonly unified: boolean
+  readonly hasUnifiedKey: boolean
+  readonly vendors: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly builtin: boolean
+    readonly hasKey: boolean
+    readonly updatedAt: number
+    readonly revision: number
+  }>
+  readonly revision: number
+  readonly canRollback: boolean
+}
+
+export type ServerRelayUnifiedInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly key?: {
+    readonly key?: string | undefined
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["key"]
+  readonly revision: {
+    readonly key?: string | undefined
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["revision"]
+  readonly operationId?: {
+    readonly key?: string | undefined
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["operationId"]
+}
+
+export type ServerRelayUnifiedOutput = {
+  readonly unified: boolean
+  readonly hasUnifiedKey: boolean
+  readonly vendors: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly builtin: boolean
+    readonly hasKey: boolean
+    readonly updatedAt: number
+    readonly revision: number
+  }>
+  readonly revision: number
+  readonly canRollback: boolean
+}
+
+export type ServerRelayClearInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly revision: { readonly revision: number; readonly operationId?: string | undefined }["revision"]
+  readonly operationId?: { readonly revision: number; readonly operationId?: string | undefined }["operationId"]
+}
+
+export type ServerRelayClearOutput = {
+  readonly unified: boolean
+  readonly hasUnifiedKey: boolean
+  readonly vendors: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly builtin: boolean
+    readonly hasKey: boolean
+    readonly updatedAt: number
+    readonly revision: number
+  }>
+  readonly revision: number
+  readonly canRollback: boolean
+}
+
+export type ServerRelayVendorInput = {
+  readonly vendorId: { readonly vendorId: string }["vendorId"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly name?: {
+    readonly name?: string | undefined
+    readonly key?: string | undefined
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["name"]
+  readonly key?: {
+    readonly name?: string | undefined
+    readonly key?: string | undefined
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["key"]
+  readonly revision: {
+    readonly name?: string | undefined
+    readonly key?: string | undefined
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["revision"]
+  readonly operationId?: {
+    readonly name?: string | undefined
+    readonly key?: string | undefined
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["operationId"]
+}
+
+export type ServerRelayVendorOutput = {
+  readonly unified: boolean
+  readonly hasUnifiedKey: boolean
+  readonly vendors: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly builtin: boolean
+    readonly hasKey: boolean
+    readonly updatedAt: number
+    readonly revision: number
+  }>
+  readonly revision: number
+  readonly canRollback: boolean
+}
+
+export type ServerRelayKeyInput = {
+  readonly vendorId: { readonly vendorId: string }["vendorId"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly revision: { readonly revision: number; readonly operationId?: string | undefined }["revision"]
+  readonly operationId?: { readonly revision: number; readonly operationId?: string | undefined }["operationId"]
+}
+
+export type ServerRelayKeyOutput = {
+  readonly unified: boolean
+  readonly hasUnifiedKey: boolean
+  readonly vendors: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly builtin: boolean
+    readonly hasKey: boolean
+    readonly updatedAt: number
+    readonly revision: number
+  }>
+  readonly revision: number
+  readonly canRollback: boolean
+}
+
+export type ServerRelayDeleteInput = {
+  readonly vendorId: { readonly vendorId: string }["vendorId"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly revision: { readonly revision: number; readonly operationId?: string | undefined }["revision"]
+  readonly operationId?: { readonly revision: number; readonly operationId?: string | undefined }["operationId"]
+}
+
+export type ServerRelayDeleteOutput = {
+  readonly unified: boolean
+  readonly hasUnifiedKey: boolean
+  readonly vendors: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly builtin: boolean
+    readonly hasKey: boolean
+    readonly updatedAt: number
+    readonly revision: number
+  }>
+  readonly revision: number
+  readonly canRollback: boolean
+}
+
+export type ServerRelayRollbackInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly revision: { readonly revision: number; readonly operationId?: string | undefined }["revision"]
+  readonly operationId?: { readonly revision: number; readonly operationId?: string | undefined }["operationId"]
+}
+
+export type ServerRelayRollbackOutput = {
+  readonly unified: boolean
+  readonly hasUnifiedKey: boolean
+  readonly vendors: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly builtin: boolean
+    readonly hasKey: boolean
+    readonly updatedAt: number
+    readonly revision: number
+  }>
+  readonly revision: number
+  readonly canRollback: boolean
+}
+
+export type ServerRelayProbeInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly vendorId: { readonly vendorId: string }["vendorId"]
+}
+
+export type ServerRelayProbeOutput = { readonly count: number }
+
+export type ServerRelayRefreshInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly vendorId: { readonly vendorId: string }["vendorId"]
+}
+
+export type ServerRelayRefreshOutput = ReadonlyArray<{
+  readonly vendorId?: string
+  readonly modelId: string
+  readonly displayName?: string
+  readonly ownedBy?: string
+  readonly fetchedAt: number
+  readonly assignmentSource: "manual" | "owned_by" | "prefix" | "unassigned" | "conflict"
+  readonly upstreamPresent: boolean
+}>
+
+export type ServerRelayManagedInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type ServerRelayManagedOutput = ReadonlyArray<{
+  readonly vendorId: string
+  readonly modelId: string
+  readonly visible: boolean
+  readonly reasoningCapabilities: ReadonlyArray<"low" | "medium" | "high" | "xhigh">
+  readonly assignmentSource: "manual" | "owned_by" | "prefix" | "unassigned" | "conflict"
+  readonly lastSeenAt: number
+  readonly upstreamPresent: boolean
+}>
+
+export type ServerRelayCandidatesInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly vendorId?: string | undefined
+  }["location"]
+  readonly vendorId?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly vendorId?: string | undefined
+  }["vendorId"]
+}
+
+export type ServerRelayCandidatesOutput = ReadonlyArray<{
+  readonly vendorId?: string
+  readonly modelId: string
+  readonly displayName?: string
+  readonly ownedBy?: string
+  readonly fetchedAt: number
+  readonly assignmentSource: "manual" | "owned_by" | "prefix" | "unassigned" | "conflict"
+  readonly upstreamPresent: boolean
+}>
+
+export type ServerRelayVisibilityInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly vendorId: { readonly vendorId: string; readonly modelId: string; readonly visible: boolean }["vendorId"]
+  readonly modelId: { readonly vendorId: string; readonly modelId: string; readonly visible: boolean }["modelId"]
+  readonly visible: { readonly vendorId: string; readonly modelId: string; readonly visible: boolean }["visible"]
+}
+
+export type ServerRelayVisibilityOutput = ReadonlyArray<{
+  readonly vendorId: string
+  readonly modelId: string
+  readonly visible: boolean
+  readonly reasoningCapabilities: ReadonlyArray<"low" | "medium" | "high" | "xhigh">
+  readonly assignmentSource: "manual" | "owned_by" | "prefix" | "unassigned" | "conflict"
+  readonly lastSeenAt: number
+  readonly upstreamPresent: boolean
+}>
+
+export type ServerScheduledTaskListOutput = ReadonlyArray<{
+  readonly id: string
+  readonly name: string
+  readonly projectID: string
+  readonly location: { readonly directory: string; readonly workspaceID?: string }
+  readonly prompt: {
+    readonly text: string
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly mime: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+  }
+  readonly schedule: "once" | "daily"
+  readonly timezone: string
+  readonly runAt: number
+  readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+  readonly effort?: "low" | "medium" | "high" | "xhigh"
+  readonly approvalMode: "ask" | "auto" | "plan"
+  readonly enabled: boolean
+  readonly revision: number
+  readonly nextRun?: number
+  readonly lastRun?: number
+}>
+
+export type ServerScheduledTaskCreateInput = {
+  readonly name: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["name"]
+  readonly projectID: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["projectID"]
+  readonly location: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["location"]
+  readonly prompt: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["prompt"]
+  readonly schedule: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["schedule"]
+  readonly timezone: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["timezone"]
+  readonly runAt: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["runAt"]
+  readonly model: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["model"]
+  readonly effort?: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["effort"]
+  readonly approvalMode: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["approvalMode"]
+  readonly enabled: {
+    readonly name: string
+    readonly projectID: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly schedule: "once" | "daily"
+    readonly timezone: string
+    readonly runAt: number
+    readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly approvalMode: "ask" | "auto" | "plan"
+    readonly enabled: boolean
+  }["enabled"]
+}
+
+export type ServerScheduledTaskCreateOutput = {
+  readonly id: string
+  readonly name: string
+  readonly projectID: string
+  readonly location: { readonly directory: string; readonly workspaceID?: string }
+  readonly prompt: {
+    readonly text: string
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly mime: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+  }
+  readonly schedule: "once" | "daily"
+  readonly timezone: string
+  readonly runAt: number
+  readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+  readonly effort?: "low" | "medium" | "high" | "xhigh"
+  readonly approvalMode: "ask" | "auto" | "plan"
+  readonly enabled: boolean
+  readonly revision: number
+  readonly nextRun?: number
+  readonly lastRun?: number
+}
+
+export type ServerScheduledTaskRunsInput = { readonly taskID: { readonly taskID: string }["taskID"] }
+
+export type ServerScheduledTaskRunsOutput = ReadonlyArray<{
+  readonly id: string
+  readonly taskId: string
+  readonly scheduledAt: number
+  readonly revision: number
+  readonly status: "pending" | "running" | "completed" | "failed" | "missed" | "interrupted"
+  readonly sessionId?: string
+  readonly promptMessageId?: string
+  readonly startedAt?: number
+  readonly endedAt?: number
+  readonly error?: {
+    readonly code:
+      | "KEY_MISSING"
+      | "KEY_REJECTED"
+      | "UPSTREAM_UNREACHABLE"
+      | "UPSTREAM_TIMEOUT"
+      | "UPSTREAM_RATE_LIMITED"
+      | "UPSTREAM_INVALID_RESPONSE"
+      | "MODEL_UNAVAILABLE"
+      | "MODEL_VENDOR_MISMATCH"
+      | "MODEL_VENDOR_CONFLICT"
+      | "PROVIDER_DISABLED"
+      | "PROJECT_INVALID"
+      | "REVISION_CONFLICT"
+      | "REQUEST_CONFLICT"
+      | "SECRET_STORE_UNAVAILABLE"
+    readonly retryable: boolean
+    readonly requestId: string
+    readonly details?: string
+  }
+}>
+
+export type ServerScheduledTaskRunInput = { readonly taskID: { readonly taskID: string }["taskID"] }
+
+export type ServerScheduledTaskRunOutput = {
+  readonly id: string
+  readonly taskId: string
+  readonly scheduledAt: number
+  readonly revision: number
+  readonly status: "pending" | "running" | "completed" | "failed" | "missed" | "interrupted"
+  readonly sessionId?: string
+  readonly promptMessageId?: string
+  readonly startedAt?: number
+  readonly endedAt?: number
+  readonly error?: {
+    readonly code:
+      | "KEY_MISSING"
+      | "KEY_REJECTED"
+      | "UPSTREAM_UNREACHABLE"
+      | "UPSTREAM_TIMEOUT"
+      | "UPSTREAM_RATE_LIMITED"
+      | "UPSTREAM_INVALID_RESPONSE"
+      | "MODEL_UNAVAILABLE"
+      | "MODEL_VENDOR_MISMATCH"
+      | "MODEL_VENDOR_CONFLICT"
+      | "PROVIDER_DISABLED"
+      | "PROJECT_INVALID"
+      | "REVISION_CONFLICT"
+      | "REQUEST_CONFLICT"
+      | "SECRET_STORE_UNAVAILABLE"
+    readonly retryable: boolean
+    readonly requestId: string
+    readonly details?: string
+  }
+}
+
+export type ServerScheduledTaskEnableInput = {
+  readonly taskID: { readonly taskID: string }["taskID"]
+  readonly enabled: { readonly enabled: boolean }["enabled"]
+}
+
+export type ServerScheduledTaskEnableOutput = {
+  readonly id: string
+  readonly name: string
+  readonly projectID: string
+  readonly location: { readonly directory: string; readonly workspaceID?: string }
+  readonly prompt: {
+    readonly text: string
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly mime: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+  }
+  readonly schedule: "once" | "daily"
+  readonly timezone: string
+  readonly runAt: number
+  readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+  readonly effort?: "low" | "medium" | "high" | "xhigh"
+  readonly approvalMode: "ask" | "auto" | "plan"
+  readonly enabled: boolean
+  readonly revision: number
+  readonly nextRun?: number
+  readonly lastRun?: number
+}
+
 export type PermissionsListRequestsInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
@@ -2321,8 +3114,38 @@ export type PermissionsListSavedOutput = {
     readonly projectID: string
     readonly action: string
     readonly resource: string
+    readonly effect?: ("allow" | "deny" | "ask") | null
   }>
 }["data"]
+
+export type PermissionsAddInput = {
+  readonly projectID: {
+    readonly projectID: string
+    readonly action: string
+    readonly resource: string
+    readonly effect?: ("allow" | "deny" | "ask") | undefined
+  }["projectID"]
+  readonly action: {
+    readonly projectID: string
+    readonly action: string
+    readonly resource: string
+    readonly effect?: ("allow" | "deny" | "ask") | undefined
+  }["action"]
+  readonly resource: {
+    readonly projectID: string
+    readonly action: string
+    readonly resource: string
+    readonly effect?: ("allow" | "deny" | "ask") | undefined
+  }["resource"]
+  readonly effect?: {
+    readonly projectID: string
+    readonly action: string
+    readonly resource: string
+    readonly effect?: ("allow" | "deny" | "ask") | undefined
+  }["effect"]
+}
+
+export type PermissionsAddOutput = void
 
 export type PermissionsRemoveSavedInput = { readonly id: { readonly id: string }["id"] }
 

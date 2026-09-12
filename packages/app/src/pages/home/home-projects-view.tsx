@@ -43,6 +43,7 @@ export type HomeProjectsViewProps = {
   unseenCount: (server: ServerConnection.Any, project: LocalProject) => number
   onWheel: (event: WheelEvent) => void
   onChooseProject: (server: ServerConnection.Any) => void
+  onCreateProject: (server: ServerConnection.Any) => void
   onFocusServer: (server: ServerConnection.Any) => void
   onToggleCollapsed: (server: ServerConnection.Any) => void
   onEditServer: (server: ServerConnection.Http) => void
@@ -83,18 +84,32 @@ export function HomeProjectsView(props: HomeProjectsViewProps) {
         <Show
           when={props.servers().length === 1 && !(props.projects().length === 0 && props.recentlyClosed().length > 0)}
         >
-          <TooltipV2 placement="bottom" value={props.language.t("home.project.add")}>
-            <IconButtonV2
-              data-action="home-add-project"
-              variant="ghost-muted"
-              size="large"
-              class="titlebar-icon [&_[data-slot=icon-svg]]:text-v2-icon-icon-muted"
-              icon={<IconV2 name="folder-add-left" />}
-              disabled={props.serverHealth(props.servers()[0])?.healthy === false}
-              onClick={() => props.onChooseProject(props.servers()[0])}
-              aria-label={props.language.t("home.project.add")}
-            />
-          </TooltipV2>
+          <div class="flex items-center gap-1">
+            <TooltipV2 placement="bottom" value={props.language.t("home.project.create")}>
+              <IconButtonV2
+                data-action="home-create-project"
+                variant="ghost-muted"
+                size="large"
+                class="titlebar-icon [&_[data-slot=icon-svg]]:text-v2-icon-icon-muted"
+                icon={<IconV2 name="plus" />}
+                disabled={props.serverHealth(props.servers()[0])?.healthy === false}
+                onClick={() => props.onCreateProject(props.servers()[0])}
+                aria-label={props.language.t("home.project.create")}
+              />
+            </TooltipV2>
+            <TooltipV2 placement="bottom" value={props.language.t("home.project.open")}>
+              <IconButtonV2
+                data-action="home-add-project"
+                variant="ghost-muted"
+                size="large"
+                class="titlebar-icon [&_[data-slot=icon-svg]]:text-v2-icon-icon-muted"
+                icon={<IconV2 name="folder-add-left" />}
+                disabled={props.serverHealth(props.servers()[0])?.healthy === false}
+                onClick={() => props.onChooseProject(props.servers()[0])}
+                aria-label={props.language.t("home.project.open")}
+              />
+            </TooltipV2>
+          </div>
         </Show>
       </div>
       <ScrollView data-slot="home-projects-scroll" class="min-h-0 min-w-0 shrink">
@@ -195,6 +210,7 @@ function HomeServerRow(props: {
   onRemoveServer: HomeProjectsViewProps["onRemoveServer"]
   onSetContextMenuOpen: HomeProjectsContextMenuProps["onSetContextMenuOpen"]
   onChooseProject: HomeProjectsViewProps["onChooseProject"]
+  onCreateProject: HomeProjectsViewProps["onCreateProject"]
   server: ServerConnection.Any
   selected: boolean
   collapsed: boolean
@@ -284,13 +300,24 @@ function HomeServerRow(props: {
           open={props.contextMenuOpen(contextMenuID())}
           onOpenChange={(open) => props.onSetContextMenuOpen(contextMenuID(), open)}
         />
-        <TooltipV2 class="flex shrink-0 items-center" placement="bottom" value={props.language.t("home.project.add")}>
+        <TooltipV2 class="flex shrink-0 items-center" placement="bottom" value={props.language.t("home.project.create")}>
+          <IconButtonV2
+            data-action="home-create-project"
+            variant="ghost-muted"
+            size="small"
+            icon={<IconV2 name="plus" />}
+            aria-label={props.language.t("home.project.create")}
+            disabled={props.health?.healthy === false}
+            onClick={() => props.onCreateProject(props.server)}
+          />
+        </TooltipV2>
+        <TooltipV2 class="flex shrink-0 items-center" placement="bottom" value={props.language.t("home.project.open")}>
           <IconButtonV2
             data-action="home-add-project"
             variant="ghost-muted"
             size="small"
             icon={<IconV2 name="folder-add-left" />}
-            aria-label={props.language.t("home.project.add")}
+            aria-label={props.language.t("home.project.open")}
             disabled={props.health?.healthy === false}
             onClick={() => props.onChooseProject(props.server)}
           />
@@ -397,10 +424,20 @@ function HomeProjectEmpty(
         data-action="home-add-project-row"
         class="disabled:opacity-60 [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted"
         disabled={unreachable()}
+        onClick={() => props.onCreateProject(props.server)}
+      >
+        <IconV2 name="plus" size="small" />
+        <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("home.project.create")}</span>
+      </HomeProjectNavButton>
+      <HomeProjectNavButton
+        type="button"
+        data-action="home-open-project-row"
+        class="disabled:opacity-60 [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted"
+        disabled={unreachable()}
         onClick={() => props.onChooseProject(props.server)}
       >
         <IconV2 name="folder-add-left" size="small" />
-        <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("home.project.add")}</span>
+        <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("home.project.open")}</span>
       </HomeProjectNavButton>
       <Show when={props.items.length > 0}>
         <div class="mt-3 flex h-7 min-w-0 shrink-0 items-center pl-1.5 pr-3">

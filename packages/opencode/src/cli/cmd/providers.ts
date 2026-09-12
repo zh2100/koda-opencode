@@ -4,7 +4,6 @@ import { cmd } from "./cmd"
 import { CliError, effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
 import * as Prompt from "../effect/prompt"
-import { ModelsDev } from "@opencode-ai/core/models-dev"
 
 import { map, pipe, sortBy, values } from "remeda"
 import path from "path"
@@ -253,7 +252,6 @@ export const ProvidersListCommand = effectCmd({
   instance: false,
   handler: Effect.fn("Cli.providers.list")(function* (_args) {
     const authSvc = yield* Auth.Service
-    const modelsDev = yield* ModelsDev.Service
 
     UI.empty()
     const authPath = path.join(Global.Path.data, "auth.json")
@@ -261,38 +259,12 @@ export const ProvidersListCommand = effectCmd({
     const displayPath = authPath.startsWith(homedir) ? authPath.replace(homedir, "~") : authPath
     yield* Prompt.intro(`Credentials ${UI.Style.TEXT_DIM}${displayPath}`)
     const results = Object.entries(yield* Effect.orDie(authSvc.all()))
-    const database = yield* modelsDev.get()
 
     for (const [providerID, result] of results) {
-      const name = database[providerID]?.name || providerID
-      yield* Prompt.log.info(`${name} ${UI.Style.TEXT_DIM}${result.type}`)
+      yield* Prompt.log.info(`${providerID} ${UI.Style.TEXT_DIM}${result.type}`)
     }
 
     yield* Prompt.outro(`${results.length} credentials`)
-
-    const activeEnvVars: Array<{ provider: string; envVar: string }> = []
-
-    for (const [providerID, provider] of Object.entries(database)) {
-      for (const envVar of provider.env) {
-        if (process.env[envVar]) {
-          activeEnvVars.push({
-            provider: provider.name || providerID,
-            envVar,
-          })
-        }
-      }
-    }
-
-    if (activeEnvVars.length > 0) {
-      UI.empty()
-      yield* Prompt.intro("Environment")
-
-      for (const { provider, envVar } of activeEnvVars) {
-        yield* Prompt.log.info(`${provider} ${UI.Style.TEXT_DIM}${envVar}`)
-      }
-
-      yield* Prompt.outro(`${activeEnvVars.length} environment variable` + (activeEnvVars.length === 1 ? "" : "s"))
-    }
   }),
 })
 
@@ -353,18 +325,16 @@ export const ProvidersLoginCommand = effectCmd({
 
     const cfgSvc = yield* Config.Service
     const pluginSvc = yield* Plugin.Service
-    const modelsDev = yield* ModelsDev.Service
-    yield* Effect.ignore(modelsDev.refresh(true))
-
     const config = yield* cfgSvc.get()
 
     const disabled = new Set(config.disabled_providers ?? [])
     const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
 
-    const allProviders = yield* modelsDev.get()
-    const providers: Record<string, (typeof allProviders)[string]> = {}
-    for (const [key, value] of Object.entries(allProviders)) {
-      if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) providers[key] = value
+    const providers: Record<string, { id: string; name: string }> = {}
+    for (const [key, value] of Object.entries(config.provider ?? {})) {
+      if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
+        providers[key] = { id: key, name: value.name ?? key }
+      }
     }
     const hooks = yield* pluginSvc.list()
 
@@ -500,7 +470,6 @@ export const ProvidersLogoutCommand = effectCmd({
   instance: false,
   handler: Effect.fn("Cli.providers.logout")(function* (args) {
     const authSvc = yield* Auth.Service
-    const modelsDev = yield* ModelsDev.Service
 
     UI.empty()
     const credentials: Array<[string, Auth.Info]> = Object.entries(yield* Effect.orDie(authSvc.all()))
@@ -509,17 +478,12 @@ export const ProvidersLogoutCommand = effectCmd({
       yield* Prompt.log.error("No credentials found")
       return
     }
-    const database = yield* modelsDev.get()
     const options = credentials.map(([key, value]) => ({
-      label: (database[key]?.name || key) + UI.Style.TEXT_DIM + " (" + value.type + ")",
+      label: key + UI.Style.TEXT_DIM + " (" + value.type + ")",
       value: key,
     }))
     const provider = args.provider
-      ? options.find(
-          (option) =>
-            option.value === args.provider ||
-            database[option.value]?.name?.toLowerCase() === args.provider?.toLowerCase(),
-        )?.value
+      ? options.find((option) => option.value === args.provider)?.value
       : yield* promptValue(
           yield* Prompt.autocomplete({
             message: "Select provider",

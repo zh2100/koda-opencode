@@ -32,6 +32,9 @@ export function createNewSessionDraftController(workspace: { worktree: () => str
     get controls() {
       return controls()
     },
+    get project() {
+      return undefined
+    },
     get newSessionWorktree() {
       return workspace.worktree()
     },

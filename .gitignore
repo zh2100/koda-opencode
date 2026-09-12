@@ -32,3 +32,12 @@ UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
 tsconfig.tsbuildinfo
+
+# Local indexing and nested checkout
+/.codegraph/
+/opencode/
+
+# Local desktop build backups and logs
+/artifacts/desktop-backup-*/
+/artifacts/desktop-build-backup-*/
+/artifacts/*.log

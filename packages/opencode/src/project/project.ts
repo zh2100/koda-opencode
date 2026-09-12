@@ -306,7 +306,7 @@ const layer = Layer.effect(
       if (projectID !== ProjectV2.ID.global && data.vcs?.type === "git") {
         yield* projectV2.commit({ store: data.vcs.store, id: data.id })
       }
-      return { project: result, sandbox: data.vcs ? data.directory : worktree }
+      return { project: result, sandbox: data.vcs ? data.directory : directory }
     })
 
     const discover = Effect.fn("Project.discover")(function* (input: Info) {

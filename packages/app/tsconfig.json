@@ -21,6 +21,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "package.json"],
+  "include": ["src", "package.json", "../client/src/generated/**/*.ts"],
   "exclude": ["dist", "ts-dist"]
 }

@@ -1,7 +1,8 @@
 export * as PermissionSaved from "./permission-saved"
 
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 import { ascending } from "./identifier"
+import { Permission } from "./permission"
 import { ProjectID } from "./project-id"
 import { statics } from "./schema"
 
@@ -16,5 +17,6 @@ export const Info = Schema.Struct({
   projectID: ProjectID,
   action: Schema.String,
   resource: Schema.String,
+  effect: Permission.Effect.pipe(Schema.withDecodingDefault(Effect.succeed("allow" as const))),
 }).annotate({ identifier: "PermissionSaved.Info" })
 export interface Info extends Schema.Schema.Type<typeof Info> {}

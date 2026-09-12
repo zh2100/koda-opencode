@@ -4,6 +4,10 @@ import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Credential } from "@opencode-ai/core/credential"
+import { RelayAuth } from "@opencode-ai/core/relay-auth"
+import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
+import { RelayGate } from "@opencode-ai/core/relay-gate"
+import { ScheduledTaskStore } from "@opencode-ai/core/scheduled-task"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { PtyTicket } from "@opencode-ai/core/pty/ticket"
 import { SessionV2 } from "@opencode-ai/core/session"
@@ -32,6 +36,10 @@ const applicationServices = LayerNode.group([
   PermissionSaved.node,
   PtyTicket.node,
   Credential.node,
+  RelayAuth.node,
+  RelayCatalog.node,
+  RelayGate.node,
+  ScheduledTaskStore.node,
   PtyEnvironment.node,
   LocationServiceMap.node,
 ])

@@ -216,7 +216,7 @@ export function SessionTodoDock(props: {
   )
 }
 
-function TodoList(props: { todos: Todo[] }) {
+export function TodoList(props: { todos: Todo[] }) {
   const [store, setStore] = createStore({
     stuck: false,
   })

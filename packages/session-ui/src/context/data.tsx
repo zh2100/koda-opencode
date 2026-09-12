@@ -40,11 +40,16 @@ type Data = {
   part_text_accum_delta?: {
     [partID: string]: string
   }
+  permission?: {
+    [sessionID: string]: Array<{ sessionID: string }>
+  }
 }
 
 export type NavigateToSessionFn = (sessionID: string) => void
 
 export type SessionHrefFn = (sessionID: string) => string
+
+export type RetrySessionFn = (sessionID: string) => void
 
 export const { use: useData, provider: DataProvider } = createSimpleContext({
   name: "Data",
@@ -54,6 +59,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     sessionID?: string
     onNavigateToSession?: NavigateToSessionFn
     onSessionHref?: SessionHrefFn
+    onRetrySession?: RetrySessionFn
   }) => {
     return {
       get store() {
@@ -67,6 +73,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       },
       navigateToSession: props.onNavigateToSession,
       sessionHref: props.onSessionHref,
+      retrySession: props.onRetrySession,
     }
   },
 })

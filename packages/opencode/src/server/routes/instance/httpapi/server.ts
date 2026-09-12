@@ -55,7 +55,6 @@ import { AppNodeBuilderV1 } from "@/effect/app-node-builder-v1"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
 import { EventV2 } from "@opencode-ai/core/event"
-import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { Npm } from "@opencode-ai/core/npm"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { ProjectV2 } from "@opencode-ai/core/project"
@@ -64,6 +63,12 @@ import { PtyTicket } from "@opencode-ai/core/pty/ticket"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { RelayAuth } from "@opencode-ai/core/relay-auth"
+import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
+import { RelayGate } from "@opencode-ai/core/relay-gate"
+import { RelaySecretStore } from "@opencode-ai/core/relay-secret-store"
+import { ScheduledTaskStore } from "@opencode-ai/core/scheduled-task"
+import { Global } from "@opencode-ai/core/global"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { lazy } from "@/util/lazy"
@@ -202,13 +207,6 @@ const uiRoute = HttpRouter.use((router) =>
   }),
 ).pipe(Layer.provide(authOnlyRouterLayer))
 
-type RouteRequirements =
-  | HttpRouter.HttpRouter
-  | HttpRouter.Request<"Error", unknown>
-  | HttpRouter.Request<"GlobalError", unknown>
-  | HttpRouter.Request<"Requires", unknown>
-  | HttpRouter.Request<"GlobalRequires", never>
-
 const app = LayerNode.group([
   Npm.node,
   FSUtil.node,
@@ -222,7 +220,6 @@ const app = LayerNode.group([
   Storage.node,
   Snapshot.node,
   Plugin.node,
-  ModelsDev.node,
   Provider.node,
   ProviderAuth.node,
   Agent.node,
@@ -266,11 +263,14 @@ const app = LayerNode.group([
   ProjectV2.node,
   ProjectCopy.node,
   PtyTicket.node,
+  Global.node,
+  RelaySecretStore.node,
+  RelayAuth.node,
+  RelayCatalog.node,
+  RelayGate.node,
 ])
 
-export function createRoutes(
-  corsOptions?: CorsOptions,
-): Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements> {
+export function createRoutes(corsOptions?: CorsOptions) {
   const locationServiceMapV2 = buildLocationServiceMap()
 
   return Layer.mergeAll(
@@ -301,13 +301,18 @@ export function createRoutes(
         [SessionExecution.node, SessionExecutionLocal.node],
       ]),
     ),
+    Layer.provide(
+      AppNodeBuilderV1.build(ScheduledTaskStore.node, [
+        [LocationServiceMap.node, locationServiceMapV2],
+        [SessionExecution.node, SessionExecutionLocal.node],
+      ]),
+    ),
     Layer.provide(locationServiceMapV2),
 
     Layer.provide(AppNodeBuilderV1.build(app)),
     // Must stay last: layers provided later in this pipe build beneath earlier ones,
     // so Observability must come after every service graph. Otherwise eagerly forked
-    // fibers (e.g. the ModelsDev background refresh) capture Effect's default stdout
-    // logger and corrupt the TUI (#34730).
+    // fibers capture Effect's default stdout logger and corrupt the TUI (#34730).
     Layer.provideMerge(Observability.layer),
   )
 }

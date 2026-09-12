@@ -1,6 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Effect, Layer, Context, Schema, Scope } from "effect"
 import { formatPatch, structuredPatch } from "diff"
+import path from "path"
 import { InstanceState } from "@/effect/instance-state"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { Git } from "@/git"
@@ -86,6 +87,8 @@ const fileFromPatchChunk = (chunk: string) => {
 }
 
 const splitGitPatch = (patch: Git.Patch) => {
+  // Only `\n` starts a real git file header. A `\rdiff --git` sequence is file
+  // content; git's own `diff --patch` may still emit a second hunk after it.
   const starts = [...patch.text.matchAll(/(?:^|\n)diff --git /g)].map((match) =>
     match[0].startsWith("\n") ? match.index + 1 : match.index,
   )
@@ -141,6 +144,33 @@ const nativePatch = Effect.fnUntraced(function* (
   return emptyPatch(item.file)
 })
 
+const parseablePatch = Effect.fnUntraced(function* (
+  git: Git.Interface,
+  cwd: string,
+  ref: string | undefined,
+  item: Git.Item,
+  options: DiffOptions | undefined,
+  text: string,
+) {
+  // git `diff --patch` treats `\rdiff --git ` as a new file header and emits a
+  // second hunk that unified-diff parsers reject. Rebuild from file contents.
+  if (!text.includes("\rdiff --git ")) return text
+  const prefix = yield* git.prefix(cwd)
+  const before = item.status === "added" || !ref ? "" : yield* git.show(cwd, ref, item.file, prefix)
+  const after =
+    item.status === "deleted"
+      ? ""
+      : yield* Effect.promise(() => Bun.file(path.join(cwd, item.file)).text()).pipe(
+          Effect.catch(() => Effect.succeed("")),
+        )
+  if (before.includes("\0") || after.includes("\0")) return emptyPatch(item.file)
+  return formatPatch(
+    structuredPatch(item.file, item.file, before, after, "", "", {
+      context: options?.context ?? PATCH_CONTEXT_LINES,
+    }),
+  )
+})
+
 const totalPatch = (file: string, patch: string, total: number) => {
   if (total + Buffer.byteLength(patch) <= MAX_TOTAL_PATCH_BYTES) return { patch, capped: false }
   return { patch: emptyPatch(file), capped: true }
@@ -158,9 +188,9 @@ const patchForItem = Effect.fnUntraced(function* (
   if (capped) return emptyPatch(item.file)
 
   const batched = batch.patches.get(item.file)
-  if (batched !== undefined) return batched
+  if (batched !== undefined) return yield* parseablePatch(git, cwd, ref, item, options, batched)
   if (item.code !== "??" && batch.capped) return emptyPatch(item.file)
-  return yield* nativePatch(git, cwd, ref, item, options)
+  return yield* parseablePatch(git, cwd, ref, item, options, yield* nativePatch(git, cwd, ref, item, options))
 })
 
 const files = Effect.fnUntraced(function* (

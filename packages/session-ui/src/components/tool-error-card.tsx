@@ -17,6 +17,7 @@ export interface ToolErrorCardProps extends Omit<ComponentProps<typeof Card>, "c
   subtitle?: string
   href?: string
   onSubtitleClick?: (event: MouseEvent) => void
+  onRetry?: () => void
 }
 
 export function ToolErrorCard(props: ToolErrorCardProps) {
@@ -37,6 +38,7 @@ export function ToolErrorCard(props: ToolErrorCardProps) {
     "subtitle",
     "href",
     "onSubtitleClick",
+    "onRetry",
   ])
   const setOpen = (value: boolean) => {
     if (props.open === undefined) setState("open", value)
@@ -134,6 +136,21 @@ export function ToolErrorCard(props: ToolErrorCardProps) {
           <div data-slot="tool-error-card-content">
             <Show when={open()}>
               <div data-slot="tool-error-card-copy">
+                <Show when={split.onRetry}>
+                  <Tooltip value={i18n.t("ui.tool.task.retry")} placement="top" gutter={4}>
+                    <IconButton
+                      icon="arrow-undo-down"
+                      size="normal"
+                      variant="ghost"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        split.onRetry?.()
+                      }}
+                      aria-label={i18n.t("ui.tool.task.retry")}
+                    />
+                  </Tooltip>
+                </Show>
                 <Tooltip
                   value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.toolErrorCard.copyError")}
                   placement="top"

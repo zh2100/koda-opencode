@@ -593,6 +593,7 @@ describe("filesystem", () => {
     })
 
     test("resolves symlinked directory to canonical path", async () => {
+      if (process.platform === "win32") return
       await using tmp = await tmpdir()
       const target = path.join(tmp.path, "real")
       await fs.mkdir(target)
@@ -609,6 +610,7 @@ describe("filesystem", () => {
     })
 
     test("throws ELOOP on symlink cycle", async () => {
+      if (process.platform === "win32") return
       await using tmp = await tmpdir()
       const a = path.join(tmp.path, "a")
       const b = path.join(tmp.path, "b")

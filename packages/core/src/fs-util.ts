@@ -110,7 +110,7 @@ export namespace FSUtil {
       const writeJson = Effect.fn("FileSystem.writeJson")(function* (path: string, data: unknown, mode?: number) {
         const content = JSON.stringify(data, null, 2)
         yield* fs.writeFileString(path, content)
-        if (mode) yield* fs.chmod(path, mode)
+        if (mode) yield* fs.chmod(path, mode).pipe(Effect.orElseSucceed(() => undefined))
       })
 
       const ensureDir = Effect.fn("FileSystem.ensureDir")(function* (path: string) {

@@ -35,6 +35,8 @@ import type {
   SessionsEventsOutput,
   SessionsInterruptInput,
   SessionsInterruptOutput,
+  SessionsResumeInput,
+  SessionsResumeOutput,
   SessionsMessageInput,
   SessionsMessageOutput,
   MessagesListInput,
@@ -63,10 +65,47 @@ import type {
   CredentialsUpdateOutput,
   CredentialsRemoveInput,
   CredentialsRemoveOutput,
+  ServerRelayGetInput,
+  ServerRelayGetOutput,
+  ServerRelayModeInput,
+  ServerRelayModeOutput,
+  ServerRelayUnifiedInput,
+  ServerRelayUnifiedOutput,
+  ServerRelayClearInput,
+  ServerRelayClearOutput,
+  ServerRelayVendorInput,
+  ServerRelayVendorOutput,
+  ServerRelayKeyInput,
+  ServerRelayKeyOutput,
+  ServerRelayDeleteInput,
+  ServerRelayDeleteOutput,
+  ServerRelayRollbackInput,
+  ServerRelayRollbackOutput,
+  ServerRelayProbeInput,
+  ServerRelayProbeOutput,
+  ServerRelayRefreshInput,
+  ServerRelayRefreshOutput,
+  ServerRelayManagedInput,
+  ServerRelayManagedOutput,
+  ServerRelayCandidatesInput,
+  ServerRelayCandidatesOutput,
+  ServerRelayVisibilityInput,
+  ServerRelayVisibilityOutput,
+  ServerScheduledTaskListOutput,
+  ServerScheduledTaskCreateInput,
+  ServerScheduledTaskCreateOutput,
+  ServerScheduledTaskRunsInput,
+  ServerScheduledTaskRunsOutput,
+  ServerScheduledTaskRunInput,
+  ServerScheduledTaskRunOutput,
+  ServerScheduledTaskEnableInput,
+  ServerScheduledTaskEnableOutput,
   PermissionsListRequestsInput,
   PermissionsListRequestsOutput,
   PermissionsListSavedInput,
   PermissionsListSavedOutput,
+  PermissionsAddInput,
+  PermissionsAddOutput,
   PermissionsRemoveSavedInput,
   PermissionsRemoveSavedOutput,
   PermissionsCreateInput,
@@ -481,6 +520,17 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
+      resume: (input: SessionsResumeInput, requestOptions?: RequestOptions) =>
+        request<SessionsResumeOutput>(
+          {
+            method: "POST",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/resume`,
+            successStatus: 204,
+            declaredStatuses: [404, 503, 400, 401],
+            empty: true,
+          },
+          requestOptions,
+        ),
       message: (input: SessionsMessageInput, requestOptions?: RequestOptions) =>
         request<{ readonly data: SessionsMessageOutput }>(
           {
@@ -663,6 +713,250 @@ export function make(options: ClientOptions) {
           requestOptions,
         ),
     },
+    "server.relay": {
+      get: (input?: ServerRelayGetInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayGetOutput>(
+          {
+            method: "GET",
+            path: `/api/relay/auth`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      mode: (input: ServerRelayModeInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayModeOutput>(
+          {
+            method: "PUT",
+            path: `/api/relay/auth/mode`,
+            query: { location: input["location"] },
+            body: { unified: input["unified"], revision: input["revision"], operationId: input["operationId"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      unified: (input: ServerRelayUnifiedInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayUnifiedOutput>(
+          {
+            method: "PUT",
+            path: `/api/relay/auth/unified`,
+            query: { location: input["location"] },
+            body: { key: input["key"], revision: input["revision"], operationId: input["operationId"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      clear: (input: ServerRelayClearInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayClearOutput>(
+          {
+            method: "DELETE",
+            path: `/api/relay/auth/unified`,
+            query: { location: input["location"] },
+            body: { revision: input["revision"], operationId: input["operationId"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      vendor: (input: ServerRelayVendorInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayVendorOutput>(
+          {
+            method: "PUT",
+            path: `/api/relay/auth/vendors/${encodeURIComponent(input.vendorId)}`,
+            query: { location: input["location"] },
+            body: {
+              name: input["name"],
+              key: input["key"],
+              revision: input["revision"],
+              operationId: input["operationId"],
+            },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      key: (input: ServerRelayKeyInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayKeyOutput>(
+          {
+            method: "DELETE",
+            path: `/api/relay/auth/vendors/${encodeURIComponent(input.vendorId)}/key`,
+            query: { location: input["location"] },
+            body: { revision: input["revision"], operationId: input["operationId"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      delete: (input: ServerRelayDeleteInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayDeleteOutput>(
+          {
+            method: "DELETE",
+            path: `/api/relay/auth/vendors/${encodeURIComponent(input.vendorId)}`,
+            query: { location: input["location"] },
+            body: { revision: input["revision"], operationId: input["operationId"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      rollback: (input: ServerRelayRollbackInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayRollbackOutput>(
+          {
+            method: "POST",
+            path: `/api/relay/auth/rollback`,
+            query: { location: input["location"] },
+            body: { revision: input["revision"], operationId: input["operationId"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      probe: (input: ServerRelayProbeInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayProbeOutput>(
+          {
+            method: "POST",
+            path: `/api/relay/models/probe`,
+            query: { location: input["location"] },
+            body: { vendorId: input["vendorId"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      refresh: (input: ServerRelayRefreshInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayRefreshOutput>(
+          {
+            method: "POST",
+            path: `/api/relay/models/refresh`,
+            query: { location: input["location"] },
+            body: { vendorId: input["vendorId"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      managed: (input?: ServerRelayManagedInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayManagedOutput>(
+          {
+            method: "GET",
+            path: `/api/relay/models`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      candidates: (input?: ServerRelayCandidatesInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayCandidatesOutput>(
+          {
+            method: "GET",
+            path: `/api/relay/models/candidates`,
+            query: { location: input?.["location"], vendorId: input?.["vendorId"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      visibility: (input: ServerRelayVisibilityInput, requestOptions?: RequestOptions) =>
+        request<ServerRelayVisibilityOutput>(
+          {
+            method: "PUT",
+            path: `/api/relay/models/visibility`,
+            query: { location: input["location"] },
+            body: { vendorId: input["vendorId"], modelId: input["modelId"], visible: input["visible"] },
+            successStatus: 200,
+            declaredStatuses: [409, 400, 503, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+    },
+    "server.scheduledTask": {
+      list: (requestOptions?: RequestOptions) =>
+        request<ServerScheduledTaskListOutput>(
+          {
+            method: "GET",
+            path: `/api/scheduled-task`,
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      create: (input: ServerScheduledTaskCreateInput, requestOptions?: RequestOptions) =>
+        request<ServerScheduledTaskCreateOutput>(
+          {
+            method: "POST",
+            path: `/api/scheduled-task`,
+            body: {
+              name: input["name"],
+              projectID: input["projectID"],
+              location: input["location"],
+              prompt: input["prompt"],
+              schedule: input["schedule"],
+              timezone: input["timezone"],
+              runAt: input["runAt"],
+              model: input["model"],
+              effort: input["effort"],
+              approvalMode: input["approvalMode"],
+              enabled: input["enabled"],
+            },
+            successStatus: 200,
+            declaredStatuses: [503, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      runs: (input: ServerScheduledTaskRunsInput, requestOptions?: RequestOptions) =>
+        request<ServerScheduledTaskRunsOutput>(
+          {
+            method: "GET",
+            path: `/api/scheduled-task/${encodeURIComponent(input.taskID)}/run`,
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      run: (input: ServerScheduledTaskRunInput, requestOptions?: RequestOptions) =>
+        request<ServerScheduledTaskRunOutput>(
+          {
+            method: "POST",
+            path: `/api/scheduled-task/${encodeURIComponent(input.taskID)}/run`,
+            successStatus: 200,
+            declaredStatuses: [404, 503, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      enable: (input: ServerScheduledTaskEnableInput, requestOptions?: RequestOptions) =>
+        request<ServerScheduledTaskEnableOutput>(
+          {
+            method: "POST",
+            path: `/api/scheduled-task/${encodeURIComponent(input.taskID)}/enable`,
+            body: { enabled: input["enabled"] },
+            successStatus: 200,
+            declaredStatuses: [404, 503, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+    },
     permissions: {
       listRequests: (input?: PermissionsListRequestsInput, requestOptions?: RequestOptions) =>
         request<PermissionsListRequestsOutput>(
@@ -688,6 +982,23 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ).then((value) => value.data),
+      add: (input: PermissionsAddInput, requestOptions?: RequestOptions) =>
+        request<PermissionsAddOutput>(
+          {
+            method: "POST",
+            path: `/api/permission/saved`,
+            body: {
+              projectID: input["projectID"],
+              action: input["action"],
+              resource: input["resource"],
+              effect: input["effect"],
+            },
+            successStatus: 204,
+            declaredStatuses: [401, 400],
+            empty: true,
+          },
+          requestOptions,
+        ),
       removeSaved: (input: PermissionsRemoveSavedInput, requestOptions?: RequestOptions) =>
         request<PermissionsRemoveSavedOutput>(
           {

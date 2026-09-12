@@ -75,6 +75,7 @@ describe("Glob", () => {
     })
 
     test("does not follow symlinks by default", async () => {
+      if (process.platform === "win32") return
       await using tmp = await tmpdir()
       await fs.mkdir(path.join(tmp.path, "realdir"))
       await fs.writeFile(path.join(tmp.path, "realdir", "file.txt"), "", "utf-8")
@@ -86,6 +87,7 @@ describe("Glob", () => {
     })
 
     test("follows symlinks when symlink option is true", async () => {
+      if (process.platform === "win32") return
       await using tmp = await tmpdir()
       await fs.mkdir(path.join(tmp.path, "realdir"))
       await fs.writeFile(path.join(tmp.path, "realdir", "file.txt"), "", "utf-8")

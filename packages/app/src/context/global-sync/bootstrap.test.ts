@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createStore } from "solid-js/store"
-import { QueryClient } from "@tanstack/solid-query"
+import { CancelledError, QueryClient } from "@tanstack/solid-query"
 import type { Config, OpencodeClient, Project } from "@opencode-ai/sdk/v2/client"
 import type { AgentApi, CatalogApi, CommandApi, ReferenceApi } from "@opencode-ai/client/promise"
 import type { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
@@ -143,6 +143,162 @@ describe("bootstrapDirectory", () => {
     expect(store.status).toBe("complete")
     expect(legacyConfigReads).toEqual(["directory"])
     expect(mcpReads.sort()).toEqual(["command", "resource", "status"])
+  })
+
+  test("completes a v1 directory when vcs and commands fail", async () => {
+    const [store, setStore] = directoryState()
+
+    await bootstrapDirectory({
+      directory: "/project",
+      scope: ServerScope.local,
+      mcp: true,
+      global: {
+        config: {} satisfies Config,
+        path: { state: "", config: "", worktree: "/project", directory: "/project", home: "/home" },
+        project: [{ id: "project", worktree: "/project" } as Project],
+        provider,
+      },
+      sdk: {
+        app: { agents: async () => ({ data: [{ name: "build", mode: "primary" }] }) },
+        config: { get: async () => ({ data: {} }) },
+        session: { status: async () => ({ data: {} }) },
+        vcs: {
+          get: async () => {
+            throw new Error("git failed")
+          },
+        },
+        command: {
+          list: async () => {
+            throw new Error("commands failed")
+          },
+        },
+        permission: { list: async () => ({ data: [] }) },
+        question: { list: async () => ({ data: [] }) },
+        v2: { reference: { list: async () => ({ data: { data: [] } }) } },
+        mcp: { status: async () => ({ data: {} }) },
+        experimental: { resource: { list: async () => ({ data: {} }) } },
+        provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+      } as unknown as OpencodeClient,
+      api,
+      store,
+      setStore,
+      vcsCache: { setStore() {} } as unknown as VcsCache,
+      loadSessions() {},
+      translate: (key) => key,
+      queryClient: new QueryClient(),
+      protocol: Promise.resolve("v1"),
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 80))
+
+    expect(store.status).toBe("complete")
+  })
+
+  test("completes when provider fetch is cancelled", async () => {
+    const [store, setStore] = directoryState()
+    const cancelled = new CancelledError({ silent: true })
+
+    await bootstrapDirectory({
+      directory: "/opencode",
+      scope: ServerScope.local,
+      mcp: false,
+      global: {
+        config: {} satisfies Config,
+        path: { state: "", config: "", worktree: "/opencode", directory: "/opencode", home: "/home" },
+        project: [{ id: "project", worktree: "/opencode" } as Project],
+        provider,
+      },
+      sdk: {} as unknown as OpencodeClient,
+      api: {
+        ...api,
+        provider: {
+          list: async () => {
+            throw cancelled
+          },
+        },
+      } as unknown as ServerApi,
+      store,
+      setStore,
+      vcsCache: { setStore() {} } as unknown as VcsCache,
+      loadSessions() {},
+      translate: (key) => key,
+      queryClient: new QueryClient(),
+      protocol: Promise.resolve("v2"),
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 80))
+
+    expect(store.status).toBe("complete")
+  })
+
+  test("completes when optional bootstrap requests fail after the project is seeded", async () => {
+    const [store, setStore] = directoryState()
+
+    await bootstrapDirectory({
+      directory: "/project",
+      scope: ServerScope.local,
+      mcp: true,
+      global: {
+        config: {} satisfies Config,
+        path: { state: "", config: "", worktree: "/project", directory: "/project", home: "/home" },
+        project: [{ id: "project", worktree: "/project" } as Project],
+        provider,
+      },
+      sdk: {
+        app: {
+          agents: async () => {
+            throw new Error("agents failed")
+          },
+        },
+        config: {
+          get: async () => {
+            throw new Error("config failed")
+          },
+        },
+        session: {
+          status: async () => {
+            throw new Error("status failed")
+          },
+        },
+        vcs: {
+          get: async () => {
+            throw new Error("git failed")
+          },
+        },
+        command: {
+          list: async () => {
+            throw new Error("commands failed")
+          },
+        },
+        permission: {
+          list: async () => {
+            throw new Error("permission failed")
+          },
+        },
+        question: {
+          list: async () => {
+            throw new Error("question failed")
+          },
+        },
+        v2: { reference: { list: async () => ({ data: { data: [] } }) } },
+        mcp: { status: async () => ({ data: {} }) },
+        experimental: { resource: { list: async () => ({ data: {} }) } },
+        provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+      } as unknown as OpencodeClient,
+      api,
+      store,
+      setStore,
+      vcsCache: { setStore() {} } as unknown as VcsCache,
+      loadSessions() {},
+      translate: (key) => key,
+      queryClient: new QueryClient(),
+      protocol: Promise.resolve("v1"),
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 80))
+
+    expect(store.status).toBe("complete")
+    expect(store.project).toBe("project")
   })
 
   test("skips legacy config while refreshing a v2 directory", async () => {

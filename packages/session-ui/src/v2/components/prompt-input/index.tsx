@@ -41,6 +41,8 @@ export type PromptInputV2Props = {
   borderUnderlay?: boolean
   class?: string
   modelControl?: JSX.Element
+  leadingControl?: JSX.Element
+  trailingControl?: JSX.Element
   variantControlVisible?: boolean
   attachKeybind?: string[]
   attachShortcut?: string
@@ -202,6 +204,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
             inert={state.mode === "shell" ? true : undefined}
             style={buttons()}
           >
+            {props.leadingControl}
             <PromptInputV2AddMenu
               disabled={state.mode === "shell"}
               title={i18n.t("ui.promptInput.add")}
@@ -253,6 +256,12 @@ export function PromptInputV2(props: PromptInputV2Props) {
                 </Show>
               )}
             </Show>
+            <Show when={view.approval} keyed>
+              {(control) => (
+                <PromptInputV2ConfiguredSelect title={control.current()} control={control} />
+              )}
+            </Show>
+            {props.trailingControl}
           </div>
           <PromptInputV2SubmitButton
             mode={state.mode}

@@ -3,7 +3,6 @@ import { Component, ComponentProps, createEffect, createMemo, For, JSX, Show } f
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { popularProviders } from "@/hooks/use-providers"
 import { Button } from "@opencode-ai/ui/button"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -32,17 +31,10 @@ type ModelItem = ReturnType<ModelState["list"]>[number]
 const modelKey = (model: ModelItem) => `${model.provider.id}:${model.id}`
 const manageKey = "action:manage"
 
-const sortModelGroups = (a: { category: string; items: ModelItem[] }, b: { category: string; items: ModelItem[] }) => {
-  const aIndex = popularProviders.indexOf(a.category)
-  const bIndex = popularProviders.indexOf(b.category)
-  const aPopular = aIndex >= 0
-  const bPopular = bIndex >= 0
+const vendorName = (item: ModelItem) => item.family || item.provider.name
 
-  if (aPopular && !bPopular) return -1
-  if (!aPopular && bPopular) return 1
-  if (aPopular && bPopular) return aIndex - bIndex
-  return a.items[0].provider.name.localeCompare(b.items[0].provider.name)
-}
+const sortModelGroups = (a: { category: string; items: ModelItem[] }, b: { category: string; items: ModelItem[] }) =>
+  a.category.localeCompare(b.category)
 
 const ModelList: Component<{
   provider?: string
@@ -69,16 +61,10 @@ const ModelList: Component<{
       key={(x) => `${x.provider.id}:${x.id}`}
       items={models}
       current={model.current()}
-      filterKeys={["provider.name", "name", "id"]}
+      filterKeys={["provider.name", "name", "id", "family"]}
       sortBy={(a, b) => a.name.localeCompare(b.name)}
-      groupBy={(x) => x.provider.name}
-      sortGroupsBy={(a, b) => {
-        const aProvider = a.items[0].provider.id
-        const bProvider = b.items[0].provider.id
-        if (popularProviders.includes(aProvider) && !popularProviders.includes(bProvider)) return -1
-        if (!popularProviders.includes(aProvider) && popularProviders.includes(bProvider)) return 1
-        return popularProviders.indexOf(aProvider) - popularProviders.indexOf(bProvider)
-      }}
+      groupBy={vendorName}
+      sortGroupsBy={sortModelGroups}
       itemWrapper={(item, node) => (
         <Tooltip
           class="w-full"
@@ -268,17 +254,32 @@ function createModelSelectorController(input: {
   return {
     models: (search: string) => {
       const query = search.trim()
+      const recent = new Set(
+        model
+          .recent()
+          .filter((item): item is ModelItem => !!item)
+          .map((item) => modelKey(item)),
+      )
       const filtered = query
-        ? allModels().filter((item) => matchesModelSearch(query, [item.name, item.id, item.provider.name]))
+        ? allModels().filter((item) =>
+            matchesModelSearch(query, [item.name, item.id, item.provider.name, vendorName(item)]),
+          )
         : allModels()
-      return [...filtered].sort((a, b) => a.name.localeCompare(b.name))
+      return [...filtered].sort((a, b) => {
+        const aRecent = recent.has(modelKey(a))
+        const bRecent = recent.has(modelKey(b))
+        if (aRecent && !bRecent) return -1
+        if (!aRecent && bRecent) return 1
+        return a.name.localeCompare(b.name)
+      })
     },
     groups: (models: ModelItem[]) => {
-      const byProvider = new Map<string, ModelItem[]>()
+      const byVendor = new Map<string, ModelItem[]>()
       for (const item of models) {
-        byProvider.set(item.provider.id, [...(byProvider.get(item.provider.id) ?? []), item])
+        const key = vendorName(item)
+        byVendor.set(key, [...(byVendor.get(key) ?? []), item])
       }
-      return Array.from(byProvider, ([category, items]) => ({ category, items })).sort(sortModelGroups)
+      return Array.from(byVendor, ([category, items]) => ({ category, items })).sort(sortModelGroups)
     },
     current: () => {
       const value = model.current()
@@ -451,7 +452,7 @@ function ModelSelectorPopoverV2View(props: {
                   {(group) => (
                     <MenuV2.Group>
                       <MenuV2.GroupLabel class="sticky top-0 z-10 gap-2 bg-v2-background-bg-layer-01 px-3">
-                        <span class="min-w-0 truncate">{group.items[0].provider.name}</span>
+                        <span class="min-w-0 truncate">{group.category}</span>
                       </MenuV2.GroupLabel>
                       <MenuV2.RadioGroup value={props.current()}>
                         <For each={group.items}>

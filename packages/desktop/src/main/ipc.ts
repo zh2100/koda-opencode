@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { stat } from "node:fs/promises"
+import { mkdir, stat } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
@@ -147,6 +147,15 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("draft-blob-get", (_event, id: string) => {
     const data = drafts.getBlob(id)
     return data ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : null
+  })
+
+  ipcMain.handle("mkdir", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      await mkdir(path, { recursive: true })
+      return true
+    } catch {
+      return false
+    }
   })
 
   ipcMain.handle(

@@ -62,13 +62,20 @@ const baseLayer = Layer.effect(
     const fs = yield* FSUtil.Service
     const location = yield* Location.Service
     const search = yield* FileSystemSearch.Service
-    const root = yield* fs.realPath(location.directory).pipe(Effect.orDie)
+    const root = yield* fs.realPath(location.directory).pipe(
+      Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(location.directory)),
+      Effect.orDie,
+    )
     const resolve = Effect.fnUntraced(function* (input?: RelativePath) {
       const absolute = path.resolve(location.directory, input ?? ".")
       if (!FSUtil.contains(location.directory, absolute))
         return yield* Effect.die(new Error("Path escapes the location"))
-      const real = yield* fs.realPath(absolute).pipe(Effect.orDie)
-      if (!FSUtil.contains(root, real)) return yield* Effect.die(new Error("Path escapes the location"))
+      const real = yield* fs.realPath(absolute).pipe(
+        Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(absolute)),
+        Effect.orDie,
+      )
+      if (!FSUtil.contains(root, real) && !FSUtil.contains(location.directory, real))
+        return yield* Effect.die(new Error("Path escapes the location"))
       return { absolute, real, directory: location.directory, root }
     })
     return Service.of({
@@ -86,7 +93,8 @@ const baseLayer = Layer.effect(
       }),
       list: Effect.fn("FileSystem.list")(function* (input = {}) {
         const target = yield* resolve(input.path)
-        const info = yield* fs.stat(target.real).pipe(Effect.orDie)
+        const info = yield* fs.stat(target.real).pipe(Effect.catch(() => Effect.void))
+        if (!info) return []
         if (info.type !== "Directory") return yield* Effect.die(new Error("Path is not a directory"))
         return yield* fs.readDirectoryEntries(target.real).pipe(
           Effect.orDie,

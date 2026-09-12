@@ -22,3 +22,11 @@ export const pathKey = (path: string) => {
   if (isDrive(trimmed)) return `${trimmed}/` as PathKey
   return trimmed as PathKey
 }
+
+export const samePath = (left: string, right: string) => {
+  const a = pathKey(left)
+  const b = pathKey(right)
+  if (a === b) return true
+  if (!isWindowsPath(a) && !isWindowsPath(b)) return false
+  return a.toLowerCase() === b.toLowerCase()
+}

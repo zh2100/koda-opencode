@@ -28,6 +28,18 @@ export interface MockServerConfig {
   fileContent?: (path: string) => unknown | Promise<unknown>
   findFiles?: (input: { query: string; dirs?: string; limit?: number }) => unknown | Promise<unknown>
   sessionStatus?: Record<string, unknown> | (() => Record<string, unknown>)
+  gates?: {
+    relayCoreUi?: boolean
+    relayLayout?: boolean
+    relaySkills?: boolean
+    relayMcp?: boolean
+    scheduledTasks?: boolean
+  }
+  relayAuth?: unknown | (() => unknown)
+  relayCandidates?: unknown | (() => unknown)
+  relayManaged?: unknown | (() => unknown)
+  skills?: unknown | (() => unknown)
+  scheduledTasks?: unknown | (() => unknown)
 }
 
 export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
@@ -75,7 +87,16 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     if (path === "/global/health")
       return config.protocol === "v2" ? json(route, {}, undefined, 404) : json(route, { healthy: true })
     if (path === "/api/health" && config.protocol === "v2")
-      return json(route, { healthy: true, version: "2.0.0", pid: 1 })
+      return json(route, {
+        healthy: true,
+        gates: {
+          relayCoreUi: config.gates?.relayCoreUi ?? false,
+          relayLayout: config.gates?.relayLayout ?? false,
+          relaySkills: config.gates?.relaySkills ?? false,
+          relayMcp: config.gates?.relayMcp ?? false,
+          scheduledTasks: config.gates?.scheduledTasks ?? false,
+        },
+      })
     if (path === "/experimental/capabilities") return json(route, { backgroundSubagents: true })
     if (path === "/provider")
       return json(route, typeof config.provider === "function" ? config.provider() : config.provider)
@@ -136,6 +157,26 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       })
     if (path === "/api/command") return json(route, { location: location(config), data: [] })
     if (path === "/api/mcp") return json(route, { location: location(config), data: [] })
+    if (path === "/api/relay/auth")
+      return json(route, typeof config.relayAuth === "function" ? config.relayAuth() : (config.relayAuth ?? {
+        unified: false,
+        hasUnifiedKey: false,
+        vendors: [
+          { id: "chatgpt", name: "ChatGPT", builtin: true, hasKey: false, updatedAt: 0, revision: 0 },
+          { id: "grok", name: "Grok", builtin: true, hasKey: false, updatedAt: 0, revision: 0 },
+        ],
+        revision: 0,
+        canRollback: false,
+      }))
+    if (path === "/api/relay/models/candidates")
+      return json(route, typeof config.relayCandidates === "function" ? config.relayCandidates() : (config.relayCandidates ?? []))
+    if (path === "/api/relay/models")
+      return json(route, typeof config.relayManaged === "function" ? config.relayManaged() : (config.relayManaged ?? []))
+    if (path === "/api/skill")
+      return json(route, { location: location(config), data: typeof config.skills === "function" ? config.skills() : (config.skills ?? []) })
+    if (path === "/api/permission/saved") return json(route, { data: [] })
+    if (path === "/api/scheduled-task")
+      return json(route, typeof config.scheduledTasks === "function" ? config.scheduledTasks() : (config.scheduledTasks ?? []))
     if (path === "/api/mcp/resource")
       return json(route, { location: location(config), data: { resources: [], templates: [] } })
     const integration = path.match(/^\/api\/integration\/([^/]+)$/)?.[1]

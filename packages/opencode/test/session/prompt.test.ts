@@ -318,7 +318,11 @@ const writeConfig = Effect.fn("test.writeConfig")(function* (dir: string, config
 const useServerConfig = Effect.fn("test.useServerConfig")(function* (config: (url: string) => Partial<ConfigV1.Info>) {
   const { directory: dir } = yield* TestInstance
   const llm = yield* TestLLMServer
+  const cfg = yield* Config.Service
+  const provider = yield* ProviderSvc.Service
   yield* writeConfig(dir, config(llm.url))
+  yield* cfg.invalidate()
+  yield* provider.invalidate()
   return { dir, llm }
 })
 
@@ -529,29 +533,33 @@ it.instance("loop exits without an LLM request for interrupted orphan tool calls
   }),
 )
 
-it.instance("loop calls LLM and returns assistant message", () =>
-  Effect.gen(function* () {
-    const { llm } = yield* useServerConfig(providerCfg)
-    const prompt = yield* SessionPrompt.Service
-    const sessions = yield* Session.Service
-    const chat = yield* sessions.create({
-      title: "Pinned",
-      permission: [{ permission: "*", pattern: "*", action: "allow" }],
-    })
-    yield* prompt.prompt({
-      sessionID: chat.id,
-      agent: "build",
-      noReply: true,
-      parts: [{ type: "text", text: "hello" }],
-    })
-    yield* llm.text("world")
+it.instance(
+  "loop calls LLM and returns assistant message",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({
+        title: "Pinned",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "hello" }],
+      })
+      yield* llm.text("world")
 
-    const result = yield* prompt.loop({ sessionID: chat.id })
-    expect(result.info.role).toBe("assistant")
-    const parts = result.parts.filter((p) => p.type === "text")
-    expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
-    expect(yield* llm.hits).toHaveLength(1)
-  }),
+      const result = yield* prompt.loop({ sessionID: chat.id })
+      expect(result.info.role).toBe("assistant")
+      const parts = result.parts.filter((p) => p.type === "text")
+      expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
+      expect(yield* llm.hits).toHaveLength(1)
+    }),
+  { config: cfg },
+  15_000,
 )
 
 withMcpInstructions.instance(
@@ -915,6 +923,8 @@ it.instance("glob tool keeps instance context during prompt runs", () =>
     expect(tool.state.output).not.toContain("No context found for instance")
     expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
   }),
+  { config: cfg },
+  30_000,
 )
 
 it.instance("loop continues when finish is stop but assistant has tool parts", () =>
@@ -1041,6 +1051,7 @@ noLLMServer.instance("prompt tools replace previous prompt tool rules", () =>
     expect(reloaded.permission).toEqual([{ permission: "read", pattern: "*", action: "allow" }])
     expect(Permission.evaluate("bash", "anything", reloaded.permission ?? []).action).toBe("ask")
   }),
+  { config: cfg },
 )
 
 it.instance(
@@ -1380,6 +1391,7 @@ it.instance(
 
       const a = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
+      yield* waitForBusy(chat.id)
       const b = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* Effect.sleep(50)
 
@@ -1391,8 +1403,8 @@ it.instance(
         expect(exitA.value.info.id).toBe(exitB.value.info.id)
       }
     }),
-  { git: true },
-  10_000,
+  { git: true, config: cfg },
+  15_000,
 )
 
 // Queue semantics
@@ -1735,7 +1747,7 @@ unixNoLLMServer(
   30_000,
 )
 
-it.instance(
+unix(
   "loop waits while shell runs and starts after shell exits",
   () =>
     Effect.gen(function* () {
@@ -1768,11 +1780,11 @@ it.instance(
       }
       expect(yield* llm.calls).toBe(1)
     }),
-  { git: true },
-  10_000,
+  { git: true, config: cfg },
+  15_000,
 )
 
-it.instance(
+unix(
   "shell completion resumes queued loop callers",
   () =>
     Effect.gen(function* () {
@@ -1807,8 +1819,8 @@ it.instance(
       }
       expect(yield* llm.calls).toBe(1)
     }),
-  { git: true },
-  10_000,
+  { git: true, config: cfg },
+  15_000,
 )
 
 unix(

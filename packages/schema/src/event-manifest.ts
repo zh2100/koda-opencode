@@ -24,6 +24,8 @@ import { ServerEvent } from "./server-event"
 import { SessionCompactionEvent } from "./session-compaction-event"
 import { SessionEvent } from "./session-event"
 import { SessionStatusEvent } from "./session-status-event"
+import { RelayEvent } from "./relay-event"
+import { ScheduledTaskEvent } from "./scheduled-task-event"
 import { SessionTodo } from "./session-todo"
 import { SessionV1 } from "./session-v1"
 import { TuiEvent } from "./tui-event"
@@ -58,6 +60,8 @@ export const ServerDefinitions = Event.inventory(
   ...foundationDefinitions,
   ...featureDefinitions,
   ...SessionTodo.Event.Definitions,
+  ...ScheduledTaskEvent.Definitions,
+  ...RelayEvent.Definitions,
 )
 
 export const Definitions = Event.inventory(
@@ -66,6 +70,8 @@ export const Definitions = Event.inventory(
   ...InstallationEvent.Definitions,
   ...featureDefinitions,
   ...SessionTodo.Event.Definitions,
+  ...ScheduledTaskEvent.Definitions,
+  ...RelayEvent.Definitions,
   ...LspEvent.Definitions,
   ...PermissionV1.Event.Definitions,
   ...TuiEvent.Definitions,

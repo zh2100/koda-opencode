@@ -130,6 +130,7 @@ export type Platform = PlatformBase &
         platform: "desktop"
         os?: DesktopOS
         openDirectoryPickerDialog(opts?: OpenDirectoryPickerOptions): Promise<PickerPaths>
+        mkdir(path: string): Promise<boolean>
       }
   )
 

@@ -27,8 +27,14 @@ export type Source = typeof Source.Type
 export const Info = Skill.Info
 export type Info = Skill.Info
 
-export const available = (skills: ReadonlyArray<Info>, agent: AgentV2.Info) =>
-  skills.filter((skill) => PermissionV2.evaluate("skill", skill.name, agent.permissions).effect !== "deny")
+export const available = (
+  skills: ReadonlyArray<Info>,
+  agent: AgentV2.Info,
+  extra: PermissionV2.Ruleset = [],
+) =>
+  skills.filter(
+    (skill) => PermissionV2.evaluate("skill", skill.name, agent.permissions, extra).effect !== "deny",
+  )
 
 const Frontmatter = Schema.Struct({
   name: Schema.String.pipe(Schema.optional),

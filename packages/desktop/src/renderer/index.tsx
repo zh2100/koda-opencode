@@ -178,6 +178,10 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
       })
     },
 
+    async mkdir(path) {
+      return window.api.mkdir(path)
+    },
+
     async openAttachmentPickerDialog(opts, onFile) {
       const result = await window.api.openFilePicker({
         multiple: opts?.multiple ?? false,
