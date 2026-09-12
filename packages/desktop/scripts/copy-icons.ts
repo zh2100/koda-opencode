@@ -4,7 +4,7 @@ import { resolveChannel } from "./utils"
 const arg = process.argv[2]
 const channel = arg === "dev" || arg === "beta" || arg === "prod" ? arg : resolveChannel()
 
-const src = `./icons/${channel}`
+const src = `./icons/${channel === "prod" ? "dev" : channel}`
 const dest = "resources/icons"
 
 await $`rm -rf ${dest}`

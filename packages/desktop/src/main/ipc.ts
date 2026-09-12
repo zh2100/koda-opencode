@@ -24,6 +24,7 @@ import type { UpdaterController } from "./updater-controller"
 import { createUpdaterSubscriptions } from "./updater-subscriptions"
 import { createDesktopDraftStore } from "./draft-store"
 import { nativeT } from "./native-translations"
+import { clipboardImageBuffer } from "./clipboard-image"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -247,7 +248,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("read-clipboard-image", () => {
     const image = clipboard.readImage()
     if (image.isEmpty()) return null
-    const buffer = image.toPNG().buffer
+    const buffer = clipboardImageBuffer(image.toPNG())
     const size = image.getSize()
     return { buffer, width: size.width, height: size.height }
   })
