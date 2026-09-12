@@ -1,0 +1,47 @@
+name: Koda macOS desktop
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+            bun_cpu: arm64
+          - arch: x64
+            runner: macos-13
+            bun_cpu: x64
+    defaults:
+      run:
+        working-directory: packages/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --os=darwin --cpu=${{ matrix.bun_cpu }}
+      - name: Build renderer and main process
+        run: bun run build
+        env:
+          OPENCODE_CHANNEL: prod
+      - name: Package unsigned Koda client
+        run: bunx electron-builder --mac --${{ matrix.arch }} --config electron-builder.config.ts --publish never
+        env:
+          OPENCODE_CHANNEL: prod
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Koda-desktop-mac-${{ matrix.arch }}
+          path: packages/desktop/dist/Koda-desktop-mac-${{ matrix.arch }}.*
+          if-no-files-found: error
