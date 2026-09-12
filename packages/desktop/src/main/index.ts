@@ -139,7 +139,7 @@ const main = Effect.gen(function* () {
     return root
   })()
   app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "Koda Dev")
-  app.setAppUserModelId(appId)
+  app.setAppUserModelId(process.platform === "win32" && app.isPackaged && CHANNEL === "prod" ? "com.shuyuanai.koda.desktop" : appId)
   app.setPath(
     "userData",
     onboardingTestRoot ? join(onboardingTestRoot, "desktop") : join(app.getPath("appData"), appId),

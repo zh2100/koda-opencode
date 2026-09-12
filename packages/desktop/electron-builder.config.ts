@@ -94,6 +94,7 @@ const getBase = (appId: string): Configuration => ({
     schemes: ["opencode"],
   },
   win: {
+    appId: channel === "prod" ? "com.shuyuanai.koda.desktop" : appId,
     icon: `resources/icons/icon.ico`,
     signtoolOptions: {
       sign: signWindows,
