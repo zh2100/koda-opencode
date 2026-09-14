@@ -17,6 +17,7 @@ import {
   openExternalURL,
   openLocalFileURL,
   setPinchZoomEnabled,
+  notificationIconUrl,
   setTitlebar,
   updateTitlebar,
 } from "./windows"
@@ -265,6 +266,8 @@ export function registerIpcHandlers(deps: Deps) {
     const win = BrowserWindow.fromWebContents(event.sender)
     return win?.isFocused() ?? false
   })
+
+  ipcMain.handle("get-notification-icon", () => notificationIconUrl())
 
   ipcMain.handle("get-window-fullscreen", (event: IpcMainInvokeEvent) => {
     const win = BrowserWindow.fromWebContents(event.sender)

@@ -43,4 +43,23 @@ describe("theme preload", () => {
     expect(document.documentElement.dataset.theme).toBe("nightowl")
     expect(document.getElementById("oc-theme-preload")?.textContent).toContain("--background-base:#fff;")
   })
+
+  test("system scheme unlocks prefers-color-scheme before resolving mode", () => {
+    localStorage.setItem("opencode-color-scheme", "system")
+    localStorage.setItem("opencode-theme-id", "nightowl")
+    localStorage.setItem("opencode-theme-css-dark", "--background-base:#000;")
+    Object.defineProperty(window, "matchMedia", {
+      value: (query: string) =>
+        ({
+          matches: query.includes("prefers-color-scheme: dark") && document.documentElement.style.colorScheme === "light dark",
+        }) as MediaQueryList,
+      configurable: true,
+    })
+
+    run()
+
+    expect(document.documentElement.style.colorScheme).toBe("light dark")
+    expect(document.documentElement.dataset.colorScheme).toBe("dark")
+    expect(document.getElementById("oc-theme-preload")?.textContent).toContain("color-scheme:light dark")
+  })
 })

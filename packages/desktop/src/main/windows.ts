@@ -94,6 +94,10 @@ function iconPath() {
   return join(iconsDir(), `icon.${ext}`)
 }
 
+export function notificationIconUrl() {
+  return pathToFileURL(join(iconsDir(), "icon.png")).href
+}
+
 function tone() {
   return nativeTheme.shouldUseDarkColors ? "dark" : "light"
 }
@@ -113,13 +117,10 @@ function overlay(theme: Partial<TitlebarTheme> = {}, zoom = 1) {
 
 export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = {}) {
   titlebarThemes.set(win, theme)
-  // macOS draws the window frame hairline and shadow using the NSWindow
-  // appearance, which follows nativeTheme rather than the rendered content.
-  // Align it with the app theme so a light app on a dark system does not get
-  // the dark-appearance border and shadow. A "system" scheme must map to
+  // Window chrome follows nativeTheme. A "system" scheme must map to
   // "system" (not the resolved mode) or prefers-color-scheme stops tracking
   // OS appearance changes in the renderer.
-  if (process.platform === "darwin") nativeTheme.themeSource = theme.scheme ?? theme.mode ?? "system"
+  nativeTheme.themeSource = theme.scheme ?? theme.mode ?? "system"
   updateTitlebar(win)
 }
 

@@ -28,6 +28,19 @@ export function shouldShowFileTree(input: { visible: boolean; opened: boolean })
   return input.opened && input.visible
 }
 
+export function nextVisitedTerminalIds(input: {
+  visited: readonly string[]
+  ids: readonly string[]
+  active: string | undefined
+  opened: boolean
+}) {
+  if (!input.opened) return emptyTabs
+  const seen = new Set(input.visited)
+  if (input.active) seen.add(input.active)
+  const next = input.ids.filter((id) => seen.has(id))
+  return same(input.visited, next) ? (input.visited as string[]) : next
+}
+
 export const createSessionTabs = (input: TabsInput) => {
   const review = input.review ?? (() => false)
   const hasReview = input.hasReview ?? (() => false)

@@ -56,6 +56,8 @@ import type {
   McpResourceCatalogOutput,
   McpServer,
   SessionActiveOutput,
+  SkillListInput,
+  SkillListOutput,
 } from "@opencode-ai/client/promise"
 import { toggleMcp } from "./global-sync/mcp"
 import { createServerSession, type ServerSession } from "./server-session"
@@ -88,6 +90,10 @@ type ApiQueryOptions<T, K extends readonly unknown[]> = SolidQueryOptions<T, Err
 
 type SessionActiveApi = {
   readonly active: () => Promise<SessionActiveOutput>
+}
+
+type SkillsApi = {
+  readonly list: (input?: SkillListInput) => Promise<SkillListOutput>
 }
 
 export const loadMcpQuery = (
@@ -150,6 +156,22 @@ export const loadLspQuery = (scope: ServerScope, directory: string, sdk: Opencod
     queryFn: () => sdk.lsp.status().then((r) => r.data ?? []),
   })
 
+export const loadSkillsQuery = (
+  scope: ServerScope,
+  directory: string,
+  api: SkillsApi,
+): ApiQueryOptions<SkillListOutput["data"], readonly [ServerScope, string, "skills"]> =>
+  queryOptions<
+    SkillListOutput["data"],
+    Error,
+    SkillListOutput["data"],
+    readonly [ServerScope, string, "skills"]
+  >({
+    queryKey: [scope, directory, "skills"] as const,
+    queryFn: () => api.list({ location: { directory } }).then((result) => result.data),
+    staleTime: 60_000,
+  })
+
 export const loadActiveSessionsQuery = (
   scope: ServerScope,
   api: SessionActiveApi,
@@ -197,6 +219,7 @@ function makeQueryOptionsApi(
     mcpResources: (directory: PathKey) =>
       loadMcpResourcesQuery(scope, directory, serverAPI.mcp, sdkFor(directory), protocol),
     lsp: (directory: PathKey) => loadLspQuery(scope, directory, sdkFor(directory)),
+    skills: (directory: PathKey) => loadSkillsQuery(scope, directory, serverAPI.skill),
     sessions: (directory: PathKey) => ({ queryKey: [scope, directory, "loadSessions"] as const }),
   }
 }

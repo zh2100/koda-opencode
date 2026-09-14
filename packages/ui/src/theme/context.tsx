@@ -130,7 +130,18 @@ function getSystemMode(): "light" | "dark" {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
 }
 
-function applyThemeCss(theme: DesktopTheme, themeId: string, mode: "light" | "dark") {
+function cssColorScheme(scheme: ColorScheme, mode: "light" | "dark") {
+  return scheme === "system" ? "light dark" : mode
+}
+
+function applyThemeCss(theme: DesktopTheme, themeId: string, mode: "light" | "dark", scheme: ColorScheme) {
+  if (scheme === "system") {
+    document.documentElement.style.colorScheme = "light dark"
+    mode = getSystemMode()
+  } else {
+    document.documentElement.style.colorScheme = mode
+  }
+
   const isDark = mode === "dark"
   const variant = isDark ? theme.dark : theme.light
   const tokens = resolveThemeVariant(variant, isDark)
@@ -142,7 +153,7 @@ function applyThemeCss(theme: DesktopTheme, themeId: string, mode: "light" | "da
   }
 
   const fullCss = `:root {
-  color-scheme: ${mode};
+  color-scheme: ${cssColorScheme(scheme, mode)};
   --text-mix-blend-mode: ${isDark ? "plus-lighter" : "multiply"};
   ${css}
   ${v2}
@@ -157,6 +168,8 @@ function applyThemeCss(theme: DesktopTheme, themeId: string, mode: "light" | "da
   // Update theme-color meta tag to match light/dark mode
   const meta = document.querySelector('meta[name="theme-color"]')
   if (meta) meta.setAttribute("content", isDark ? "#080808" : "#fafafa")
+
+  return mode
 }
 
 function cacheThemeVariants(theme: DesktopTheme, themeId: string) {
@@ -216,8 +229,9 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     }
 
     const applyTheme = (theme: DesktopTheme, themeId: string, mode: "light" | "dark", scheme: ColorScheme) => {
-      applyThemeCss(theme, themeId, mode)
-      props.onThemeApplied?.(theme, mode, scheme)
+      const resolved = applyThemeCss(theme, themeId, mode, scheme)
+      if (!store.previewThemeId && !store.previewScheme && resolved !== store.mode) setStore("mode", resolved)
+      props.onThemeApplied?.(theme, resolved, scheme)
     }
 
     const ids = () => {
@@ -247,8 +261,10 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         })
       }
       if (e.key === STORAGE_KEYS.COLOR_SCHEME && e.newValue) {
-        setStore("colorScheme", e.newValue as ColorScheme)
-        setStore("mode", e.newValue === "system" ? getSystemMode() : (e.newValue as "light" | "dark"))
+        const next = e.newValue as ColorScheme
+        setStore("colorScheme", next)
+        if (next === "system") document.documentElement.style.colorScheme = "light dark"
+        setStore("mode", next === "system" ? getSystemMode() : (next as "light" | "dark"))
       }
     }
 
@@ -271,6 +287,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       }
       if (savedTheme !== store.themeId) setStore("themeId", savedTheme)
       if (savedScheme !== store.colorScheme) setStore("colorScheme", savedScheme)
+      if (savedScheme === "system") document.documentElement.style.colorScheme = "light dark"
       setStore("mode", savedScheme === "system" ? getSystemMode() : savedScheme)
       void load(savedTheme).then((theme) => {
         if (!theme || store.themeId !== savedTheme) return
@@ -310,6 +327,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     const setColorScheme = (scheme: ColorScheme) => {
       setStore("colorScheme", scheme)
       write(STORAGE_KEYS.COLOR_SCHEME, scheme)
+      if (scheme === "system") document.documentElement.style.colorScheme = "light dark"
       setStore("mode", scheme === "system" ? getSystemMode() : scheme)
     }
 

@@ -44,7 +44,7 @@ describe("LeidiandonghuaPlugin", () => {
       })
       yield* addPlugin()
       const provider = yield* catalog.provider.get(ProviderV2.ID.leidiandonghua)
-      expect(provider?.name).toBe("雷电动画")
+      expect(provider?.name).toBe("智联AI")
       expect(provider?.api).toEqual({
         type: "aisdk",
         package: "@ai-sdk/openai-compatible",

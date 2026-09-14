@@ -10,6 +10,7 @@
   }
 
   var scheme = localStorage.getItem("opencode-color-scheme") || "system"
+  if (scheme === "system") document.documentElement.style.colorScheme = "light dark"
   var isDark = scheme === "dark" || (scheme === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
   var mode = isDark ? "dark" : "light"
 
@@ -29,7 +30,7 @@
     style.id = "oc-theme-preload"
     style.textContent =
       ":root{color-scheme:" +
-      mode +
+      (scheme === "system" ? "light dark" : mode) +
       ";--text-mix-blend-mode:" +
       (isDark ? "plus-lighter" : "multiply") +
       ";" +

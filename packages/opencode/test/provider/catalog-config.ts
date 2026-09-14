@@ -103,7 +103,7 @@ export const digitaloceanProvider = {
 }
 
 export const leidiandonghuaProvider = {
-  name: "雷电动画",
+  name: "智联AI",
   models: {
     placeholder: { name: "Placeholder" },
   },

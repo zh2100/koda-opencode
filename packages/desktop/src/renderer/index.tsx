@@ -259,9 +259,10 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
       const focused = await window.api.getWindowFocused().catch(() => document.hasFocus())
       if (focused) return
 
+      const icon = await window.api.getNotificationIcon().catch(() => undefined)
       const notification = new Notification(title, {
         body: description ?? "",
-        icon: "https://opencode.ai/favicon-96x96-v3.png",
+        ...(icon ? { icon } : {}),
       })
       notification.onclick = () => {
         void window.api.showWindow()

@@ -14,7 +14,7 @@ export const LeidiandonghuaPlugin = define({
     yield* ctx.catalog.transform((catalog) => {
       if (!catalog.provider.get(ProviderV2.ID.leidiandonghua)) return
       catalog.provider.update(ProviderV2.ID.leidiandonghua, (provider) => {
-        provider.name = "雷电动画"
+        provider.name = "智联AI"
         provider.api = {
           type: "aisdk",
           package: "@ai-sdk/openai-compatible",

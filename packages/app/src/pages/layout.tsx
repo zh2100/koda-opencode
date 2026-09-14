@@ -84,6 +84,7 @@ import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from 
 import { SidebarContent } from "./layout/sidebar-shell"
 import { HomeSessionSidebar } from "@/pages/home"
 import { useRelayGates } from "@/hooks/use-relay-gates"
+import { useQueryClient } from "@tanstack/solid-query"
 
 export default function LegacyLayout(props: ParentProps) {
   const serverSDK = useServerSDK()
@@ -124,6 +125,7 @@ export default function LegacyLayout(props: ParentProps) {
   const theme = useTheme()
   const language = useLanguage()
   const gates = useRelayGates()
+  const queryClient = useQueryClient()
   const chatSidebar = createMemo(() => settings.general.newLayoutDesigns())
   const relayRail = createMemo(() => chatSidebar() || gates().relayLayout)
   createEffect(() => setV2Toast(chatSidebar()))
@@ -153,6 +155,15 @@ export default function LegacyLayout(props: ParentProps) {
     const id = params.id
     if (!id) return ""
     return serverSync().session.get(id)?.directory ?? ""
+  })
+
+  createEffect(() => {
+    if (!gates().relaySkills) return
+    if (!serverSync().ready) return
+    if (!layoutReady()) return
+    const dir = currentDir() || layout.home.selection().directory || layout.projects.list()[0]?.worktree
+    if (!dir) return
+    void queryClient.prefetchQuery(serverSync().queryOptions.skills(pathKey(dir))).catch(() => undefined)
   })
 
   const [state, setState] = createStore({

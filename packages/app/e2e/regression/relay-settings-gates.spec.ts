@@ -35,7 +35,7 @@ test("relay settings hide official providers and gated tabs until each gate is o
     directory,
     project,
     provider: {
-      all: [{ id: "leidiandonghua", name: "雷电动画", models: {} }],
+      all: [{ id: "leidiandonghua", name: "智联AI", models: {} }],
       connected: ["leidiandonghua"],
       default: { providerID: "leidiandonghua", modelID: "gpt-5.2" },
     },
@@ -79,7 +79,7 @@ test("open UI gates show skills, MCP, scheduled tasks, and a docked right panel"
     directory,
     project,
     provider: {
-      all: [{ id: "leidiandonghua", name: "雷电动画", models: {} }],
+      all: [{ id: "leidiandonghua", name: "智联AI", models: {} }],
       connected: ["leidiandonghua"],
       default: { providerID: "leidiandonghua", modelID: "gpt-5.2" },
     },

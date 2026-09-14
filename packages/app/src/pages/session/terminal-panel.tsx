@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, on, onCleanup, onMount } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { Tabs } from "@opencode-ai/ui/tabs"
@@ -18,7 +18,7 @@ import { useSettings } from "@/context/settings"
 import { useTerminal } from "@/context/terminal"
 import { useSDK } from "@/context/sdk"
 import { terminalTabLabel } from "@/pages/session/terminal-label"
-import { createSizing, focusTerminalById } from "@/pages/session/helpers"
+import { createSizing, focusTerminalById, nextVisitedTerminalIds } from "@/pages/session/helpers"
 import { getTerminalHandoff, setTerminalHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 
@@ -151,6 +151,17 @@ export function TerminalPanel() {
 
   const all = terminal.all
   const ids = createMemo(() => all().map((pty) => pty.id))
+  const [visited, setVisited] = createSignal<string[]>([])
+  const mounted = createMemo(() =>
+    nextVisitedTerminalIds({
+      visited: visited(),
+      ids: ids(),
+      active: terminal.active(),
+      opened: opened(),
+    }),
+  )
+
+  createEffect(() => setVisited(mounted()))
 
   const recoverTerminal = (key: string, id: string, clone: (id: string) => Promise<void>) => {
     if (store.recovered[key]) return
@@ -295,27 +306,40 @@ export function TerminalPanel() {
                 </Tabs.List>
               </Tabs>
               <div class="flex-1 min-h-0 relative">
-                <Show when={opened() && terminal.active()} keyed>
+                <For each={mounted()}>
                   {(id) => {
                     const ops = terminal.bind()
+                    const pty = createMemo(() => all().find((item) => item.id === id))
+                    const active = createMemo(() => opened() && terminal.active() === id)
                     return (
-                      <Show when={all().find((pty) => pty.id === id)}>
-                        {(pty) => (
-                          <div id={`terminal-wrapper-${id}`} class="absolute inset-0">
+                      <Show when={pty()}>
+                        {(item) => (
+                          <div
+                            id={`terminal-wrapper-${id}`}
+                            class="absolute inset-0"
+                            classList={{
+                              invisible: !active(),
+                              "pointer-events-none": !active(),
+                              "z-10": active(),
+                              "z-0": !active(),
+                            }}
+                            aria-hidden={!active()}
+                            inert={!active()}
+                          >
                             <Terminal
-                              pty={pty()}
-                              autoFocus={opened()}
+                              pty={item()}
+                              autoFocus={active()}
                               onAutoFocus={() => terminal.consumeFocus(id)}
-                              onConnect={() => markTerminalConnected(terminalRecoveryKey(pty()), id, ops.trim)}
+                              onConnect={() => markTerminalConnected(terminalRecoveryKey(item()), id, ops.trim)}
                               onCleanup={ops.update}
-                              onConnectError={() => recoverTerminal(terminalRecoveryKey(pty()), id, ops.clone)}
+                              onConnectError={() => recoverTerminal(terminalRecoveryKey(item()), id, ops.clone)}
                             />
                           </div>
                         )}
                       </Show>
                     )
                   }}
-                </Show>
+                </For>
               </div>
             </div>
             <DragOverlay>

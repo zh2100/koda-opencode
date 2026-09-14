@@ -8,6 +8,7 @@ import {
   createSessionTabs,
   focusTerminalById,
   getTabReorderIndex,
+  nextVisitedTerminalIds,
   shouldShowFileTree,
 } from "./helpers"
 
@@ -66,6 +67,54 @@ describe("createOpenSessionFileTab", () => {
       "review",
       "active:file://src/a.ts",
     ])
+  })
+})
+
+describe("nextVisitedTerminalIds", () => {
+  test("mounts only terminals that have been active while open", () => {
+    const first = nextVisitedTerminalIds({
+      visited: [],
+      ids: ["a", "b"],
+      active: "a",
+      opened: true,
+    })
+    expect(first).toEqual(["a"])
+
+    const both = nextVisitedTerminalIds({
+      visited: first,
+      ids: ["a", "b"],
+      active: "b",
+      opened: true,
+    })
+    expect(both).toEqual(["a", "b"])
+
+    const back = nextVisitedTerminalIds({
+      visited: both,
+      ids: ["a", "b"],
+      active: "a",
+      opened: true,
+    })
+    expect(back).toBe(both)
+  })
+
+  test("drops closed terminals and does not pre-mount while hidden", () => {
+    expect(
+      nextVisitedTerminalIds({
+        visited: ["a", "b"],
+        ids: ["b"],
+        active: "b",
+        opened: true,
+      }),
+    ).toEqual(["b"])
+
+    expect(
+      nextVisitedTerminalIds({
+        visited: ["a", "b"],
+        ids: ["a", "b"],
+        active: "a",
+        opened: false,
+      }),
+    ).toEqual([])
   })
 })
 

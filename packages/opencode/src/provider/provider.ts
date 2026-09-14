@@ -1412,7 +1412,7 @@ function overlayRelayModels(
     ),
     [providerID]: {
       id: providerID,
-      name: existing?.name ?? "雷电动画",
+      name: existing?.name ?? "智联AI",
       source: existing?.source ?? "custom",
       env: existing?.env ?? [],
       key: existing?.key,
