@@ -83,11 +83,12 @@ const getBase = (appId: string): Configuration => ({
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
     entitlementsInherit: "resources/entitlements.plist",
+    identity: process.env.CSC_IDENTITY_AUTO_DISCOVERY === "false" ? null : undefined,
     notarize: Boolean(process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER),
     target: ["dmg", "zip"],
   },
   dmg: {
-    sign: true,
+    sign: process.env.CSC_IDENTITY_AUTO_DISCOVERY !== "false",
   },
   protocols: {
     name: "Koda",

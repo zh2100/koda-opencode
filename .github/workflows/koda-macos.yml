@@ -29,11 +29,13 @@ jobs:
         with:
           bun-version: 1.3.14
       - uses: apple-actions/import-codesign-certs@8f3fb608891dd2244cdab3d69cd68c0d37a7fe93 # v2.0.0
+        if: ${{ secrets.APPLE_CERTIFICATE != '' }}
         with:
           keychain: build
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       - name: Setup Apple API Key
+        if: ${{ secrets.APPLE_API_KEY_PATH != '' }}
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_PATH }}
         run: |
@@ -55,15 +57,17 @@ jobs:
           OPENCODE_CHANNEL: prod
           NODE_OPTIONS: --max-old-space-size=4096
           BUN_CONFIG_MAX_CONCURRENCY: 2
-      - name: Package signed Koda client
+      - name: Package Koda client
         run: bunx electron-builder --mac --${{ matrix.arch }} --config electron-builder.config.ts --publish never
         env:
           OPENCODE_CHANNEL: prod
-          CSC_KEYCHAIN: build.keychain
-          APPLE_API_KEY: ${{ runner.temp }}/apple-api-key.p8
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.APPLE_CERTIFICATE != '' && 'true' || 'false' }}
+          CSC_KEYCHAIN: ${{ secrets.APPLE_CERTIFICATE != '' && 'build.keychain' || '' }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_PATH != '' && format('{0}/apple-api-key.p8', runner.temp) || '' }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
       - name: Verify macOS signature
+        if: ${{ secrets.APPLE_CERTIFICATE != '' }}
         run: |
           APP_PATH=$(find dist -maxdepth 2 -name "*.app" -type d | head -1)
           if [ -z "$APP_PATH" ]; then
