@@ -55,5 +55,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Koda-desktop-linux-${{ matrix.arch }}
-          path: packages/desktop/dist/Koda-desktop-linux-${{ matrix.arch }}.*
+          path: |
+            packages/desktop/dist/Koda-desktop-linux-*.AppImage
+            packages/desktop/dist/Koda-desktop-linux-*.deb
+            packages/desktop/dist/Koda-desktop-linux-*.rpm
           if-no-files-found: error
