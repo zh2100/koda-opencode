@@ -1,0 +1,59 @@
+name: Koda Linux desktop
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            bun_cpu: x64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            bun_cpu: arm64
+    defaults:
+      run:
+        working-directory: packages/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install Linux packaging tools
+        run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --os=linux --cpu=${{ matrix.bun_cpu }}
+      - name: Build renderer and main process
+        run: |
+          for attempt in 1 2; do
+            bun run build && exit 0
+            if [ "$attempt" = "2" ]; then exit 1; fi
+            echo "Build aborted; retrying after cleanup"
+            rm -rf out
+            sleep 5
+          done
+        env:
+          OPENCODE_CHANNEL: prod
+          NODE_OPTIONS: --max-old-space-size=4096
+          BUN_CONFIG_MAX_CONCURRENCY: 2
+      - name: Package Koda client
+        run: bunx electron-builder --linux --${{ matrix.arch }} --config electron-builder.config.ts --publish never
+        env:
+          OPENCODE_CHANNEL: prod
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Koda-desktop-linux-${{ matrix.arch }}
+          path: packages/desktop/dist/Koda-desktop-linux-${{ matrix.arch }}.*
+          if-no-files-found: error
