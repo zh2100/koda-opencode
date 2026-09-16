@@ -44,12 +44,16 @@ jobs:
           done
         env:
           OPENCODE_CHANNEL: prod
+          OPENCODE_ELECTRON_ARCH: ${{ matrix.arch }}
+          npm_config_arch: ${{ matrix.arch }}
           NODE_OPTIONS: --max-old-space-size=4096
           BUN_CONFIG_MAX_CONCURRENCY: 2
       - name: Package Koda client
         run: bunx electron-builder --linux --${{ matrix.arch }} --config electron-builder.config.ts --publish never
         env:
           OPENCODE_CHANNEL: prod
+          OPENCODE_ELECTRON_ARCH: ${{ matrix.arch }}
+          npm_config_arch: ${{ matrix.arch }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - name: Upload installer
         uses: actions/upload-artifact@v4

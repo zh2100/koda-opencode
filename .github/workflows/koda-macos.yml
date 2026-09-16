@@ -42,13 +42,54 @@ jobs:
           done
         env:
           OPENCODE_CHANNEL: prod
+          OPENCODE_ELECTRON_ARCH: ${{ matrix.arch }}
+          npm_config_arch: ${{ matrix.arch }}
           NODE_OPTIONS: --max-old-space-size=4096
           BUN_CONFIG_MAX_CONCURRENCY: 2
       - name: Package Koda client
         run: bunx electron-builder --mac --${{ matrix.arch }} --config electron-builder.config.ts --publish never
         env:
           OPENCODE_CHANNEL: prod
+          OPENCODE_ELECTRON_ARCH: ${{ matrix.arch }}
+          npm_config_arch: ${{ matrix.arch }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Verify native module architecture
+        run: |
+          set -euo pipefail
+          APP=$(find dist -name "*.app" -print -quit)
+          if [ -z "$APP" ]; then
+            echo "No .app bundle found"
+            exit 1
+          fi
+          echo "Inspecting $APP"
+          WRONG=$([ "${{ matrix.arch }}" = "arm64" ] && echo "x64" || echo "arm64")
+          if find "$APP" -path "*node-pty*-${WRONG}*" | grep -q .; then
+            echo "bundle contains foreign node-pty ${WRONG}"
+            find "$APP" -path "*node-pty*-${WRONG}*"
+            exit 1
+          fi
+          ASAR="$APP/Contents/Resources/app.asar"
+          if [ -f "$ASAR" ] && strings "$ASAR" | grep -q "node-pty-.*-${WRONG}"; then
+            echo "asar contains foreign node-pty ${WRONG}"
+            exit 1
+          fi
+          found=0
+          while IFS= read -r node; do
+            [ -z "$node" ] && continue
+            found=1
+            info=$(file "$node")
+            echo "$info"
+            if [ "${{ matrix.arch }}" = "arm64" ]; then
+              echo "$info" | grep -q "arm64" || { echo "expected arm64 in $node"; exit 1; }
+              echo "$info" | grep -Eq "x86_64|i386" && { echo "unexpected intel arch in $node"; exit 1; } || true
+            else
+              echo "$info" | grep -q "x86_64" || { echo "expected x86_64 in $node"; exit 1; }
+            fi
+          done < <(find "$APP" -name "*.node" -print)
+          if [ "$found" = "0" ]; then
+            echo "No unpacked .node files found in app bundle"
+            exit 1
+          fi
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:

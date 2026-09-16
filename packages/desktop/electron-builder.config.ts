@@ -35,6 +35,17 @@ const channel = (() => {
   return "dev"
 })()
 
+const targetArch = process.env.OPENCODE_ELECTRON_ARCH || process.env.npm_config_arch || process.arch
+const foreignNativeArch = targetArch === "arm64" ? "x64" : "arm64"
+
+function excludeForeignNativeModules() {
+  return [
+    `!**/node_modules/@lydell/node-pty-*-${foreignNativeArch}/**`,
+    `!**/node_modules/@parcel/watcher-*-${foreignNativeArch}/**`,
+    `!**/node_modules/@parcel/watcher-*-${foreignNativeArch}-*/**`,
+  ]
+}
+
 const APP_IDS = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
@@ -55,7 +66,8 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
-  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
+  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*", ...excludeForeignNativeModules()],
+  asarUnpack: ["**/*.node", "**/node_modules/@lydell/node-pty*/**"],
   extraResources: [
     {
       from: "resources/icons/",
