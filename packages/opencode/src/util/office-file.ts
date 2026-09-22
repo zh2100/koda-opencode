@@ -1,4 +1,5 @@
 import path from "path"
+import type { FileChild } from "docx"
 import { isOfficeDocument } from "./office-text"
 
 const NAVY = "1F4E79"
@@ -75,7 +76,7 @@ async function buildDocx(content: string) {
 
 function docxBlocks(content: string, api: Record<string, any>) {
   const lines = content.split(/\r?\n/)
-  const blocks: unknown[] = []
+  const blocks: FileChild[] = []
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? ""
     if (isTableRow(line)) {
