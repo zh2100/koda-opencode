@@ -9,6 +9,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { Instruction } from "../session/instruction"
 import { isPdfAttachment, sniffAttachmentMime } from "@/util/media"
+import { extractOfficeText, isOfficeDocument } from "@/util/office-text"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -17,6 +18,28 @@ const MAX_BYTES = 50 * 1024
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`
 const SAMPLE_BYTES = 4096
 const SUPPORTED_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"])
+
+function sliceText(text: string, opts: { limit: number; offset: number }) {
+  const all = text.length === 0 ? [] : text.split(/\r?\n/)
+  if (all.length > 0 && all[all.length - 1] === "" && text.endsWith("\n")) all.pop()
+  const start = opts.offset - 1
+  const raw: string[] = []
+  let bytes = 0
+  let cut = false
+  for (let i = start; i < all.length; i++) {
+    if (raw.length >= opts.limit) break
+    const source = all[i] ?? ""
+    const line = source.length > MAX_LINE_LENGTH ? source.substring(0, MAX_LINE_LENGTH) + MAX_LINE_SUFFIX : source
+    const size = Buffer.byteLength(line, "utf-8") + (raw.length > 0 ? 1 : 0)
+    if (bytes + size > MAX_BYTES) {
+      cut = true
+      break
+    }
+    raw.push(line)
+    bytes += size
+  }
+  return { raw, count: all.length, cut, more: start + raw.length < all.length, offset: opts.offset }
+}
 
 class ReadStop extends Schema.TaggedErrorClass<ReadStop>()("ReadStop", {}) {}
 
@@ -193,11 +216,8 @@ export const ReadTool = Tool.define<
         case ".war":
         case ".7z":
         case ".doc":
-        case ".docx":
         case ".xls":
-        case ".xlsx":
         case ".ppt":
-        case ".pptx":
         case ".odt":
         case ".ods":
         case ".odp":
@@ -324,11 +344,20 @@ export const ReadTool = Tool.define<
         }
       }
 
-      if (isBinaryFile(filepath, sample)) {
+      const office = isOfficeDocument(filepath)
+        ? extractOfficeText(filepath, yield* fs.readFile(filepath))
+        : undefined
+      if (isOfficeDocument(filepath) && office === undefined) {
+        return yield* Effect.fail(new Error(`Cannot read office file: ${filepath}`))
+      }
+      if (office === undefined && isBinaryFile(filepath, sample)) {
         return yield* Effect.fail(new Error(`Cannot read binary file: ${filepath}`))
       }
 
-      const file = yield* lines(filepath, { limit: params.limit ?? DEFAULT_READ_LIMIT, offset: params.offset || 1 })
+      const file =
+        office === undefined
+          ? yield* lines(filepath, { limit: params.limit ?? DEFAULT_READ_LIMIT, offset: params.offset || 1 })
+          : sliceText(office, { limit: params.limit ?? DEFAULT_READ_LIMIT, offset: params.offset || 1 })
       if (file.count < file.offset && !(file.count === 0 && file.offset === 1)) {
         return yield* Effect.fail(
           new Error(`Offset ${file.offset} is out of range for this file (${file.count} lines)`),

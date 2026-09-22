@@ -141,6 +141,7 @@ export const dict = {
   "ui.textField.copied": "已複製",
 
   "ui.imagePreview.alt": "圖片預覽",
+  "ui.imagePreview.pdf": "PDF 預覽",
   "ui.scrollView.ariaLabel": "可捲動內容",
 
   "ui.tool.read": "讀取",

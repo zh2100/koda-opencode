@@ -6,3 +6,7 @@ Usage:
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
 - NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
 - Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.
+- .docx, .xlsx, and .pptx are generated as real Office files. Pass plain text, not XML.
+- .docx: one paragraph per line. #, ##, or ### is a heading. A line starting with - or * is a bullet. A line starting with 1. is a numbered step. A markdown table (| a | b |) becomes a bordered table. The file uses headings, spacing, and page margins.
+- .xlsx: optional `# Sheet name` lines start a sheet. The first row is a styled header. Other lines are rows; cells are separated by tab. Columns are sized to the text, with borders and a frozen header.
+- .pptx: a line starting with `# ` starts a slide. That line is the title. Following lines, or lines starting with -, are spaced bullets on a widescreen slide.

@@ -360,7 +360,9 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       if (item?.commentID) comments.remove(item.path, item.commentID)
     },
     openAttachment: (attachment) =>
-      dialog.show(() => <ImagePreview src={attachment.blob.url} alt={attachment.filename} />),
+      dialog.show(() => (
+        <ImagePreview src={attachment.blob.url} alt={attachment.filename} mime={attachment.mime} />
+      )),
     openContext(key) {
       const item = controller.contextItem(key)
       if (item) openComment(item, props, sync, layout, files, comments)

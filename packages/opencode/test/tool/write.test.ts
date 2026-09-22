@@ -4,6 +4,7 @@ import { Effect, Layer } from "effect"
 import path from "path"
 import fs from "fs/promises"
 import { WriteTool } from "../../src/tool/write"
+import { extractOfficeText } from "../../src/util/office-text"
 import { LSP } from "@/lsp/lsp"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
@@ -71,6 +72,18 @@ describe("tool.write", () => {
 
         const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
         expect(content).toBe("Hello, World!")
+      }),
+    )
+
+    it.instance("writes a docx manual as an Office file", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const filepath = path.join(test.directory, "manual.docx")
+        const result = yield* run({ filePath: filepath, content: "# 说明书\n打开电源\n检查指示灯" })
+
+        expect(result.output).toContain("Wrote file successfully")
+        const bytes = yield* Effect.promise(() => fs.readFile(filepath))
+        expect(extractOfficeText(filepath, bytes)).toBe("说明书\n打开电源\n检查指示灯")
       }),
     )
 

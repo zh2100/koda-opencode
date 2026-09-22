@@ -584,6 +584,55 @@ describe("tool.read loaded instructions", () => {
   )
 })
 
+describe("tool.read office documents", () => {
+  it.live("returns extracted docx text", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const xml = `<w:document><w:body><w:p><w:r><w:t>Quarter plan</w:t></w:r></w:p></w:body></w:document>`
+      yield* put(path.join(dir, "plan.docx"), storedZip({ "word/document.xml": xml }))
+
+      const result = yield* exec(dir, { filePath: path.join(dir, "plan.docx") })
+      expect(result.output).toContain("Quarter plan")
+      expect(result.attachments).toBeUndefined()
+    }),
+  )
+})
+
+function storedZip(entries: Record<string, string>) {
+  const locals: Buffer[] = []
+  const central: Buffer[] = []
+  let offset = 0
+  for (const [name, text] of Object.entries(entries)) {
+    const nameBuf = Buffer.from(name)
+    const data = Buffer.from(text)
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt32LE(data.length, 18)
+    local.writeUInt32LE(data.length, 22)
+    local.writeUInt16LE(nameBuf.length, 26)
+    locals.push(local, nameBuf, data)
+    const cen = Buffer.alloc(46)
+    cen.writeUInt32LE(0x02014b50, 0)
+    cen.writeUInt16LE(20, 4)
+    cen.writeUInt16LE(20, 6)
+    cen.writeUInt32LE(data.length, 20)
+    cen.writeUInt32LE(data.length, 24)
+    cen.writeUInt16LE(nameBuf.length, 28)
+    cen.writeUInt32LE(offset, 42)
+    central.push(cen, nameBuf)
+    offset += local.length + nameBuf.length + data.length
+  }
+  const centralBuf = Buffer.concat(central)
+  const eocd = Buffer.alloc(22)
+  eocd.writeUInt32LE(0x06054b50, 0)
+  eocd.writeUInt16LE(Object.keys(entries).length, 8)
+  eocd.writeUInt16LE(Object.keys(entries).length, 10)
+  eocd.writeUInt32LE(centralBuf.length, 12)
+  eocd.writeUInt32LE(offset, 16)
+  return Buffer.concat([...locals, centralBuf, eocd])
+}
+
 describe("tool.read binary detection", () => {
   it.live("rejects text extension files with null bytes", () =>
     Effect.gen(function* () {

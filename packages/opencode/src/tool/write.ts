@@ -14,6 +14,8 @@ import { InstanceState } from "@/effect/instance-state"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import * as Bom from "@/util/bom"
+import { buildOfficeFile } from "@/util/office-file"
+import { extractOfficeText, isOfficeDocument } from "@/util/office-text"
 
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
 
@@ -44,11 +46,23 @@ export const WriteTool = Tool.define(
           yield* assertExternalDirectoryEffect(ctx, filepath)
 
           const exists = yield* fs.existsSafe(filepath)
-          const source = exists ? yield* Bom.readFile(fs, filepath) : { bom: false, text: "" }
+          const office = isOfficeDocument(filepath)
+          const source = !exists
+            ? { bom: false, text: "" }
+            : office
+              ? {
+                  bom: false,
+                  text: extractOfficeText(filepath, yield* fs.readFile(filepath)) ?? "",
+                }
+              : yield* Bom.readFile(fs, filepath)
           const next = Bom.split(params.content)
           const desiredBom = source.bom || next.bom
           const contentOld = source.text
           const contentNew = next.text
+          const officeBytes = office ? yield* Effect.tryPromise(() => buildOfficeFile(filepath, contentNew)) : undefined
+          if (office && !officeBytes) {
+            return yield* Effect.fail(new Error(`Cannot write office file: ${filepath}`))
+          }
 
           const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
           yield* ctx.ask({
@@ -61,9 +75,12 @@ export const WriteTool = Tool.define(
             },
           })
 
-          yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
-          if (yield* format.file(filepath)) {
-            yield* Bom.syncFile(fs, filepath, desiredBom)
+          if (officeBytes) yield* fs.writeWithDirs(filepath, officeBytes)
+          else {
+            yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
+            if (yield* format.file(filepath)) {
+              yield* Bom.syncFile(fs, filepath, desiredBom)
+            }
           }
           yield* events.publish(FileSystem.Event.Edited, { file: filepath })
           yield* events.publish(Watcher.Event.Updated, {

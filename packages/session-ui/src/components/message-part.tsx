@@ -1234,8 +1234,8 @@ export function UserMessageDisplay(props: {
 
   const metaTail = stamp
 
-  const openImagePreview = (url: string, alt?: string) => {
-    dialog.show(() => <ImagePreview src={url} alt={alt} />)
+  const openImagePreview = (url: string, alt?: string, mime?: string) => {
+    dialog.show(() => <ImagePreview src={url} alt={alt} mime={mime} />)
   }
 
   const handleCopy = async () => {
@@ -1276,10 +1276,11 @@ export function UserMessageDisplay(props: {
                   <div
                     data-slot="user-message-attachment"
                     data-type={type}
-                    data-clickable={type === "image" ? "true" : undefined}
+                    data-clickable={type === "image" || file.mime === "application/pdf" ? "true" : undefined}
                     title={type === "file" ? name : undefined}
                     onClick={() => {
-                      if (type === "image") openImagePreview(file.url, name)
+                      if (type === "image" || file.mime === "application/pdf")
+                        openImagePreview(file.url, name, file.mime)
                     }}
                   >
                     <Show

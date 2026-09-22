@@ -437,7 +437,13 @@ export function PromptInputV2Attachments(props: {
                   <Show
                     when={attachment.mime.startsWith("image/")}
                     fallback={
-                      <AttachmentCardV2 title={attachment.filename}>
+                      <AttachmentCardV2
+                        title={attachment.filename}
+                        clickable={
+                          attachment.mime === "application/pdf" || attachment.filename.toLowerCase().endsWith(".pdf")
+                        }
+                        onClick={() => props.onAttachmentClick?.(attachment)}
+                      >
                         {typeLabel(attachment.filename, attachment.mime, i18n.t("ui.common.file"))}
                       </AttachmentCardV2>
                     }

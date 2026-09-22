@@ -1,6 +1,7 @@
 import type { FilePart, Project, UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { ImagePreview, isPdfPreview } from "@opencode-ai/ui/image-preview"
 import { createQuery, skipToken, useMutation, useQueryClient } from "@tanstack/solid-query"
 import {
   batch,
@@ -1949,6 +1950,12 @@ export default function Page() {
   // attachment bytes are embedded as a data URL, so downloading always works;
   // revealing requires the on-disk path captured by the client that attached the file
   const openAttachment = (file: FilePart) => {
+    if (isPdfPreview(file.mime, file.url, file.filename)) {
+      dialog.show(() => (
+        <ImagePreview src={file.url} alt={getFilename(file.filename) || file.filename} mime={file.mime} />
+      ))
+      return
+    }
     const download = () => {
       const anchor = document.createElement("a")
       anchor.href = file.url

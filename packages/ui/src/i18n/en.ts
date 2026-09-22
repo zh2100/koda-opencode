@@ -146,6 +146,7 @@ export const dict: Record<string, string> = {
   "ui.textField.copied": "Copied",
 
   "ui.imagePreview.alt": "Image preview",
+  "ui.imagePreview.pdf": "PDF preview",
   "ui.scrollView.ariaLabel": "scrollable content",
 
   "ui.tool.read": "Read",

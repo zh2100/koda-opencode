@@ -82,6 +82,7 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
           <For each={props.attachments}>
             {(attachment) => {
               const image = attachment.mime.startsWith("image/")
+              const pdf = attachment.mime === "application/pdf" || attachment.filename.toLowerCase().endsWith(".pdf")
               const media = () => (
                 <Show
                   when={image}
@@ -89,12 +90,24 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
                     <Show
                       when={props.newLayoutDesigns}
                       fallback={
-                        <div class={fallbackClass}>
+                        <div
+                          class={fallbackClass}
+                          classList={{ "cursor-pointer": pdf }}
+                          onClick={() => {
+                            if (pdf) props.onOpen(attachment)
+                          }}
+                        >
                           <Icon name="folder" class="size-6 text-text-weak" />
                         </div>
                       }
                     >
-                      <AttachmentCardV2 title={attachment.filename}>
+                      <AttachmentCardV2
+                        title={attachment.filename}
+                        clickable={pdf}
+                        onClick={() => {
+                          if (pdf) props.onOpen(attachment)
+                        }}
+                      >
                         {typeLabel(attachment.filename, attachment.mime, props.fileLabel)}
                       </AttachmentCardV2>
                     </Show>
