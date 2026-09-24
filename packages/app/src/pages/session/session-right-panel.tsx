@@ -1,9 +1,10 @@
-import { For, Match, Show, Switch, createSignal, type JSX } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createSignal, type JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import FileTree from "@/components/file-tree"
 import { TodoList } from "@/pages/session/composer/session-todo-dock"
+import { TerminalPanelV2 } from "@/pages/session/terminal-panel-v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import type { Todo } from "@opencode-ai/sdk/v2"
 
@@ -19,7 +20,9 @@ export function SessionRightPanel(props: {
   const language = useLanguage()
   const layout = useLayout()
   const session = useSessionLayout()
-  const [tab, setTab] = createSignal<Tab>(layout.fileTree.opened() ? "files" : "changes")
+  const [tab, setTab] = createSignal<Tab>(
+    session.view().terminal.opened() ? "terminal" : layout.fileTree.opened() ? "files" : "changes",
+  )
   const label = (id: Tab) => {
     if (id === "files") return language.t("session.panel.files")
     if (id === "changes") return language.t("session.panel.changes")
@@ -28,13 +31,22 @@ export function SessionRightPanel(props: {
   }
 
   const open = (id: Tab) => {
+    setTab(id)
     if (id === "terminal") {
       session.view().terminal.open()
-      layout.fileTree.close()
+      layout.fileTree.open()
       return
     }
-    setTab(id)
+    session.view().terminal.close()
   }
+
+  createEffect(() => {
+    if (session.view().terminal.opened()) {
+      if (tab() !== "terminal") setTab("terminal")
+      return
+    }
+    if (tab() === "terminal") setTab("files")
+  })
 
   return (
     <aside class="min-w-0 min-h-0 flex-1 flex flex-col bg-v2-background-bg-base rounded-[10px] overflow-hidden">
@@ -103,8 +115,8 @@ export function SessionRightPanel(props: {
             </Show>
           </Match>
           <Match when={tab() === "terminal"}>
-            <div class="flex flex-1 items-center justify-center px-4 text-center text-[13px] text-v2-text-text-muted">
-              {language.t("session.panel.terminal")}
+            <div class="min-h-0 flex-1 overflow-hidden flex flex-col">
+              <TerminalPanelV2 embedded />
             </div>
           </Match>
         </Switch>

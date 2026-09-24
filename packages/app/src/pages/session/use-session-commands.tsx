@@ -18,6 +18,7 @@ import { createSessionTabs } from "@/pages/session/helpers"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { Message, Part, UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { useRelayGates } from "@/hooks/use-relay-gates"
 import { useSessionArchive } from "@/pages/session/session-archive"
 import { createSessionOwnership } from "./session-ownership"
 import { useLocal } from "@/context/local"
@@ -49,6 +50,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const sync = useSync()
   const terminal = useTerminal()
   const layout = useLayout()
+  const gates = useRelayGates()
   const local = useLocal()
   const navigate = useNavigate()
   const { params, sessionKey, tabs, view } = useSessionLayout()
@@ -557,6 +559,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         }
         terminal.requestFocus(terminal.active())
         view().terminal.open()
+        if (settings.general.newLayoutDesigns() && gates().relayLayout) layout.fileTree.open()
       },
     }),
     viewCommand({

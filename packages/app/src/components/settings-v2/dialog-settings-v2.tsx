@@ -113,7 +113,7 @@ export const DialogSettings: Component<{
             </div>
             <div class="settings-v2-nav-footer">
               <span>{language.t("app.name.desktop")}</span>
-              <span>v1.0.0</span>
+              <span>数元AI</span>
             </div>
           </div>
         </TabsV2.List>

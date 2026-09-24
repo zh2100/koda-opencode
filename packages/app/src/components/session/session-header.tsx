@@ -32,6 +32,7 @@ import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { useTitlebarRightMount } from "../titlebar"
+import { useRelayGates } from "@/hooks/use-relay-gates"
 
 const OPEN_APPS = [
   "vscode",
@@ -145,6 +146,7 @@ export function SessionHeader() {
   const settings = useSettings()
   const sync = useSync()
   const terminal = useTerminal()
+  const gates = useRelayGates()
   const { params, view } = useSessionLayout()
 
   const projectDirectory = createMemo(() => decode64(params.dir) ?? "")
@@ -209,6 +211,7 @@ export function SessionHeader() {
   const toggleTerminal = () => {
     const next = !view().terminal.opened()
     view().terminal.toggle()
+    if (next && settings.general.newLayoutDesigns() && gates().relayLayout) layout.fileTree.open()
     if (!next) return
 
     const id = terminal.active()
