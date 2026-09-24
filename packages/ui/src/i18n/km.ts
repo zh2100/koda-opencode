@@ -1,4 +1,8 @@
 export const dict = {
+  "ui.imagePreview.pdf": "ការមើល PDF ជាមុន",
+  "ui.tool.task.waiting": "កំពុងរង់ចាំការអនុញ្ញាត",
+  "ui.tool.task.failed": "បានបរាជ័យ",
+  "ui.tool.task.retry": "ព្យាយាមម្តងទៀត",
   "ui.sessionReview.title": "ការផ្លាស់ប្តូរសម័យ",
   "ui.sessionReview.title.git": "ការផ្លាស់ប្តូរ Git",
   "ui.sessionReview.title.branch": "ការផ្លាស់ប្តូរសាខា",

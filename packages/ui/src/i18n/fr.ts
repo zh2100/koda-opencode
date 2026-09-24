@@ -1,4 +1,8 @@
 export const dict = {
+  "ui.imagePreview.pdf": "Aperçu du PDF",
+  "ui.tool.task.waiting": "En attente d'autorisation",
+  "ui.tool.task.failed": "Échec",
+  "ui.tool.task.retry": "Réessayer",
   "ui.sessionReview.title": "Modifications de la session",
   "ui.sessionReview.title.git": "Modifications Git",
   "ui.sessionReview.title.branch": "Modifications de la branche",

@@ -1,4 +1,8 @@
 export const dict = {
+  "ui.imagePreview.pdf": "Преглед PDF-а",
+  "ui.tool.task.waiting": "Чекање на дозволу",
+  "ui.tool.task.failed": "Неуспело",
+  "ui.tool.task.retry": "Покушај поново",
   "ui.sessionReview.title": "Промене сесије",
   "ui.sessionReview.title.git": "Git промене",
   "ui.sessionReview.title.branch": "промене гране",

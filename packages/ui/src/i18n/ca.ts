@@ -1,4 +1,8 @@
 export const dict: Record<string, string> = {
+  "ui.imagePreview.pdf": "Previsualització del PDF",
+  "ui.tool.task.waiting": "S'està esperant el permís",
+  "ui.tool.task.failed": "Ha fallat",
+  "ui.tool.task.retry": "Torna-ho a provar",
   "ui.sessionReview.title": "Canvis de sessió",
   "ui.sessionReview.title.git": "Canvis de Git",
   "ui.sessionReview.title.branch": "Canvis de branca",

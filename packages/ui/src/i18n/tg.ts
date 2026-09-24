@@ -1,4 +1,8 @@
 export const dict = {
+  "ui.imagePreview.pdf": "Пешнамоиши PDF",
+  "ui.tool.task.waiting": "Дар интизори иҷозат",
+  "ui.tool.task.failed": "Ноком шуд",
+  "ui.tool.task.retry": "Аз нав кӯшидан",
   "ui.sessionReview.title": "Тағйир додани сессия",
   "ui.sessionReview.title.git": "Тағйироти Git",
   "ui.sessionReview.title.branch": "Тағйироти филиал",

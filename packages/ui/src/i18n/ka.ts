@@ -1,4 +1,8 @@
 export const dict: Record<string, string> = {
+  "ui.imagePreview.pdf": "PDF-ის წინასწარი ხედი",
+  "ui.tool.task.waiting": "ნებართვის მოლოდინში",
+  "ui.tool.task.failed": "ვერ შესრულდა",
+  "ui.tool.task.retry": "ხელახლა ცდა",
   "ui.sessionReview.title": "სესიის ცვლილებები",
   "ui.sessionReview.title.git": "Git ცვლილებები",
   "ui.sessionReview.title.branch": "ფილიალის ცვლილებები",

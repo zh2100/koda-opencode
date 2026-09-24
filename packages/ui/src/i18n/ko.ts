@@ -1,4 +1,8 @@
 export const dict = {
+  "ui.imagePreview.pdf": "PDF 미리보기",
+  "ui.tool.task.waiting": "권한 허용 대기 중",
+  "ui.tool.task.failed": "실패",
+  "ui.tool.task.retry": "다시 시도",
   "ui.sessionReview.title": "세션 변경 사항",
   "ui.sessionReview.title.lastTurn": "마지막 턴 변경 사항",
   "ui.sessionReview.diffStyle.unified": "통합 보기",

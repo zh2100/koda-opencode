@@ -1,4 +1,8 @@
 export const dict: Record<string, string> = {
+  "ui.imagePreview.pdf": "Попередній перегляд PDF",
+  "ui.tool.task.waiting": "Очікування дозволу",
+  "ui.tool.task.failed": "Збій",
+  "ui.tool.task.retry": "Повторити",
   "ui.sessionReview.title": "Зміни сесії",
   "ui.sessionReview.title.git": "Зміни Git",
   "ui.sessionReview.title.branch": "Зміни гілки",

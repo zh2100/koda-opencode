@@ -1,4 +1,8 @@
 export const dict: Record<string, string> = {
+  "ui.imagePreview.pdf": "የPDF ቅድመ እይታ",
+  "ui.tool.task.waiting": "ፈቃድ በመጠባበቅ ላይ",
+  "ui.tool.task.failed": "አልተሳካም",
+  "ui.tool.task.retry": "እንደገና ሞክር",
   "ui.sessionReview.title": "የክፍለ ጊዜ ለውጦች",
   "ui.sessionReview.title.git": "Gitይለውጣል",
   "ui.sessionReview.title.branch": "ቅርንጫፍ ለውጦች",

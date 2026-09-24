@@ -3,6 +3,10 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "ui.imagePreview.pdf": "Pregled PDF-a",
+  "ui.tool.task.waiting": "Čekanje na dozvolu",
+  "ui.tool.task.failed": "Neuspjelo",
+  "ui.tool.task.retry": "Pokušaj ponovo",
   "ui.sessionReview.title": "Promjene sesije",
   "ui.sessionReview.title.git": "Git promjene",
   "ui.sessionReview.title.branch": "Promjene na grani",

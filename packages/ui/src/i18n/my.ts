@@ -1,4 +1,8 @@
 export const dict = {
+  "ui.imagePreview.pdf": "PDF အစမ်းကြည့်ရှုခြင်း",
+  "ui.tool.task.waiting": "ခွင့်ပြုချက် စောင့်နေသည်",
+  "ui.tool.task.failed": "မအောင်မြင်ပါ",
+  "ui.tool.task.retry": "ထပ်ကြိုးစားရန်",
   "ui.sessionReview.title": "စက်ရှင် အပြောင်းအလဲများ",
   "ui.sessionReview.title.git": "Git အပြောင်းအလဲများ",
   "ui.sessionReview.title.branch": "ဌာနခွဲအပြောင်းအလဲများ",

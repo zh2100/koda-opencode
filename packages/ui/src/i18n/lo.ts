@@ -1,4 +1,8 @@
 export const dict = {
+  "ui.imagePreview.pdf": "ຕົວຢ່າງ PDF",
+  "ui.tool.task.waiting": "ກຳລັງລໍຖ້າການອະນຸຍາດ",
+  "ui.tool.task.failed": "ລົ້ມເຫຼວ",
+  "ui.tool.task.retry": "ລອງໃໝ່",
   "ui.sessionReview.title": "ການປ່ຽນແປງເຊດຊັນ",
   "ui.sessionReview.title.git": "ການປ່ຽນແປງ Git",
   "ui.sessionReview.title.branch": "ການປ່ຽນແປງສາຂາ",

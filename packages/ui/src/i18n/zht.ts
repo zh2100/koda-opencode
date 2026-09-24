@@ -3,6 +3,9 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "ui.tool.task.waiting": "等待授權",
+  "ui.tool.task.failed": "失敗",
+  "ui.tool.task.retry": "重試",
   "ui.sessionReview.title": "工作階段變更",
   "ui.sessionReview.title.git": "Git 變更",
   "ui.sessionReview.title.branch": "分支變更",

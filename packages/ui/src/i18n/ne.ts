@@ -1,4 +1,8 @@
 export const dict: Record<string, string> = {
+  "ui.imagePreview.pdf": "PDF पूर्वावलोकन",
+  "ui.tool.task.waiting": "अनुमतिको प्रतीक्षामा",
+  "ui.tool.task.failed": "असफल भयो",
+  "ui.tool.task.retry": "फेरि प्रयास गर्नुहोस्",
   "ui.sessionReview.title": "सत्र परिवर्तन",
   "ui.sessionReview.title.git": "Git परिवर्तनहरू",
   "ui.sessionReview.title.branch": "शाखा परिवर्तन",
