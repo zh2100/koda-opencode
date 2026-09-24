@@ -46,6 +46,22 @@ jobs:
           npm_config_arch: ${{ matrix.arch }}
           NODE_OPTIONS: --max-old-space-size=4096
           BUN_CONFIG_MAX_CONCURRENCY: 2
+      - name: Verify Office read and write support
+        working-directory: packages/opencode
+        run: bun test --timeout 30000 test/util/office-file.test.ts test/util/office-text.test.ts
+      - name: Cache bundled GDAL
+        uses: actions/cache@v4
+        with:
+          path: packages/desktop/.cache/gdal
+          key: koda-gdal-darwin-${{ matrix.arch }}-${{ hashFiles('packages/desktop/scripts/prepare-gdal.ts') }}-${{ vars[format('KODA_GDAL_DARWIN_{0}_SHA256', matrix.arch)] }}
+      - name: Stage bundled GDAL
+        if: ${{ vars[format('KODA_GDAL_DARWIN_{0}_ARCHIVE_URL', matrix.arch)] != '' && vars[format('KODA_GDAL_DARWIN_{0}_SHA256', matrix.arch)] != '' }}
+        run: bun run prepare:gdal
+        env:
+          KODA_GDAL_ARCHIVE_URL: ${{ vars[format('KODA_GDAL_DARWIN_{0}_ARCHIVE_URL', matrix.arch)] }}
+          KODA_GDAL_ARCHIVE_SHA256: ${{ vars[format('KODA_GDAL_DARWIN_{0}_SHA256', matrix.arch)] }}
+          OPENCODE_ELECTRON_ARCH: ${{ matrix.arch }}
+          KODA_BUNDLE_GDAL: ${{ vars[format('KODA_GDAL_DARWIN_{0}_ARCHIVE_URL', matrix.arch)] != '' && vars[format('KODA_GDAL_DARWIN_{0}_SHA256', matrix.arch)] != '' && '1' || '0' }}
       - name: Package Koda client
         run: bunx electron-builder --mac --${{ matrix.arch }} --config electron-builder.config.ts --publish never
         env:
@@ -53,6 +69,7 @@ jobs:
           OPENCODE_ELECTRON_ARCH: ${{ matrix.arch }}
           npm_config_arch: ${{ matrix.arch }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          KODA_BUNDLE_GDAL: ${{ vars[format('KODA_GDAL_DARWIN_{0}_ARCHIVE_URL', matrix.arch)] != '' && vars[format('KODA_GDAL_DARWIN_{0}_SHA256', matrix.arch)] != '' && '1' || '0' }}
       - name: Verify native module architecture
         run: |
           set -euo pipefail

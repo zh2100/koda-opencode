@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { statSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -37,6 +38,38 @@ const channel = (() => {
 
 const targetArch = process.env.OPENCODE_ELECTRON_ARCH || process.env.npm_config_arch || process.arch
 const foreignNativeArch = targetArch === "arm64" ? "x64" : "arm64"
+const gdalTarget = `${process.platform}-${targetArch}`
+const gdalResource = path.join(packageDir, "resources", "gdal", gdalTarget)
+const bundleGdal = process.env.KODA_BUNDLE_GDAL === "1"
+
+const validateGdal: NonNullable<Configuration["beforePack"]> = async (context) => {
+  if (!bundleGdal) return
+  const arch = ["ia32", "x64", "armv7l", "arm64", "universal"][context.arch]
+  if (context.electronPlatformName !== process.platform || arch !== targetArch) {
+    throw new Error(
+      "GDAL packaging requires a native-platform build and OPENCODE_ELECTRON_ARCH matching the builder target",
+    )
+  }
+  if (requireGdalResource(gdalResource)) return
+  throw new Error(
+    `Bundled GDAL is missing for ${gdalTarget}. Run ` +
+      "bun ./scripts/prepare-gdal.ts with KODA_GDAL_HOME or KODA_GDAL_ARCHIVE_URL and KODA_GDAL_ARCHIVE_SHA256; system GDAL is not used.",
+  )
+}
+
+function requireGdalResource(prefix: string) {
+  const root = process.platform === "win32" ? path.join(prefix, "Library") : prefix
+  const executable = process.platform === "win32" ? ".exe" : ""
+  return [
+    path.join(root, "bin", `ogrinfo${executable}`),
+    path.join(root, "bin", `ogr2ogr${executable}`),
+    path.join(root, "share", "gdal"),
+    path.join(root, "share", "proj", "proj.db"),
+  ].every((item) => {
+    const info = statSync(item, { throwIfNoEntry: false })
+    return path.basename(item) === "gdal" ? info?.isDirectory() : info?.isFile() && info.size > 0
+  })
+}
 
 function excludeForeignNativeModules() {
   return [
@@ -53,6 +86,7 @@ const APP_IDS = {
 } as const
 
 const getBase = (appId: string): Configuration => ({
+  beforePack: validateGdal,
   artifactName: "Koda-desktop-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
@@ -66,7 +100,13 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
-  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*", ...excludeForeignNativeModules()],
+  files: [
+    "out/**/*",
+    "resources/**/*",
+    "!resources/opencode-cli*",
+    "!resources/gdal/**/*",
+    ...excludeForeignNativeModules(),
+  ],
   asarUnpack: ["**/*.node", "**/node_modules/@lydell/node-pty*/**"],
   extraResources: [
     {
@@ -87,6 +127,7 @@ const getBase = (appId: string): Configuration => ({
       to: "native/",
       filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
     },
+    ...(bundleGdal ? [{ from: gdalResource, to: `gdal/${gdalTarget}` }] : []),
   ],
   mac: {
     category: "public.app-category.developer-tools",

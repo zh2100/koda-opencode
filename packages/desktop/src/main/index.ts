@@ -49,6 +49,7 @@ import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
 import { setNativeTranslations } from "./native-translations"
+import { configureGdalRuntime } from "./gdal"
 
 const APP_NAMES: Record<string, string> = {
   dev: "Koda Dev",
@@ -139,7 +140,9 @@ const main = Effect.gen(function* () {
     return root
   })()
   app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "Koda Dev")
-  app.setAppUserModelId(process.platform === "win32" && app.isPackaged && CHANNEL === "prod" ? "com.shuyuanai.koda.desktop" : appId)
+  app.setAppUserModelId(
+    process.platform === "win32" && app.isPackaged && CHANNEL === "prod" ? "com.shuyuanai.koda.desktop" : appId,
+  )
   app.setPath(
     "userData",
     onboardingTestRoot ? join(onboardingTestRoot, "desktop") : join(app.getPath("appData"), appId),
@@ -201,6 +204,7 @@ const main = Effect.gen(function* () {
   }
 
   const shellEnv = preferAppEnv(app.getPath("userData"))
+  configureGdalRuntime()
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))

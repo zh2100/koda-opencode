@@ -100,6 +100,13 @@ afterEach(async () => {
 })
 
 describe("tool.registry", () => {
+  it.instance("exposes the dedicated GIS tool", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      expect(yield* registry.ids()).toContain("gis")
+    }),
+  )
+
   it.instance("does not expose task_status", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service

@@ -229,30 +229,38 @@ jobs:
       AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
       AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
       AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+      OPENCODE_ELECTRON_ARCH: ${{ startsWith(matrix.settings.target, 'aarch64') && 'arm64' || 'x64' }}
+      KODA_BUNDLE_GDAL: ${{ vars[format('KODA_GDAL_{0}_ARCHIVE_URL', matrix.settings.gdal)] != '' && vars[format('KODA_GDAL_{0}_SHA256', matrix.settings.gdal)] != '' && '1' || '0' }}
     strategy:
       fail-fast: false
       matrix:
         settings:
           - host: macos-26-intel
             target: x86_64-apple-darwin
+            gdal: DARWIN_X64
             platform_flag: --mac --x64
             bun_install_flags: --os=darwin --cpu=x64
           - host: macos-26
             target: aarch64-apple-darwin
+            gdal: DARWIN_ARM64
             platform_flag: --mac --arm64
             bun_install_flags: --os=darwin --cpu=arm64
           # github-hosted: blacksmith lacks ARM64 MSVC cross-compilation toolchain
           - host: "windows-2025"
             target: aarch64-pc-windows-msvc
+            gdal: WIN_ARM64
             platform_flag: --win --arm64
           - host: "blacksmith-4vcpu-windows-2025"
             target: x86_64-pc-windows-msvc
+            gdal: WIN_X64
             platform_flag: --win
           - host: "blacksmith-4vcpu-ubuntu-2404"
             target: x86_64-unknown-linux-gnu
+            gdal: LINUX_X64
             platform_flag: --linux
           - host: "blacksmith-4vcpu-ubuntu-2404-arm"
             target: aarch64-unknown-linux-gnu
+            gdal: LINUX_ARM64
             platform_flag: --linux --arm64
     runs-on: ${{ matrix.settings.host }}
     steps:
@@ -332,6 +340,21 @@ jobs:
           VITE_SENTRY_ENVIRONMENT: ${{ (github.ref_name == 'beta' && 'beta') || 'production' }}
           VITE_SENTRY_RELEASE: desktop@${{ needs.version.outputs.version }}
 
+      - name: Cache bundled GDAL
+        uses: actions/cache@v4
+        with:
+          path: packages/desktop/.cache/gdal
+          key: koda-gdal-${{ matrix.settings.target }}-${{ hashFiles('packages/desktop/scripts/prepare-gdal.ts') }}-${{ vars[format('KODA_GDAL_{0}_SHA256', matrix.settings.gdal)] }}
+
+      - name: Stage bundled GDAL
+        if: ${{ vars[format('KODA_GDAL_{0}_ARCHIVE_URL', matrix.settings.gdal)] != '' && vars[format('KODA_GDAL_{0}_SHA256', matrix.settings.gdal)] != '' }}
+        run: bun run prepare:gdal
+        working-directory: packages/desktop
+        env:
+          KODA_GDAL_ARCHIVE_URL: ${{ vars[format('KODA_GDAL_{0}_ARCHIVE_URL', matrix.settings.gdal)] }}
+          KODA_GDAL_ARCHIVE_SHA256: ${{ vars[format('KODA_GDAL_{0}_SHA256', matrix.settings.gdal)] }}
+          KODA_BUNDLE_GDAL: ${{ vars[format('KODA_GDAL_{0}_ARCHIVE_URL', matrix.settings.gdal)] != '' && vars[format('KODA_GDAL_{0}_SHA256', matrix.settings.gdal)] != '' && '1' || '0' }}
+
       - name: Package
         if: needs.version.outputs.release
         run: npx electron-builder ${{ matrix.settings.platform_flag }} --publish never --config electron-builder.config.ts
@@ -344,6 +367,7 @@ jobs:
           APPLE_API_KEY: ${{ runner.temp }}/apple-api-key.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          KODA_BUNDLE_GDAL: ${{ vars[format('KODA_GDAL_{0}_ARCHIVE_URL', matrix.settings.gdal)] != '' && vars[format('KODA_GDAL_{0}_SHA256', matrix.settings.gdal)] != '' && '1' || '0' }}
 
       - name: Package (no publish)
         if: ${{ !needs.version.outputs.release }}

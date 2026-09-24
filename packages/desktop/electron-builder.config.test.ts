@@ -3,6 +3,32 @@ import type { Configuration } from "electron-builder"
 
 const legacyDesktopEntry = "resources/linux/opencode-desktop.desktop"
 
+test("GDAL is outside asar and packaging checks the actual target", async () => {
+  const previous = process.env.KODA_BUNDLE_GDAL
+  process.env.KODA_BUNDLE_GDAL = "1"
+  const config = (await import("./electron-builder.config.ts?gdal")).default
+  if (previous === undefined) delete process.env.KODA_BUNDLE_GDAL
+  else process.env.KODA_BUNDLE_GDAL = previous
+  expect(config.files).toContain("!resources/gdal/**/*")
+  expect(config.extraResources).toContainEqual({
+    from: expect.stringContaining("gdal"),
+    to: expect.stringMatching(/^gdal\/(win32|linux|darwin)-(x64|arm64)$/),
+  })
+  expect(typeof config.beforePack).toBe("function")
+  const hook = config.beforePack as (context: unknown) => Promise<void>
+  await expect(hook({ electronPlatformName: "unsupported", arch: 1 })).rejects.toThrow("matching the builder target")
+})
+
+test("GDAL is opt-in", async () => {
+  const previous = process.env.KODA_BUNDLE_GDAL
+  delete process.env.KODA_BUNDLE_GDAL
+  const config = (await import("./electron-builder.config.ts?optional-gdal")).default
+  if (previous !== undefined) process.env.KODA_BUNDLE_GDAL = previous
+  expect(config.extraResources).not.toContainEqual(
+    expect.objectContaining({ to: expect.stringMatching(/^gdal\//) }),
+  )
+})
+
 const channels = [
   { channel: "dev", appId: "ai.opencode.desktop.dev" },
   { channel: "beta", appId: "ai.opencode.desktop.beta" },
