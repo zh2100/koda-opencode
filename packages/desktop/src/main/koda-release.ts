@@ -1,4 +1,4 @@
-export const KODA_VERSION = "1.0.2"
+export const KODA_VERSION = "1.0.3"
 export const KODA_RELEASE_URL = "https://github.com/zh2100/koda-opencode/releases/tag/Koda"
 
 export function newerKodaRelease(release: unknown, current = KODA_VERSION) {
