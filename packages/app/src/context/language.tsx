@@ -20,7 +20,7 @@ import {
 export type Locale = DesktopNativeLocale
 export type Direction = "ltr" | "rtl"
 
-const RTL_LOCALES: ReadonlySet<Locale> = new Set(["ar", "ur", "pa", "fa", "dv"])
+const RTL_LOCALES: ReadonlySet<Locale> = new Set(["ar", "ur", "pa", "fa", "he", "dv"])
 
 function localeDirection(locale: Locale): Direction {
   return RTL_LOCALES.has(locale) ? "rtl" : "ltr"
@@ -88,6 +88,7 @@ const loaders: Record<Exclude<Locale, "en">, () => Promise<Dictionary>> = {
   el: () => merge(import("@/i18n/el"), import("@opencode-ai/ui/i18n/el")),
   et: () => merge(import("@/i18n/et"), import("@opencode-ai/ui/i18n/et")),
   fa: () => merge(import("@/i18n/fa"), import("@opencode-ai/ui/i18n/fa")),
+  he: () => merge(import("@/i18n/he"), import("@opencode-ai/ui/i18n/he")),
   fo: () => merge(import("@/i18n/fo"), import("@opencode-ai/ui/i18n/fo")),
   hr: () => merge(import("@/i18n/hr"), import("@opencode-ai/ui/i18n/hr")),
   hu: () => merge(import("@/i18n/hu"), import("@opencode-ai/ui/i18n/hu")),

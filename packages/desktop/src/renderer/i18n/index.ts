@@ -44,6 +44,7 @@ import { dict as desktopDz } from "./dz"
 import { dict as desktopEl } from "./el"
 import { dict as desktopEt } from "./et"
 import { dict as desktopFa } from "./fa"
+import { dict as desktopHe } from "./he"
 import { dict as desktopFo } from "./fo"
 import { dict as desktopHr } from "./hr"
 import { dict as desktopHu } from "./hu"
@@ -151,6 +152,7 @@ function build(locale: Locale): Dictionary {
   if (locale === "el") return { ...base, ...i18n.flatten(desktopEl) }
   if (locale === "et") return { ...base, ...i18n.flatten(desktopEt) }
   if (locale === "fa") return { ...base, ...i18n.flatten(desktopFa) }
+  if (locale === "he") return { ...base, ...i18n.flatten(desktopHe) }
   if (locale === "fo") return { ...base, ...i18n.flatten(desktopFo) }
   if (locale === "hr") return { ...base, ...i18n.flatten(desktopHr) }
   if (locale === "hu") return { ...base, ...i18n.flatten(desktopHu) }

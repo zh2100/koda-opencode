@@ -2,7 +2,7 @@
 
 ## Scope
 
-Filled missing application and shared UI dictionary entries for 60 locales.
+Filled missing application and shared UI dictionary entries for 61 locales.
 English remains the semantic source. Simplified Chinese and desktop renderer
 dictionaries already had the required keys. Product names, command examples,
 URLs, interpolation placeholders, and API identifiers are preserved.
@@ -26,7 +26,8 @@ native-speaker approval of every sentence.
 ## Remaining Linguistic Review
 
 Review AI-specific terms such as skill, prompt, upstream, and relay for natural
-phrasing and consistency. Prioritize Faroese, Khmer, Lao, Burmese, Dzongkha,
+phrasing and consistency. Hebrew was added as an RTL locale and still needs
+native-speaker review of count phrasing and technical terminology. Prioritize Faroese, Khmer, Lao, Burmese, Dzongkha,
 Amharic, Dhivehi, Turkmen, and Shahmukhi Punjabi. Arabic count phrasing also
 needs native-speaker review. Existing values identical to English have not all
 been classified as intentional borrowings versus untranslated text.

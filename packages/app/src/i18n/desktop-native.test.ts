@@ -53,6 +53,7 @@ describe("desktop native translations", () => {
       "Ελληνικά",
       "Eesti",
       "فارسی",
+      "עברית",
       "Føroyskt",
       "Hrvatski",
       "Magyar",

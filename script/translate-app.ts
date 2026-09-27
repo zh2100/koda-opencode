@@ -48,6 +48,7 @@ const languages = {
   el: "Greek",
   et: "Estonian",
   fa: "Persian",
+  he: "Hebrew",
   fo: "Faroese",
   hr: "Croatian",
   hu: "Hungarian",
