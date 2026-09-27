@@ -128,8 +128,9 @@ function remoteURL(value: string) {
 const WINDOWS_FETCH_HOSTS = new Set(["developers.openai.com"])
 
 function windowsFetchProxyPath() {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
   const candidates = [
-    process.resourcesPath ? path.join(process.resourcesPath, "windows-fetch-proxy.exe") : undefined,
+    resourcesPath ? path.join(resourcesPath, "windows-fetch-proxy.exe") : undefined,
     path.join(import.meta.dirname, "..", "..", "..", "desktop", "resources", "windows-fetch-proxy.exe"),
     path.join(import.meta.dirname, "windows-fetch-proxy.exe"),
   ]
