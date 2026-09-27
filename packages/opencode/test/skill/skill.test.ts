@@ -404,6 +404,54 @@ This skill is loaded from the global home directory.
     }),
   )
 
+  it.live("discovers global skills from ~/.codex/skills and ~/.hub/skills", () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const home = process.env.OPENCODE_TEST_HOME
+          if (!home) throw new Error("OPENCODE_TEST_HOME is not set")
+          yield* Effect.promise(() =>
+            Promise.all([
+              Bun.write(
+                path.join(home, ".codex", "skills", "math-modeling-skill", "SKILL.md"),
+                `---
+name: math-modeling-skill
+description: A global skill from ~/.codex/skills for testing.
+---
+
+# Math Modeling
+`,
+              ),
+              Bun.write(
+                path.join(home, ".hub", "skills", "hub-skill", "SKILL.md"),
+                `---
+name: hub-skill
+description: A global skill from ~/.hub/skills for testing.
+---
+
+# Hub Skill
+`,
+              ),
+            ]),
+          )
+
+          const skill = yield* Skill.Service
+          const list = (yield* skill.all()).filter((item) => item.location !== "<built-in>")
+          expect(list.map((item) => item.name).toSorted()).toEqual(["hub-skill", "math-modeling-skill"])
+          expect(list.find((item) => item.name === "math-modeling-skill")?.location).toContain(
+            path.join(".codex", "skills", "math-modeling-skill", "SKILL.md"),
+          )
+          yield* Effect.promise(() =>
+            Promise.all([
+              fs.rm(path.join(home, ".codex"), { recursive: true, force: true }),
+              fs.rm(path.join(home, ".hub"), { recursive: true, force: true }),
+            ]),
+          )
+        }),
+      { git: true },
+    ),
+  )
+
   it.live("discovers skills from both .claude/skills/ and .agents/skills/", () =>
     provideTmpdirInstance(
       (dir) =>
