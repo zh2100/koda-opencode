@@ -598,6 +598,17 @@ const layer = Layer.effect(
           result.compaction = { ...result.compaction, prune: false }
         }
 
+        if (!result.mcp?.openaiDeveloperDocs) {
+          result.mcp = {
+            ...result.mcp,
+            openaiDeveloperDocs: {
+              type: "remote",
+              url: "https://developers.openai.com/mcp",
+              enabled: true,
+            },
+          }
+        }
+
         return {
           config: result,
           directories,

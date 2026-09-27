@@ -2072,6 +2072,39 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
 // Regression for #28206: malformed OPENCODE_PERMISSION JSON used to crash
 // the app on startup with an unhandled SyntaxError. Loading the config with
 // an invalid JSON value in this env var should not throw.
+describe("built-in OpenAI docs MCP", () => {
+  it.instance("adds the remote server when no MCP config is present", () =>
+    Effect.gen(function* () {
+      const config = yield* Config.use.get()
+      expect(config.mcp?.openaiDeveloperDocs).toEqual({
+        type: "remote",
+        url: "https://developers.openai.com/mcp",
+        enabled: true,
+      })
+    }),
+  )
+
+  it.instance(
+    "does not override an existing openaiDeveloperDocs entry",
+    () =>
+      Effect.gen(function* () {
+        const config = yield* Config.use.get()
+        expect(config.mcp?.openaiDeveloperDocs).toEqual({
+          type: "remote",
+          url: "https://example.invalid/mcp",
+          enabled: false,
+        })
+      }),
+    {
+      config: {
+        mcp: {
+          openaiDeveloperDocs: { type: "remote", url: "https://example.invalid/mcp", enabled: false },
+        },
+      },
+    },
+  )
+})
+
 describe("OPENCODE_PERMISSION env var", () => {
   it.instance("does not crash when OPENCODE_PERMISSION contains invalid JSON", () =>
     withProcessEnv(
