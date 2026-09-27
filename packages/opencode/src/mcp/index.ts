@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -122,6 +123,59 @@ function isMcpConfigured(entry: McpEntry): entry is ConfigMCPV1.Info {
 
 function remoteURL(value: string) {
   if (URL.canParse(value)) return new URL(value)
+}
+
+const WINDOWS_FETCH_HOSTS = new Set(["developers.openai.com"])
+
+function windowsFetchProxyPath() {
+  const candidates = [
+    process.resourcesPath ? path.join(process.resourcesPath, "windows-fetch-proxy.exe") : undefined,
+    path.join(import.meta.dirname, "..", "..", "..", "desktop", "resources", "windows-fetch-proxy.exe"),
+    path.join(import.meta.dirname, "windows-fetch-proxy.exe"),
+  ]
+  return candidates.find((candidate) => candidate && existsSync(candidate))
+}
+
+function needsWindowsFetch(url: URL) {
+  return process.platform === "win32" && WINDOWS_FETCH_HOSTS.has(url.hostname) && windowsFetchProxyPath() !== undefined
+}
+
+function windowsFetch(url: URL | string, init: RequestInit = {}) {
+  const headers =
+    init.headers instanceof Headers
+      ? Object.fromEntries(init.headers.entries())
+      : Array.isArray(init.headers)
+        ? Object.fromEntries(init.headers)
+        : { ...(init.headers ?? {}) }
+  const payload = Buffer.from(
+    JSON.stringify({
+      url: String(url),
+      method: init.method ?? "GET",
+      headers,
+      body: typeof init.body === "string" ? init.body : "",
+    }),
+  )
+  const proxy = windowsFetchProxyPath()
+  if (!proxy) throw new Error("Windows MCP fetch proxy not found")
+  const proc = Bun.spawn([proxy], { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+  const prefix = Buffer.alloc(4)
+  prefix.writeUInt32LE(payload.length)
+  proc.stdin.write(prefix)
+  proc.stdin.write(payload)
+  proc.stdin.end()
+  return Promise.all([new Response(proc.stdout).arrayBuffer(), new Response(proc.stderr).text(), proc.exited]).then(
+    ([stdout, stderr, exit]) => {
+      if (exit !== 0) throw new Error(stderr || "Windows MCP fetch failed")
+      const bytes = Buffer.from(stdout)
+      const length = bytes.readUInt32LE(0)
+      const response = JSON.parse(bytes.subarray(4, 4 + length).toString("utf8")) as {
+        status: number
+        headers: Record<string, string>
+        body: string
+      }
+      return new Response(response.body, { status: response.status, headers: response.headers })
+    },
+  )
 }
 
 interface CreateResult {
@@ -266,11 +320,13 @@ const layer = Layer.effect(
         )
       }
 
+      const fetch = needsWindowsFetch(url) ? windowsFetch : undefined
       const transports: Array<{ name: string; transport: TransportWithAuth }> = [
         {
           name: "StreamableHTTP",
           transport: new StreamableHTTPClientTransport(url, {
             authProvider,
+            fetch,
             requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
           }),
         },
@@ -845,6 +901,7 @@ const layer = Layer.effect(
 
       const transport = new StreamableHTTPClientTransport(url, {
         authProvider,
+        fetch: needsWindowsFetch(url) ? windowsFetch : undefined,
         requestInit: mcpConfig.headers ? { headers: mcpConfig.headers } : undefined,
       })
       const directory = yield* InstanceState.directory

@@ -127,6 +127,10 @@ const getBase = (appId: string): Configuration => ({
       to: "native/",
       filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
     },
+    {
+      from: "resources/windows-fetch-proxy.exe",
+      to: "windows-fetch-proxy.exe",
+    },
     ...(bundleGdal ? [{ from: gdalResource, to: `gdal/${gdalTarget}` }] : []),
   ],
   mac: {
