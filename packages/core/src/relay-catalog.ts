@@ -35,6 +35,9 @@ const Upstream = Schema.Struct({
 
 const StoredCandidate = Schema.Struct({
   vendorId: Schema.optional(Relay.VendorID),
+  // Identifies the upstream refresh that produced this candidate. Legacy unresolved
+  // candidates do not have this field and cannot be attributed safely.
+  sourceVendorId: Schema.optional(Relay.VendorID),
   modelId: Model.ID,
   displayName: Schema.optional(Schema.String),
   ownedBy: Schema.optional(Schema.String),
@@ -68,6 +71,11 @@ type Draft = {
 
 const empty = (): Draft => ({ candidates: [], managed: [], requestVersion: 0 })
 
+export const modelID = (vendorId: string, upstreamID: string) =>
+  Model.ID.make(
+    vendorId === "chatgpt" || vendorId === "grok" ? upstreamID : `custom:${vendorId}:${encodeURIComponent(upstreamID)}`,
+  )
+
 const prefixes: Record<string, RegExp> = {
   chatgpt: /^(gpt-|o[1-4]|chatgpt)/i,
   grok: /^grok/i,
@@ -89,7 +97,9 @@ export interface Interface {
   readonly managed: () => Effect.Effect<RelayModel.Managed[]>
   readonly hasManaged: () => boolean
   readonly visible: (modelId: string) => boolean
-  readonly refresh: (vendorId: Relay.VendorID) => Effect.Effect<RelayModel.Candidate[], RelayAuth.AuthError | CatalogError>
+  readonly refresh: (
+    vendorId: Relay.VendorID,
+  ) => Effect.Effect<RelayModel.Candidate[], RelayAuth.AuthError | CatalogError>
   readonly probe: (vendorId: Relay.VendorID) => Effect.Effect<{ count: number }, RelayAuth.AuthError | CatalogError>
   readonly setVisibility: (input: {
     readonly vendorId: Relay.VendorID
@@ -156,16 +166,22 @@ const layer = Layer.effect(
     const read = Effect.fn("RelayCatalog.read")(function* () {
       const data = yield* fs.readJson(file).pipe(Effect.orElseSucceed(() => empty()))
       try {
-        return decode(data)
+        const stored = decode(data)
+        return {
+          ...stored,
+          candidates: stored.candidates.map((item) =>
+            item.sourceVendorId || !item.vendorId ? item : { ...item, sourceVendorId: item.vendorId },
+          ),
+        }
       } catch {
         return empty()
       }
     })
 
     const fetchUpstream = Effect.fn("RelayCatalog.fetchUpstream")(function* (vendorId: Relay.VendorID) {
-      const key = yield* auth.resolve(vendorId)
-      const response = yield* HttpClientRequest.get(`${RelayPolicy.BaseURL}/models`).pipe(
-        HttpClientRequest.setHeader("Authorization", `Bearer ${key}`),
+      const resolved = yield* auth.resolve(vendorId)
+      const response = yield* HttpClientRequest.get(`${resolved.baseURL}/models`).pipe(
+        HttpClientRequest.setHeader("Authorization", `Bearer ${resolved.key}`),
         http.execute,
         Effect.timeout("10 seconds"),
         Effect.mapError((error) =>
@@ -209,6 +225,7 @@ const layer = Layer.effect(
       })
 
     let snapshot = yield* read()
+    let vendors = (yield* auth.get().pipe(Effect.orDie)).vendors
 
     return Service.of({
       candidates: Effect.fn("RelayCatalog.candidates")(function* (vendorId) {
@@ -220,26 +237,41 @@ const layer = Layer.effect(
         return snapshot.managed.map(toManaged)
       }),
       hasManaged: () => snapshot.managed.length > 0,
-      visible: (modelId) => snapshot.managed.some((item) => item.modelId === modelId && item.visible),
+      visible: (id) => snapshot.managed.some((item) => modelID(item.vendorId, item.modelId) === id && item.visible),
       probe: Effect.fn("RelayCatalog.probe")(function* (vendorId) {
         const parsed = yield* fetchUpstream(vendorId)
         return { count: parsed.data.length }
       }),
       refresh: Effect.fn("RelayCatalog.refresh")(function* (vendorId) {
-        const key = yield* auth.resolve(vendorId)
-        const fingerprint = Hash.sha256(key)
+        const resolved = yield* auth.resolve(vendorId)
+        const fingerprint = Hash.sha256(`${vendorId}:${resolved.baseURL}:${resolved.key}`)
         const requestVersion = snapshot.requestVersion + 1
         const parsed = yield* fetchUpstream(vendorId)
         const state = yield* auth.get()
-        const vendors = state.vendors.map((item) => item.id)
+        vendors = state.vendors
+        const custom = vendors.find((item) => item.id === vendorId)?.builtin === false
         const manuals = new Map(
-          snapshot.managed.filter((item) => item.assignmentSource === "manual").map((item) => [item.modelId, item.vendorId]),
+          snapshot.managed
+            .filter(
+              (item) =>
+                item.assignmentSource === "manual" &&
+                vendors.some((vendor) => vendor.id === item.vendorId && !vendor.baseURL),
+            )
+            .map((item) => [item.modelId, item.vendorId]),
         )
         const now = DateTime.toEpochMillis(yield* DateTime.now)
         const next = parsed.data.map((item) => {
-          const assigned = assignVendor(item.id, item.owned_by, vendors, manuals.get(Model.ID.make(item.id)))
+          const assigned = custom
+            ? { vendorId, source: "manual" as const }
+            : assignVendor(
+                item.id,
+                item.owned_by,
+                vendors.filter((item) => !item.baseURL).map((item) => item.id),
+                manuals.get(Model.ID.make(item.id)),
+              )
           return {
             vendorId: assigned.vendorId,
+            sourceVendorId: vendorId,
             modelId: Model.ID.make(item.id),
             ownedBy: item.owned_by,
             fetchedAt: now,
@@ -250,16 +282,23 @@ const layer = Layer.effect(
           }
         })
         snapshot = {
-          requestVersion,
-          candidates: [
-            ...snapshot.candidates.filter((item) => item.fingerprint !== fingerprint || item.vendorId !== vendorId),
+            requestVersion,
+            candidates: [
+              ...snapshot.candidates.filter(
+                (item) =>
+                  item.sourceVendorId !== vendorId,
+              ),
             ...next.filter((item) => item.vendorId === vendorId || item.vendorId === undefined),
           ],
-          managed: snapshot.managed.map((item) => item.vendorId !== vendorId ? item : ({
-            ...item,
-            upstreamPresent: next.some((candidate) => candidate.modelId === item.modelId),
-            lastSeenAt: next.some((candidate) => candidate.modelId === item.modelId) ? now : item.lastSeenAt,
-          })),
+          managed: snapshot.managed.map((item) =>
+            item.vendorId !== vendorId
+              ? item
+              : {
+                  ...item,
+                  upstreamPresent: next.some((candidate) => candidate.modelId === item.modelId),
+                  lastSeenAt: next.some((candidate) => candidate.modelId === item.modelId) ? now : item.lastSeenAt,
+                },
+          ),
         }
         yield* write({
           requestVersion: snapshot.requestVersion,
@@ -269,9 +308,15 @@ const layer = Layer.effect(
         return snapshot.candidates.map(toCandidate)
       }),
       setVisibility: Effect.fn("RelayCatalog.setVisibility")(function* (input) {
+        vendors = (yield* auth.get().pipe(Effect.mapError(() => fail("SECRET_STORE_UNAVAILABLE")))).vendors
+        if (!vendors.some((item) => item.id === input.vendorId)) return yield* fail("REQUEST_CONFLICT", false)
         const now = DateTime.toEpochMillis(yield* DateTime.now)
-        const existing = snapshot.managed.find((item) => item.vendorId === input.vendorId && item.modelId === input.modelId)
-        const candidate = snapshot.candidates.find((item) => item.modelId === input.modelId)
+        const existing = snapshot.managed.find(
+          (item) => item.vendorId === input.vendorId && item.modelId === input.modelId,
+        )
+        const candidate = snapshot.candidates.find(
+          (item) => item.modelId === input.modelId && (item.vendorId === input.vendorId || item.vendorId === undefined),
+        )
         const source = existing?.assignmentSource ?? candidate?.assignmentSource ?? "manual"
         const next = {
           vendorId: input.vendorId,
@@ -283,7 +328,10 @@ const layer = Layer.effect(
         }
         snapshot = {
           ...snapshot,
-          managed: [...snapshot.managed.filter((item) => !(item.vendorId === input.vendorId && item.modelId === input.modelId)), next],
+          managed: [
+            ...snapshot.managed.filter((item) => !(item.vendorId === input.vendorId && item.modelId === input.modelId)),
+            next,
+          ],
         }
         yield* write({
           requestVersion: snapshot.requestVersion,
@@ -294,8 +342,12 @@ const layer = Layer.effect(
       }),
       apply: (update) => {
         for (const item of snapshot.managed) {
-          const candidate = snapshot.candidates.find((entry) => entry.modelId === item.modelId)
-          update(ProviderV2.ID.leidiandonghua, item.modelId, (model) => {
+          const vendor = vendors.find((vendor) => vendor.id === item.vendorId)
+          if (!vendor) continue
+          const candidate = snapshot.candidates.find(
+            (entry) => entry.modelId === item.modelId && entry.vendorId === item.vendorId,
+          )
+          update(ProviderV2.ID.leidiandonghua, modelID(item.vendorId, item.modelId), (model) => {
             model.name = candidate?.displayName ?? item.modelId
             model.family = ModelV2.Family.make(item.vendorId)
             model.enabled = item.visible
@@ -307,7 +359,7 @@ const layer = Layer.effect(
               id: item.modelId,
               type: "aisdk",
               package: "@ai-sdk/openai-compatible",
-              url: RelayPolicy.BaseURL,
+              url: vendor.baseURL ?? RelayPolicy.BaseURL,
             }
             model.variants = RelayCapability.variants(item.vendorId, item.modelId).map((variant) => ({
               id: ModelV2.VariantID.make(variant.id),

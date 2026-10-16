@@ -89,6 +89,7 @@ export const RelayGroup = HttpApiGroup.make("server.relay")
       query: LocationQuery,
       payload: Schema.Struct({
         name: Schema.optional(Schema.String),
+        baseURL: Schema.optional(Relay.VendorBaseURL),
         key: Schema.optional(Schema.String),
         ...RevisionPayload.fields,
       }),
@@ -100,7 +101,8 @@ export const RelayGroup = HttpApiGroup.make("server.relay")
         OpenApi.annotations({
           identifier: "v2.relay.auth.vendor",
           summary: "Create or update a relay vendor",
-          description: "Create a custom vendor or update a vendor name and key.",
+          description:
+            "Create a custom vendor or update its name, key, and independent OpenAI-compatible baseURL. Omitted fields are preserved. Built-in endpoints cannot be changed.",
         }),
       ),
   )

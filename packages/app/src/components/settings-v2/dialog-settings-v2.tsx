@@ -13,6 +13,7 @@ import { SettingsServersV2 } from "./servers"
 import { SettingsSkillsV2 } from "./skills"
 import { SettingsMcpV2 } from "./mcp"
 import { SettingsScheduledV2 } from "./scheduled"
+import { SettingsCollaboration } from "../settings-collaboration"
 import { useRelayGates } from "@/hooks/use-relay-gates"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLayout } from "@/context/layout"
@@ -89,6 +90,10 @@ export const DialogSettings: Component<{
                       <Icon name="models" />
                       {language.t("settings.models.title")}
                     </TabsV2.Trigger>
+                    <TabsV2.Trigger value="collaboration">
+                      <Icon name="brain" />
+                      {language.t("settings.tab.collaboration")}
+                    </TabsV2.Trigger>
                     <Show when={gates().relaySkills}>
                       <TabsV2.Trigger value="skills">
                         <Icon name="checklist" />
@@ -111,10 +116,11 @@ export const DialogSettings: Component<{
                 </div>
               </div>
             </div>
-            <div class="settings-v2-nav-footer">
-              <span>{language.t("app.name.desktop")}</span>
-              <span>数元AI</span>
-            </div>
+             <div class="settings-v2-nav-footer">
+               <span>{language.t("app.name.desktop")}</span>
+               <span>数元AI</span>
+               <span>v1.0.5</span>
+             </div>
           </div>
         </TabsV2.List>
         <TabsV2.Content value="general" class="settings-v2-panel">
@@ -131,6 +137,9 @@ export const DialogSettings: Component<{
         </TabsV2.Content>
         <TabsV2.Content value="models" class="settings-v2-panel">
           <SettingsModelsV2 />
+        </TabsV2.Content>
+        <TabsV2.Content value="collaboration" class="settings-v2-panel">
+          <SettingsCollaboration />
         </TabsV2.Content>
         <Show when={gates().relaySkills}>
           <TabsV2.Content value="skills" class="settings-v2-panel">

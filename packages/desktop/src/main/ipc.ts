@@ -26,6 +26,7 @@ import { createUpdaterSubscriptions } from "./updater-subscriptions"
 import { createDesktopDraftStore } from "./draft-store"
 import { nativeT } from "./native-translations"
 import { clipboardImageBuffer } from "./clipboard-image"
+import { recognizeSpeech } from "./speech"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -104,6 +105,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("record-fatal-renderer-error", (_event: IpcMainInvokeEvent, error: FatalRendererError) =>
     deps.recordFatalRendererError(error),
   )
+  ipcMain.handle("recognize-speech", (_event: IpcMainInvokeEvent, lang: unknown) => recognizeSpeech(lang))
   ipcMain.handle("set-native-translations", (event: IpcMainInvokeEvent, value: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed() || win.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) {

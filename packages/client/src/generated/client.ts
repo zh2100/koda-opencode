@@ -773,6 +773,7 @@ export function make(options: ClientOptions) {
             query: { location: input["location"] },
             body: {
               name: input["name"],
+              baseURL: input["baseURL"],
               key: input["key"],
               revision: input["revision"],
               operationId: input["operationId"],

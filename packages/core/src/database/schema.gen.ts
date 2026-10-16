@@ -309,6 +309,12 @@ export default {
       yield* tx.run(`CREATE INDEX \`session_workspace_idx\` ON \`session\` (\`workspace_id\`);`)
       yield* tx.run(`CREATE INDEX \`session_parent_idx\` ON \`session\` (\`parent_id\`);`)
       yield* tx.run(`CREATE INDEX \`todo_session_idx\` ON \`todo\` (\`session_id\`);`)
+      yield* tx.run(`CREATE TABLE \`task_orchestrator_task\` (\`id\` text PRIMARY KEY, \`session_id\` text NOT NULL, \`project_id\` text NOT NULL, \`workspace_key\` text NOT NULL, \`prompt\` text NOT NULL, \`status\` text NOT NULL, \`current_step\` integer NOT NULL DEFAULT 0, \`created_at\` integer NOT NULL, \`updated_at\` integer NOT NULL, \`failure_reason\` text, \`timeout_ms\` integer NOT NULL DEFAULT 300000, \`max_retries\` integer NOT NULL DEFAULT 1, \`fallback_model\` text);`)
+      yield* tx.run(`CREATE TABLE \`task_orchestrator_step\` (\`id\` text PRIMARY KEY, \`task_id\` text NOT NULL, \`ordinal\` integer NOT NULL, \`role\` text NOT NULL, \`model\` text NOT NULL, \`status\` text NOT NULL, \`retry_count\` integer NOT NULL DEFAULT 0, \`output\` text, \`failure_reason\` text, \`started_at\` integer, \`finished_at\` integer);`)
+      yield* tx.run(`CREATE TABLE \`task_orchestrator_run\` (\`id\` text PRIMARY KEY, \`task_id\` text NOT NULL, \`step_id\` text NOT NULL, \`model\` text NOT NULL, \`role\` text NOT NULL, \`input_snapshot\` text NOT NULL, \`output\` text, \`status\` text NOT NULL, \`retry_count\` integer NOT NULL DEFAULT 0, \`started_at\` integer NOT NULL, \`finished_at\` integer, \`failure_reason\` text);`)
+      yield* tx.run(`CREATE INDEX \`task_orchestrator_task_session_idx\` ON \`task_orchestrator_task\` (\`session_id\`);`)
+      yield* tx.run(`CREATE INDEX \`task_orchestrator_step_task_idx\` ON \`task_orchestrator_step\` (\`task_id\`);`)
+      yield* tx.run(`CREATE INDEX \`task_orchestrator_run_task_idx\` ON \`task_orchestrator_run\` (\`task_id\`);`)
     })
   },
 } satisfies Omit<DatabaseMigration.Migration, "id">

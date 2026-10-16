@@ -239,7 +239,7 @@ const layer = Layer.effect(
     const requireReady = (task: ScheduledTask.Info) =>
       Effect.gen(function* () {
         if (catalog.hasManaged() && !catalog.visible(task.model.id)) return yield* failReady(task, "MODEL_UNAVAILABLE")
-        const vendorId = (yield* catalog.managed()).find((item) => item.modelId === task.model.id)?.vendorId
+        const vendorId = (yield* catalog.managed()).find((item) => RelayCatalog.modelID(item.vendorId, item.modelId) === task.model.id)?.vendorId
         if (vendorId) yield* auth.resolve(vendorId)
         const project = yield* projects.resolve(task.location.directory)
         if (project.id !== task.projectID) return yield* failReady(task, "PROJECT_INVALID")

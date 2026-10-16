@@ -10,7 +10,13 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocal, type ModelSelection } from "@/context/local"
 import { usePermission } from "@/context/permission"
-import { type ContextItem, type ImageAttachmentPart, type Prompt, type usePrompt } from "@/context/prompt"
+import {
+  isPromptEqual,
+  type ContextItem,
+  type ImageAttachmentPart,
+  type Prompt,
+  type usePrompt,
+} from "@/context/prompt"
 import { useSDK, type DirectorySDK } from "@/context/sdk"
 import { useSync, type DirectorySync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
@@ -24,6 +30,11 @@ import { createPromptSubmissionState } from "./submission-state"
 import { normalizeSessionInfo } from "@/utils/session"
 import { Event } from "@opencode-ai/schema/event"
 import { blobDataUrl } from "@/utils/draft-store"
+import { createStore } from "solid-js/store"
+import { useSettings } from "@/context/settings"
+import { useServerSDK } from "@/context/server-sdk"
+import { usePlatform } from "@/context/platform"
+import { collaborationModels, collaborationUnsupported, startCollaboration } from "@/utils/collaboration"
 
 type PendingPrompt = {
   abort: AbortController
@@ -245,6 +256,19 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const params = useParams()
   const [search] = useSearchParams<{ draftId?: string }>()
   const tabs = useTabs()
+  const settings = useSettings()
+  const serverSDK = useServerSDK()
+  const platform = usePlatform()
+  const [collaboration, setCollaboration] = createStore({ enabled: false, busy: false })
+  const reason = () => {
+    if (collaborationUnsupported(prompt.current(), prompt.context.items()))
+      return language.t("prompt.collaboration.attachments")
+    if (input.mode() !== "normal") return language.t("prompt.collaboration.shell")
+    if (!settings.collaboration.ready() || !collaborationModels(settings.collaboration.models))
+      return language.t("prompt.collaboration.workerRequired")
+    if (input.working()) return language.t("prompt.collaboration.working")
+    return ""
+  }
   const pendingKey = (sessionID: string) => ScopedKey.from(sdk().scope, sessionID)
 
   const errorMessage = (err: unknown) => {
@@ -316,7 +340,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     })
   }
 
-  const handleSubmit = async (event: Event) => {
+  const handleSubmit = async (event: Event, models?: NonNullable<ReturnType<typeof collaborationModels>>) => {
     event.preventDefault()
 
     const target = prompt.capture()
@@ -337,15 +361,22 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     const modelSelection = input.model ?? local.model
-    const currentModel = modelSelection.current()
+    const separator = models?.worker.indexOf("/") ?? -1
+    const currentModel =
+      models && separator > 0
+        ? { id: models.worker.slice(separator + 1), provider: { id: models.worker.slice(0, separator) } }
+        : modelSelection.current()
     const currentAgent = local.agent.current()
-    const variant = modelSelection.variant.current()
+    const variant = models ? undefined : modelSelection.variant.current()
     const directory = sdk().directory
-    const registered = layout.projects.list().some(
-      (project) =>
-        pathKey(project.worktree) === pathKey(directory) ||
-        project.sandboxes?.some((sandbox) => pathKey(sandbox) === pathKey(directory)),
-    )
+    const connection = serverSDK().server.http
+    const registered = layout.projects
+      .list()
+      .some(
+        (project) =>
+          pathKey(project.worktree) === pathKey(directory) ||
+          project.sandboxes?.some((sandbox) => pathKey(sandbox) === pathKey(directory)),
+      )
     if (!registered) {
       showToast({
         title: language.t("prompt.toast.projectRequired.title"),
@@ -444,6 +475,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           if (draftID) tabs.promoteDraft(draftID, { server: tabs.draft(draftID).server, sessionId: session.id })
           else navigate(`/${base64Encode(sessionDirectory)}/session/${session.id}`)
           submission.retarget(prompt.capture({ dir: base64Encode(sessionDirectory), id: session.id }))
+          if (models) submission.target().set(target.current(), input.promptLength(target.current()))
         })
       }
     }
@@ -491,6 +523,43 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         input.queueScroll()
       })
       return true
+    }
+
+    if (models) {
+      const current = serverSync().session.get(session.id)
+      if (!current) throw new Error(language.t("settings.collaboration.failed"))
+      const worktree = WorktreeState.get(sdk().scope, current.directory)
+      if (worktree?.status === "pending") {
+        const timeout = { current: undefined as ReturnType<typeof setTimeout> | undefined }
+        const result = await Promise.race([
+          WorktreeState.wait(sdk().scope, current.directory),
+          new Promise<never>((_, reject) => {
+            const timer = setTimeout(() => reject(new Error(language.t("workspace.error.stillPreparing"))), 300_000)
+            timeout.current = timer
+          }),
+        ]).finally(() => clearTimeout(timeout.current))
+        if (result.status === "failed") throw new Error(result.message)
+      }
+      if (worktree?.status === "failed") throw new Error(worktree.message)
+      await startCollaboration({
+        server: connection,
+        fetch: platform.fetch ?? globalThis.fetch,
+        session: current,
+        prompt: text,
+        models,
+        failure: language.t("settings.collaboration.failed"),
+      })
+      // Do not erase edits made while the launch request was in flight.
+      if (
+        isPromptEqual(submission.target().current(), currentPrompt) &&
+        isPromptEqual(target.current(), currentPrompt) &&
+        !submission.target().context.items().length &&
+        !target.context.items().length
+      )
+        clearInput()
+      input.onSubmit?.()
+      showToast({ title: language.t("settings.collaboration.started") })
+      return
     }
 
     if (!isNewSession && mode === "normal" && input.shouldQueue?.()) {
@@ -654,6 +723,43 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
   return {
     abort,
-    handleSubmit,
+    collaboration: {
+      state: collaboration,
+      reason,
+      blocked: () => collaboration.busy || (collaboration.enabled && !!reason()),
+      toggle: () => {
+        if (!collaboration.busy) setCollaboration("enabled", !collaboration.enabled)
+      },
+    },
+    handleSubmit: async (event: Event) => {
+      event.preventDefault()
+      if (
+        input.working() &&
+        prompt.current().every((part) => !("content" in part) || !part.content.trim()) &&
+        input.imageAttachments().length === 0 &&
+        input.commentCount() === 0
+      )
+        return abort()
+      if (collaboration.busy) return
+      if (!collaboration.enabled) return handleSubmit(event)
+      if (reason()) {
+        showToast({ title: language.t("settings.collaboration.failed"), description: reason() })
+        return
+      }
+      const models = collaborationModels(settings.collaboration.models)
+      if (!models) return
+      setCollaboration("busy", true)
+      try {
+        await handleSubmit(event, models)
+      } catch (error) {
+        showToast({
+          title: language.t("settings.collaboration.failed"),
+          description: errorMessage(error),
+          variant: "error",
+        })
+      } finally {
+        setCollaboration("busy", false)
+      }
+    },
   }
 }

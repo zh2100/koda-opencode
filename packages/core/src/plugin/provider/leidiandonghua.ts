@@ -12,7 +12,7 @@ export const LeidiandonghuaPlugin = define({
     const relay = yield* RelayCatalog.Service
     const events = yield* EventV2.Service
     yield* ctx.catalog.transform((catalog) => {
-      if (!catalog.provider.get(ProviderV2.ID.leidiandonghua)) return
+      if (!catalog.provider.get(ProviderV2.ID.leidiandonghua) && !relay.hasManaged()) return
       catalog.provider.update(ProviderV2.ID.leidiandonghua, (provider) => {
         provider.name = "智联AI"
         provider.api = {

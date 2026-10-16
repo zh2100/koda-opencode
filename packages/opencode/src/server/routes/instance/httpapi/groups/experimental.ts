@@ -18,6 +18,7 @@ import { described } from "./metadata"
 import { QueryBoolean } from "./query"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { ProjectV2 } from "@opencode-ai/core/project"
 
 const ConsoleStateResponse = Schema.Struct({
   consoleManagedProviders: Schema.mutable(Schema.Array(Schema.String)),
@@ -61,6 +62,32 @@ export const ToolListQuery = Schema.Struct({
 })
 
 const WorktreeList = Schema.Array(Schema.String)
+const OrchestratorTask = Schema.Struct({
+  id: Schema.String,
+  sessionID: SessionID,
+  status: Schema.Literals(["pending", "running", "completed", "failed", "paused", "aborted"]),
+  currentStep: Schema.Int,
+})
+const OrchestratorModels = Schema.Struct({
+  planner: Schema.optional(Schema.String),
+  worker: Schema.String,
+  reviewer: Schema.optional(Schema.String),
+  tester: Schema.optional(Schema.String),
+  finalizer: Schema.optional(Schema.String),
+  fallback: Schema.optional(Schema.String),
+  timeoutMs: Schema.optional(Schema.Int),
+  maxRetries: Schema.optional(Schema.Int),
+})
+const OrchestratorCreatePayload = Schema.Struct({
+  sessionID: SessionID,
+  projectID: ProjectV2.ID,
+  workspaceKey: Schema.String,
+  prompt: Schema.String,
+  models: OrchestratorModels,
+})
+const OrchestratorControlPayload = Schema.Struct({
+  action: Schema.Literals(["pause", "abort", "retry"]),
+})
 const WorktreeErrorName = Schema.Union([
   Schema.Literal("WorktreeNotGitError"),
   Schema.Literal("WorktreeNameGenerationFailedError"),
@@ -99,6 +126,9 @@ export const ExperimentalPaths = {
   session: "/experimental/session",
   sessionBackground: "/experimental/session/:sessionID/background",
   resource: "/experimental/resource",
+  orchestrator: "/experimental/orchestrator",
+  orchestratorTask: "/experimental/orchestrator/:taskID",
+  orchestratorControl: "/experimental/orchestrator/:taskID/control",
 } as const
 
 export const ExperimentalApi = HttpApi.make("experimental")
@@ -255,6 +285,24 @@ export const ExperimentalApi = HttpApi.make("experimental")
             description: "Get all available MCP resources from connected servers. Optionally filter by name.",
           }),
         ),
+        HttpApiEndpoint.post("orchestratorCreate", ExperimentalPaths.orchestrator, {
+          query: WorkspaceRoutingQuery,
+          payload: OrchestratorCreatePayload,
+          success: described(OrchestratorTask, "Orchestrator task created"),
+          error: HttpApiError.BadRequest,
+        }),
+        HttpApiEndpoint.get("orchestratorGet", ExperimentalPaths.orchestratorTask, {
+          params: { taskID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.UndefinedOr(OrchestratorTask), "Orchestrator task"),
+        }),
+        HttpApiEndpoint.post("orchestratorControl", ExperimentalPaths.orchestratorControl, {
+          params: { taskID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          payload: OrchestratorControlPayload,
+          success: HttpApiSchema.NoContent,
+          error: HttpApiError.BadRequest,
+        }),
       )
       .annotateMerge(
         OpenApi.annotations({

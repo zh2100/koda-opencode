@@ -10,6 +10,7 @@ import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsServers } from "./settings-servers"
+import { SettingsCollaboration } from "./settings-collaboration"
 
 export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
   const language = useLanguage()
@@ -63,14 +64,19 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
                       <Icon name="models" />
                       {language.t("settings.models.title")}
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="collaboration">
+                      <Icon name="brain" />
+                      {language.t("settings.tab.collaboration")}
+                    </Tabs.Trigger>
                   </div>
                 </div>
               </div>
             </div>
-            <div class="flex flex-col gap-1 pl-1 py-1 text-12-medium text-text-weak">
-              <span>{language.t("app.name.desktop")}</span>
-              <span class="text-11-regular">数元AI</span>
-            </div>
+             <div class="flex flex-col gap-1 pl-1 py-1 text-12-medium text-text-weak">
+               <span>{language.t("app.name.desktop")}</span>
+               <span class="text-11-regular">数元AI</span>
+               <span class="text-11-regular">v1.0.5</span>
+             </div>
           </div>
         </Tabs.List>
         <Tabs.Content value="general" class="no-scrollbar">
@@ -87,6 +93,9 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
         </Tabs.Content>
         <Tabs.Content value="models" class="no-scrollbar">
           <SettingsModels />
+        </Tabs.Content>
+        <Tabs.Content value="collaboration" class="no-scrollbar">
+          <SettingsCollaboration />
         </Tabs.Content>
       </Tabs>
     </Dialog>

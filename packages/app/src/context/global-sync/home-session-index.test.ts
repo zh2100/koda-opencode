@@ -241,6 +241,19 @@ describe("Home V2 session index", () => {
     expect(index?.sessions.map((item) => item.id)).toEqual(["b"])
   })
 
+  test("updates a session title in the loaded Home index", () => {
+    const queryClient = new QueryClient()
+    const cache = createHomeSessionIndexCache(queryClient, "server")
+    queryClient.setQueryData(cache.indexKey, {
+      sessions: [session({ id: "root" })],
+      eventSequence: 0,
+    })
+
+    cache.update("root", { title: "Renamed" })
+
+    expect(queryClient.getQueryData<{ sessions: Session[] }>(cache.indexKey)?.sessions[0]?.title).toBe("Renamed")
+  })
+
   test("keeps created sessions even before the Home index query is mounted", () => {
     const queryClient = new QueryClient()
     const cache = createHomeSessionIndexCache(queryClient, "server")

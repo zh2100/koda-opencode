@@ -6,7 +6,7 @@ import { Icon } from "@opencode-ai/ui/v2/icon"
 import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
-import { createEffect, createMemo, on, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, on, Show } from "solid-js"
 import { ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
 import { PromptProjectSelector } from "@/components/prompt-project-selector"
 import { createPromptApproval } from "@/pages/session/composer/prompt-approval"
@@ -16,6 +16,7 @@ import { normalizePromptHistoryEntry, promptLength, type PromptHistoryComment } 
 import { createPersistedPromptInputHistory } from "@/components/prompt-input/history-store"
 import { promptDesignPlaceholder, promptPlaceholder } from "@/components/prompt-input/placeholder"
 import { createPromptSubmit } from "@/components/prompt-input/submit"
+import { CollaborationToggle } from "@/components/prompt-input/collaboration-toggle"
 import { selectionFromLines, type SelectedLineRange, useFile } from "@/context/file"
 import { useComments } from "@/context/comments"
 import { useCommand } from "@/context/command"
@@ -28,6 +29,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { showToast } from "@/utils/toast"
+import { recognizeSpeech, speechSupported } from "@/components/prompt-input/speech"
 import { PromptInputV2, type PromptInputV2Suggestion } from "@opencode-ai/session-ui/v2/prompt-input"
 import {
   createPromptInputV2Controller,
@@ -45,12 +47,35 @@ export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "sub
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
   readonly project?: PromptInputProps["project"]
+  readonly collaboration: ReturnType<typeof createPromptSubmit>["collaboration"]
 }
 
 export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
   const dialog = useDialog()
   const command = useCommand()
   const language = useLanguage()
+  const [listening, setListening] = createSignal(false)
+  const voice = speechSupported()
+  const toggleVoice = () => {
+    if (listening()) return
+    setListening(true)
+    void recognizeSpeech(document.documentElement.lang || "zh-CN")
+      .then((result) => {
+        if ("error" in result) {
+          const key =
+            result.error === "unavailable"
+              ? "prompt.toast.voiceUnavailable.title"
+              : result.error === "empty"
+                ? "prompt.toast.voiceEmpty.title"
+                : "prompt.toast.voiceFailed.title"
+          showToast({ title: language.t(key), variant: "error" })
+          return
+        }
+        const text = props.controller.value().trim()
+        props.controller.setText(text ? `${text} ${result.text}` : result.text)
+      })
+      .finally(() => setListening(false))
+  }
 
   return (
     <div class="flex flex-col gap-3">
@@ -66,7 +91,11 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
             {(controller) => <PromptProjectSelector controller={controller()} />}
           </Show>
         }
-        trailingControl={undefined}
+        trailingControl={<CollaborationToggle control={props.controller.collaboration} />}
+        onVoice={voice ? toggleVoice : undefined}
+        voiceListening={listening()}
+        voiceLabel={language.t("prompt.action.voice")}
+        voiceStopLabel={language.t("prompt.action.voice.stop")}
         modelControl={
           <PromptInputV2ModelControl
             loading={props.controller.model.loading}
@@ -360,9 +389,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       if (item?.commentID) comments.remove(item.path, item.commentID)
     },
     openAttachment: (attachment) =>
-      dialog.show(() => (
-        <ImagePreview src={attachment.blob.url} alt={attachment.filename} mime={attachment.mime} />
-      )),
+      dialog.show(() => <ImagePreview src={attachment.blob.url} alt={attachment.filename} mime={attachment.mime} />),
     openContext(key) {
       const item = controller.contextItem(key)
       if (item) openComment(item, props, sync, layout, files, comments)
@@ -430,6 +457,9 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
   })
   Object.defineProperty(controller, "model", { get: () => props.controls.model })
   Object.defineProperty(controller, "project", { get: () => props.project })
+  Object.defineProperty(controller, "collaboration", { value: submission.collaboration })
+  const canSubmit = controller.canSubmit
+  controller.canSubmit = () => !submission.collaboration.blocked() && canSubmit()
 
   command.register("prompt-input", () => [
     {

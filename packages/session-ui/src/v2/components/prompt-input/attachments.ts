@@ -2,64 +2,6 @@ import { onMount } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import type { PromptInputV2Attachment, PromptInputV2Prompt } from "./types"
 
-const accepted = [
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "application/pdf",
-  "text/*",
-  "application/json",
-  "application/ld+json",
-  "application/toml",
-  "application/x-toml",
-  "application/x-yaml",
-  "application/xml",
-  "application/yaml",
-  ".c",
-  ".cc",
-  ".cjs",
-  ".conf",
-  ".cpp",
-  ".css",
-  ".csv",
-  ".cts",
-  ".env",
-  ".go",
-  ".gql",
-  ".graphql",
-  ".h",
-  ".hh",
-  ".hpp",
-  ".htm",
-  ".html",
-  ".ini",
-  ".java",
-  ".js",
-  ".json",
-  ".jsx",
-  ".log",
-  ".md",
-  ".mdx",
-  ".mjs",
-  ".mts",
-  ".py",
-  ".rb",
-  ".rs",
-  ".sass",
-  ".scss",
-  ".sh",
-  ".sql",
-  ".toml",
-  ".ts",
-  ".tsx",
-  ".txt",
-  ".xml",
-  ".yaml",
-  ".yml",
-  ".zsh",
-]
-
 type PromptTarget = {
   current: () => PromptInputV2Prompt
   cursor: () => number | undefined
@@ -87,7 +29,7 @@ export function createPromptInputV2Attachments(
     editor: () => HTMLElement | undefined
     focusEditor: () => void
     addPart: (part: PromptInputV2Prompt[number]) => boolean
-    setDraggingType: (type: "image" | "@mention" | null) => void
+    setDraggingType: (type: "file" | "@mention" | null) => void
   },
 ) {
   const capture = () => {
@@ -194,7 +136,7 @@ export function createPromptInputV2Attachments(
     makeEventListener(document, "dragover", (event) => {
       if (input.isDialogActive()) return
       event.preventDefault()
-      if (event.dataTransfer?.types.includes("Files")) input.setDraggingType("image")
+       if (event.dataTransfer?.types.includes("Files")) input.setDraggingType("file")
       else if (event.dataTransfer?.types.includes("text/plain")) input.setDraggingType("@mention")
     })
     makeEventListener(document, "dragleave", (event) => {
@@ -213,13 +155,11 @@ export function createPromptInputV2Attachments(
         return
       }
       void input
-        .picker({ defaultPath: input.directory(), multiple: true, accept: accepted }, (file) => add(file))
+        .picker({ defaultPath: input.directory(), multiple: true }, (file) => add(file))
         .catch(input.onError)
     },
   }
 }
-
-const imageMimes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"])
 
 async function blobReference(file: File) {
   const id = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer())))
@@ -228,10 +168,14 @@ async function blobReference(file: File) {
   return { id, url: URL.createObjectURL(file) }
 }
 const imageExtensions = new Map([
+  ["avif", "image/avif"],
+  ["bmp", "image/bmp"],
   ["gif", "image/gif"],
   ["jpeg", "image/jpeg"],
   ["jpg", "image/jpeg"],
   ["png", "image/png"],
+  ["tif", "image/tiff"],
+  ["tiff", "image/tiff"],
   ["webp", "image/webp"],
 ])
 const textMimes = new Set([
@@ -246,7 +190,9 @@ const textMimes = new Set([
 
 async function attachmentMime(file: File) {
   const type = file.type.split(";", 1)[0]?.trim().toLowerCase() ?? ""
-  if (imageMimes.has(type) || type === "application/pdf") return type
+  if (type === "image/svg+xml" || type === "image/fastbidsheet") return
+  if (type.startsWith("image/")) return type
+  if (type === "application/pdf") return type
   const index = file.name.lastIndexOf(".")
   const suffix = index === -1 ? "" : file.name.slice(index + 1).toLowerCase()
   const fallback = imageExtensions.get(suffix) ?? (suffix === "pdf" ? "application/pdf" : undefined)

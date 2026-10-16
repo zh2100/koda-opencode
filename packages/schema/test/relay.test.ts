@@ -13,6 +13,23 @@ import { ScheduledTask } from "../src/scheduled-task"
 const now = DateTime.makeUnsafe(1_704_067_200_000)
 
 describe("relay contracts", () => {
+  test("vendor base URLs require HTTP(S) without credentials, query, or fragment", () => {
+    for (const url of ["http://localhost:1234/v1", "https://example.com/api/v1/"]) {
+      expect(Schema.is(Relay.VendorBaseURL)(url)).toBe(true)
+    }
+    for (const url of [
+      "",
+      "/v1",
+      "ftp://example.com",
+      "https://user:pass@example.com",
+      "https://example.com?",
+      "https://example.com#",
+      " https://example.com",
+    ]) {
+      expect(Schema.is(Relay.VendorBaseURL)(url)).toBe(false)
+    }
+  })
+
   test("vendor IDs accept the documented pattern and reject invalid values", () => {
     expect(Schema.decodeUnknownSync(Relay.VendorID)("chatgpt")).toBe(Relay.VendorID.chatgpt)
     expect(Schema.decodeUnknownSync(Relay.VendorID)("kimi")).toBe(Relay.VendorID.make("kimi"))

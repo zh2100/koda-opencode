@@ -13,6 +13,9 @@ import { Credential } from "../../credential"
 import { Integration } from "../../integration"
 import { ModelV2 } from "../../model"
 import { ProviderV2 } from "../../provider"
+import { RelayAuth } from "../../relay-auth"
+import { RelayCatalog } from "../../relay-catalog"
+import { Relay } from "@opencode-ai/schema/relay"
 import { SessionSchema } from "../schema"
 
 export class ModelNotSelectedError extends Schema.TaggedErrorClass<ModelNotSelectedError>()(
@@ -184,6 +187,8 @@ export const locationLayer = Layer.effect(
   Effect.gen(function* () {
     const catalog = yield* Catalog.Service
     const integrations = yield* Integration.Service
+    const relay = yield* RelayAuth.Service
+    const relayCatalog = yield* RelayCatalog.Service
     return Service.of({
       resolve: Effect.fn("SessionRunnerModel.resolve")(function* (session) {
         // Location plugins populate and filter the catalog asynchronously during layer startup.
@@ -201,6 +206,29 @@ export const locationLayer = Layer.effect(
             modelID: session.model.id,
           })
         if (!selected) return yield* new ModelNotSelectedError({ sessionID: session.id })
+        if (
+          selected.providerID === ProviderV2.ID.leidiandonghua &&
+          selected.family &&
+          relayCatalog.visible(selected.id)
+        ) {
+          const credential = yield* relay
+            .resolve(Relay.VendorID.make(selected.family))
+            .pipe(
+              Effect.mapError(
+                () => new ModelUnavailableError({ providerID: selected.providerID, modelID: selected.id }),
+              ),
+            )
+          return yield* resolve(
+            session,
+            produce(selected, (draft) => {
+              draft.api.url = credential.baseURL
+              draft.api.settings = {}
+              draft.request.headers = {}
+              draft.request.body = {}
+            }),
+            { type: "key", key: credential.key },
+          )
+        }
         const provider = yield* catalog.provider.get(selected.providerID)
         const connection = yield* integrations.connection.active(
           provider?.integrationID ?? Integration.ID.make(selected.providerID),
@@ -215,4 +243,8 @@ export const locationLayer = Layer.effect(
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer: locationLayer, deps: [Catalog.node, Integration.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer: locationLayer,
+  deps: [Catalog.node, Integration.node, RelayAuth.node, RelayCatalog.node],
+})

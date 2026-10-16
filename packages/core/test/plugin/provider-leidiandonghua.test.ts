@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
@@ -7,6 +7,7 @@ import { ProviderPlugins } from "@opencode-ai/core/plugin/provider"
 import { LeidiandonghuaPlugin } from "@opencode-ai/core/plugin/provider/leidiandonghua"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { RelayPolicy } from "@opencode-ai/core/relay-policy"
+import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "./fixture"
 
@@ -27,12 +28,30 @@ describe("LeidiandonghuaPlugin", () => {
     }),
   )
 
-  it.effect("does not register the relay provider without user config", () =>
+  it.effect("does not register the relay provider without config or managed models", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      yield* addPlugin()
+      yield* addPlugin().pipe(Effect.provide(Layer.mock(RelayCatalog.Service, {
+        hasManaged: () => false,
+        visible: () => false,
+        apply: () => undefined,
+      })))
       expect(yield* catalog.provider.get(ProviderV2.ID.leidiandonghua)).toBeUndefined()
       expect(yield* catalog.provider.all()).toEqual([])
+    }),
+  )
+
+  it.effect("registers the relay provider for managed models without provider config", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      yield* addPlugin().pipe(Effect.provide(Layer.mock(RelayCatalog.Service, {
+        hasManaged: () => true,
+        visible: () => false,
+        apply: () => undefined,
+      })))
+      expect((yield* catalog.provider.get(ProviderV2.ID.leidiandonghua))?.api).toMatchObject({
+        package: "@ai-sdk/openai-compatible",
+      })
     }),
   )
 

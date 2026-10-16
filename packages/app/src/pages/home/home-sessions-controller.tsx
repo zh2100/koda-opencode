@@ -260,6 +260,27 @@ export function createHomeSessionsController(home: HomeController) {
         }
         setPins("ids", [session.id, ...pins.ids])
       },
+      rename: async (session: Session, title: string) => {
+        const ctx = home.server.focusedContext()
+        if (!ctx) return
+        try {
+          await ctx.sdk.api.session.rename({ sessionID: session.id, directory: session.directory, title })
+          homeSessions().update(session.id, { title })
+          const [, setStore] = ctx.sync.child(session.directory)
+          setStore(
+            produce((draft) => {
+              const item = draft.session.find((entry) => entry.id === session.id)
+              if (item) item.title = title
+            }),
+          )
+        } catch (cause) {
+          showToast({
+            title: language.t("common.requestFailed"),
+            description: errorMessage(cause, language.t("common.requestFailed")),
+          })
+          throw cause
+        }
+      },
       remove: async (session: Session) => {
         const conn = home.server.focused()
         const ctx = home.server.focusedContext()

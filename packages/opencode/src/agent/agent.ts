@@ -216,6 +216,39 @@ const layer = Layer.effect(
             mode: "subagent",
             native: true,
           },
+          "orchestrator-readonly": {
+            name: "orchestrator-readonly",
+            description: "Read-only orchestration agent. It may inspect workspace contents but cannot execute shell or mutation tools.",
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "deny",
+                grep: "allow",
+                glob: "allow",
+                list: "allow",
+                read: "allow",
+                external_directory: readonlyExternalDirectory,
+              }),
+            ),
+            options: {},
+            mode: "subagent",
+            native: true,
+          },
+          "orchestrator-tester": {
+            name: "orchestrator-tester",
+            description: "Verification agent. It may run allowlisted test and validation commands but cannot mutate through editing tools.",
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "deny",
+                bash: "allow",
+                external_directory: readonlyExternalDirectory,
+              }),
+            ),
+            options: {},
+            mode: "subagent",
+            native: true,
+          },
           compaction: {
             name: "compaction",
             mode: "primary",

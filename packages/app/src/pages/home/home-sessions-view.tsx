@@ -1,5 +1,6 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { type Accessor, createMemo, For, Show, Suspense, type JSX } from "solid-js"
+import { createStore } from "solid-js/store"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
@@ -57,6 +58,7 @@ export type HomeSessionsViewProps = {
   onArchiveSession: (session: Session) => Promise<void>
   isPinned?: (session: Session) => boolean
   onPinSession?: (session: Session) => void
+  onRenameSession?: (session: Session, title: string) => Promise<void>
   onDeleteSession?: (session: Session) => Promise<void>
   onSetHoverTarget: (element: HTMLElement) => void
   onSetThumbTrack: (element: HTMLDivElement) => void
@@ -478,6 +480,33 @@ function HomeSessionGroupHeader(props: {
 function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionRecord }) {
   const title = createMemo(() => sessionTitle(props.record.session.title) || props.record.session.id)
   const showProjectName = () => props.showProjectName() && props.record.projectName
+  const [state, setState] = createStore({ editing: false, draft: "", saving: false })
+
+  const startRename = () => {
+    setState({ editing: true, draft: title() })
+    requestAnimationFrame(() => {
+      const input = document.querySelector<HTMLInputElement>(`[data-home-session-rename="${props.record.session.id}"]`)
+      input?.focus()
+      input?.select()
+    })
+  }
+
+  const saveRename = async () => {
+    if (!state.editing || state.saving) return
+    const next = state.draft.trim()
+    if (!next || next === title()) {
+      setState("editing", false)
+      return
+    }
+    if (!props.onRenameSession) return
+    setState("saving", true)
+    try {
+      await props.onRenameSession(props.record.session, next)
+      setState({ editing: false, saving: false })
+    } catch {
+      setState("saving", false)
+    }
+  }
 
   return (
     <div
@@ -493,6 +522,7 @@ function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionReco
           transition-[background-color,color,box-shadow] duration-[120ms] ease-in-out
           hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none
         `}
+        classList={{ "pointer-events-none opacity-0": state.editing }}
         onMouseDown={(event) => {
           if (event.button === 1) event.preventDefault()
         }}
@@ -514,6 +544,20 @@ function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionReco
           <HomeSessionProjectName name={props.record.projectName} />
         </Show>
       </button>
+      <Show when={state.editing}>
+        <input
+          data-home-session-rename={props.record.session.id}
+          value={state.draft}
+          disabled={state.saving}
+          class="absolute inset-y-1 start-3 end-16 min-w-0 rounded border border-v2-border-border-base bg-v2-background-bg-base px-2 text-v2-text-text-base outline-none"
+          onInput={(event) => setState("draft", event.currentTarget.value)}
+          onBlur={() => void saveRename()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void saveRename()
+            if (event.key === "Escape") setState({ editing: false, saving: false })
+          }}
+        />
+      </Show>
       <div
         class={`
           hover-reveal absolute end-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5
@@ -536,6 +580,23 @@ function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionReco
                 event.preventDefault()
                 event.stopPropagation()
                 props.onPinSession?.(props.record.session)
+              }}
+            />
+          </TooltipV2>
+        </Show>
+        <Show when={props.onRenameSession}>
+          <TooltipV2 class="flex shrink-0 items-center" placement="bottom" value={props.language.t("common.rename")}>
+            <IconButtonV2
+              data-action="home-session-rename"
+              variant="ghost-muted"
+              size="small"
+              icon={<IconV2 name="edit" />}
+              aria-label={props.language.t("common.rename")}
+              disabled={state.editing}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                startRename()
               }}
             />
           </TooltipV2>

@@ -14,6 +14,7 @@ import { PositiveInt } from "../schema"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
+import { TesterCommandPolicy } from "./tester-command-policy"
 
 export const name = "bash"
 export const DEFAULT_TIMEOUT_MS = 2 * 60 * 1_000
@@ -126,6 +127,8 @@ const layer = Layer.effectDiscard(
                 messageID: context.assistantMessageID,
                 callID: context.toolCallID,
               }
+              if (context.agent === "orchestrator-tester" && !TesterCommandPolicy.isAllowed(input.command))
+                return yield* Effect.fail(new Error("Tester command is not allowed by the verification command policy"))
               const target = yield* mutation.resolve({ path: input.workdir ?? ".", kind: "directory" })
               const external = target.externalDirectory
               if (external)

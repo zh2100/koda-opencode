@@ -119,11 +119,18 @@ describe("AgentV2", () => {
         "compaction",
         "explore",
         "general",
+        "orchestrator-readonly",
+        "orchestrator-tester",
         "plan",
         "summary",
         "title",
       ])
       for (const item of agents) {
+        if (item.id === "orchestrator-tester") {
+          expect(item.permissions.some((rule) => rule.action === "bash" && rule.effect === "allow")).toBe(true)
+          expect(item.permissions.some((rule) => rule.action === "edit" && rule.effect !== "deny")).toBe(false)
+          continue
+        }
         expect(item.permissions.some((rule) => rule.action === "bash" && rule.effect !== "deny")).toBe(false)
       }
     }),

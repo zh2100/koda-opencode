@@ -1330,7 +1330,7 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
 
 function overlayRelayModels(
   catalog: RelayCatalog.Interface,
-  keys: Record<string, string>,
+  credentials: Record<string, { key: string; baseURL: string }>,
   current: Record<ProviderV2.ID, Info>,
 ) {
   const providerID = ProviderV2.ID.leidiandonghua
@@ -1351,23 +1351,27 @@ function overlayRelayModels(
         package: "@ai-sdk/openai-compatible",
         url: RelayPolicy.BaseURL,
       },
-      variants: [] as Array<{ id: string; headers: Record<string, string>; body: Record<string, unknown> }>,
+      variants: undefined as
+        | Array<{ id: string; headers: Record<string, string>; body: Record<string, unknown> }>
+        | undefined,
     }
     fn(draft)
     if (!draft.enabled) return
+    const resolved = credentials[draft.family ?? ""]
+    if (!resolved) return
     models[modelID] = {
       id: ModelV2.ID.make(modelID),
       providerID,
       name: draft.name,
       family: draft.family,
       api: {
-        id: modelID,
-        url: RelayPolicy.BaseURL,
+        id: draft.api.id,
+        url: resolved.baseURL,
         npm: "@ai-sdk/openai-compatible",
       },
       status: "active",
       headers: {},
-      options: keys[draft.family ?? ""] ? { apiKey: keys[draft.family ?? ""] } : {},
+      options: { apiKey: resolved.key, baseURL: resolved.baseURL },
       cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
       limit: {
         context: draft.limit?.context ?? 128_000,
@@ -1396,7 +1400,10 @@ function overlayRelayModels(
       },
       release_date: new Date(draft.time?.released ?? Date.now()).toISOString().slice(0, 10),
       variants: Object.fromEntries(
-        (Array.isArray(draft.variants) ? draft.variants : []).map((variant) => [variant.id, { ...variant.body }]),
+        (draft.variants ?? RelayCapability.variants(draft.family ?? "", modelID)).map((variant) => [
+          variant.id,
+          { ...variant.body },
+        ]),
       ),
     }
   })
@@ -1415,11 +1422,7 @@ function overlayRelayModels(
       name: existing?.name ?? "智联AI",
       source: existing?.source ?? "custom",
       env: existing?.env ?? [],
-      key: existing?.key,
-      options: {
-        ...existing?.options,
-        baseURL: RelayPolicy.BaseURL,
-      },
+      options: { baseURL: RelayPolicy.BaseURL },
       models,
     },
   }
@@ -1840,7 +1843,7 @@ const layer = Layer.effect(
       const catalog = Option.getOrUndefined(yield* Effect.serviceOption(RelayCatalog.Service))
       if (!catalog) return current
       const auth = Option.getOrUndefined(yield* Effect.serviceOption(RelayAuth.Service))
-      const keys: Record<string, string> = {}
+      const keys: Record<string, { key: string; baseURL: string }> = {}
       if (auth) {
         const state = yield* auth.get().pipe(Effect.catch(() => Effect.succeed(undefined)))
         for (const vendor of state?.vendors ?? []) {
@@ -2020,9 +2023,13 @@ const layer = Layer.effect(
     })
 
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
+      if (model.providerID === ProviderV2.ID.leidiandonghua) model = yield* getModel(model.providerID, model.id)
       const s = yield* InstanceState.get(state)
       const envs = yield* env.all()
-      const key = `${model.providerID}/${model.id}`
+      const key =
+        model.providerID === ProviderV2.ID.leidiandonghua
+          ? `${model.providerID}/${model.id}/${Hash.fast(JSON.stringify([model.api, model.options]))}`
+          : `${model.providerID}/${model.id}`
       if (s.models.has(key)) return s.models.get(key)!
 
       const provider = (yield* providers())[model.providerID]

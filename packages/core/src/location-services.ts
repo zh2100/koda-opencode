@@ -36,11 +36,13 @@ import { BuiltInTools } from "./tool/builtins"
 import { ReadToolFileSystem } from "./tool/read-filesystem"
 import { ToolRegistry } from "./tool/registry"
 import { ToolOutputStore } from "./tool-output-store"
+import { TesterIsolation } from "./tester-isolation"
 
 export { LocationServiceMap } from "./location-service-map"
 
 export const locationServices = LayerNode.group([
   Location.node,
+  TesterIsolation.node,
   Policy.node,
   Config.node,
   AgentV2.node,

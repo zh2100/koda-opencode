@@ -70,6 +70,10 @@ import { RelaySecretStore } from "@opencode-ai/core/relay-secret-store"
 import { ScheduledTaskStore } from "@opencode-ai/core/scheduled-task"
 import { Global } from "@opencode-ai/core/global"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
+import { TaskOrchestrator } from "@opencode-ai/core/task-orchestrator"
+import { TesterIsolation } from "@opencode-ai/core/tester-isolation"
+import { WorkspaceOwnership } from "@opencode-ai/core/workspace-ownership"
+import { OrchestratorTesterIsolation } from "@/task-orchestrator/tester-isolation"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { lazy } from "@/util/lazy"
 import { CorsConfig, isAllowedCorsOrigin, type CorsOptions } from "@opencode-ai/server/cors"
@@ -105,6 +109,7 @@ import { sessionHandlers } from "./handlers/session"
 import { syncHandlers } from "./handlers/sync"
 import { tuiHandlers } from "./handlers/tui"
 import { handlers } from "@opencode-ai/server/handlers"
+import { InstanceBootstrap } from "@/project/bootstrap"
 import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/location-services"
 import { layer as locationLayer } from "@opencode-ai/server/location"
 import { sessionLocationLayer } from "@opencode-ai/server/middleware/session-location"
@@ -230,6 +235,7 @@ const app = LayerNode.group([
   PermissionSaved.node,
   Todo.node,
   Session.node,
+  WorkspaceOwnership.node,
   SessionProjector.node,
   SessionStatus.node,
   BackgroundJob.node,
@@ -271,7 +277,10 @@ const app = LayerNode.group([
 ])
 
 export function createRoutes(corsOptions?: CorsOptions) {
-  const locationServiceMapV2 = buildLocationServiceMap()
+  const locationServiceMapV2 = buildLocationServiceMap([
+    [TesterIsolation.node, OrchestratorTesterIsolation.node],
+    [InstanceStore.bootstrapNode, InstanceBootstrap.node],
+  ])
 
   return Layer.mergeAll(
     rootApiRoutes,
@@ -303,6 +312,12 @@ export function createRoutes(corsOptions?: CorsOptions) {
     ),
     Layer.provide(
       AppNodeBuilderV1.build(ScheduledTaskStore.node, [
+        [LocationServiceMap.node, locationServiceMapV2],
+        [SessionExecution.node, SessionExecutionLocal.node],
+      ]),
+    ),
+    Layer.provide(
+      AppNodeBuilderV1.build(TaskOrchestrator.node, [
         [LocationServiceMap.node, locationServiceMapV2],
         [SessionExecution.node, SessionExecutionLocal.node],
       ]),

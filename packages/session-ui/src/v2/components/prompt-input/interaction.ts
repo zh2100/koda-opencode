@@ -299,6 +299,9 @@ export function createPromptInputV2Controller(input: {
     value() {
       return draft.state.prompt.map((part) => ("content" in part ? part.content : "")).join("")
     },
+    setText(value: string) {
+      draft.setText(value)
+    },
     parts() {
       return draft.state.prompt
     },

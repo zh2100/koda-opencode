@@ -177,6 +177,31 @@ export const Plugin = define({
         )
       })
 
+      draft.update(AgentV2.ID.make("orchestrator-readonly"), (item) => {
+        item.description = "Read-only orchestration agent. It may inspect workspace contents but cannot execute shell or mutation tools."
+        item.mode = "subagent"
+        item.permissions.push(
+          ...PermissionV2.merge(
+            defaults,
+            [
+              { action: "*", resource: "*", effect: "deny" },
+              { action: "grep", resource: "*", effect: "allow" },
+              { action: "glob", resource: "*", effect: "allow" },
+              { action: "read", resource: "*", effect: "allow" },
+            ],
+            readonlyExternalDirectory,
+          ),
+        )
+      })
+
+      draft.update(AgentV2.ID.make("orchestrator-tester"), (item) => {
+        item.description = "Verification agent. It may run allowlisted test and validation commands but cannot mutate through editing tools."
+        item.mode = "subagent"
+        item.permissions.push(
+          ...PermissionV2.merge(defaults, [{ action: "*", resource: "*", effect: "deny" }, { action: "bash", resource: "*", effect: "allow" }], readonlyExternalDirectory),
+        )
+      })
+
       draft.update(AgentV2.ID.make("compaction"), (item) => {
         item.mode = "primary"
         item.hidden = true

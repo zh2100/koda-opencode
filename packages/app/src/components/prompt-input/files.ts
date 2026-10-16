@@ -1,4 +1,4 @@
-import { ACCEPTED_FILE_TYPES, ACCEPTED_IMAGE_TYPES } from "@/constants/file-picker"
+import { ACCEPTED_FILE_TYPES } from "@/constants/file-picker"
 
 export { ACCEPTED_FILE_TYPES }
 
@@ -27,19 +27,21 @@ export function pickAttachmentFiles(input: {
       {
         defaultPath: input.directory(),
         multiple: true,
-        accept: ACCEPTED_FILE_TYPES,
       },
       input.onFile,
     )
     .catch(input.onError)
 }
 
-const IMAGE_MIMES = new Set(ACCEPTED_IMAGE_TYPES)
 const IMAGE_EXTS = new Map([
+  ["avif", "image/avif"],
+  ["bmp", "image/bmp"],
   ["gif", "image/gif"],
   ["jpeg", "image/jpeg"],
   ["jpg", "image/jpeg"],
   ["png", "image/png"],
+  ["tif", "image/tiff"],
+  ["tiff", "image/tiff"],
   ["webp", "image/webp"],
 ])
 const TEXT_MIMES = new Set([
@@ -84,7 +86,8 @@ function textBytes(bytes: Uint8Array) {
 
 export async function attachmentMime(file: File) {
   const type = kind(file.type)
-  if (IMAGE_MIMES.has(type)) return type
+  if (type === "image/svg+xml" || type === "image/fastbidsheet") return
+  if (type.startsWith("image/")) return type
   if (type === "application/pdf") return type
 
   const suffix = ext(file.name)

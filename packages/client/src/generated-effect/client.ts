@@ -436,6 +436,7 @@ type Endpoint9_4Input = {
   readonly vendorId: Endpoint9_4Request["params"]["vendorId"]
   readonly location?: Endpoint9_4Request["query"]["location"]
   readonly name?: Endpoint9_4Request["payload"]["name"]
+  readonly baseURL?: Endpoint9_4Request["payload"]["baseURL"]
   readonly key?: Endpoint9_4Request["payload"]["key"]
   readonly revision: Endpoint9_4Request["payload"]["revision"]
   readonly operationId?: Endpoint9_4Request["payload"]["operationId"]
@@ -444,7 +445,13 @@ const Endpoint9_4 = (raw: RawClient["server.relay"]) => (input: Endpoint9_4Input
   raw["relay.auth.vendor"]({
     params: { vendorId: input["vendorId"] },
     query: { location: input["location"] },
-    payload: { name: input["name"], key: input["key"], revision: input["revision"], operationId: input["operationId"] },
+    payload: {
+      name: input["name"],
+      baseURL: input["baseURL"],
+      key: input["key"],
+      revision: input["revision"],
+      operationId: input["operationId"],
+    },
   }).pipe(Effect.mapError(mapClientError))
 
 type Endpoint9_5Request = Parameters<RawClient["server.relay"]["relay.auth.vendor.key"]>[0]

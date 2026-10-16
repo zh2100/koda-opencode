@@ -76,6 +76,7 @@ import {
   type PromptInputSubmission,
 } from "./prompt-input/contracts"
 import { createPromptSubmit } from "./prompt-input/submit"
+import { CollaborationToggle } from "./prompt-input/collaboration-toggle"
 import { PromptPopover, type AtOption, type SlashCommand } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
@@ -83,6 +84,7 @@ import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { createPromptInputTransientState } from "./prompt-input/transient-state"
 import { showToast } from "@/utils/toast"
+import { recognizeSpeech, speechSupported } from "./prompt-input/speech"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
 
@@ -265,6 +267,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
   )
 
+  const [listening, setListening] = createSignal(false)
+  const voice = speechSupported()
   const [store, setStore] = createPromptInputTransientState(
     () => prompt.capture(),
     Math.floor(Math.random() * EXAMPLES.length),
@@ -978,6 +982,29 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return parts
   }
 
+  const toggleVoice = () => {
+    if (listening()) return
+    setListening(true)
+    void recognizeSpeech(document.documentElement.lang || "zh-CN")
+      .then((result) => {
+        if ("error" in result) {
+          const key =
+            result.error === "unavailable"
+              ? "prompt.toast.voiceUnavailable.title"
+              : result.error === "empty"
+                ? "prompt.toast.voiceEmpty.title"
+                : "prompt.toast.voiceFailed.title"
+          showToast({ title: language.t(key), variant: "error" })
+          return
+        }
+        const current = (editorRef.textContent ?? "").replace(/\u200B/g, "").trim()
+        setEditorText(current ? `${current} ${result.text}` : result.text)
+        handleInput()
+        focusEditorEnd()
+      })
+      .finally(() => setListening(false))
+  }
+
   const handleInput = () => {
     const rawParts = parseFromDOM()
     const images = imageAttachments()
@@ -1187,7 +1214,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       ref={(el) => (fileInputRef = el)}
       type="file"
       multiple
-      accept={ACCEPTED_FILE_TYPES.join(",")}
       class="hidden"
       onChange={(e) => {
         const list = e.currentTarget.files
@@ -1206,7 +1232,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return permission.isAutoAccepting(id, sdk().directory)
   })
 
-  const { abort, handleSubmit } =
+  const submission =
     props.submission ??
     createPromptSubmit({
       prompt,
@@ -1236,6 +1262,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       onSubmit: props.onSubmit,
       model: props.controls.model.selection,
     })
+  const { abort, handleSubmit } = submission
+  const collaboration = () => submission.collaboration
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "u") {
@@ -1570,12 +1598,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             }}
           />
 
-          <div class="pointer-events-none absolute bottom-2 right-2 flex items-center gap-2">
+          <div class="pointer-events-none absolute bottom-2 end-2 flex items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"
               multiple
-              accept={ACCEPTED_FILE_TYPES.join(",")}
               class="hidden"
               onChange={(e) => {
                 const list = e.currentTarget.files
@@ -1585,11 +1612,34 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             />
 
             <div class="flex items-center gap-1 pointer-events-auto">
+              <Show when={collaboration()}>{(control) => <CollaborationToggle control={control()} />}</Show>
+              <Show when={voice && store.mode === "normal"}>
+                <Tooltip
+                  placement="top"
+                  value={listening() ? language.t("prompt.action.voice.stop") : language.t("prompt.action.voice")}
+                >
+                  <IconButton
+                    data-action="prompt-voice"
+                    type="button"
+                    icon="microphone"
+                    variant={listening() ? "primary" : "ghost"}
+                    class="size-8"
+                    aria-pressed={listening()}
+                    aria-label={
+                      listening() ? language.t("prompt.action.voice.stop") : language.t("prompt.action.voice")
+                    }
+                    onClick={(event) => {
+                      event.preventDefault()
+                      toggleVoice()
+                    }}
+                  />
+                </Tooltip>
+              </Show>
               <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
                 <IconButton
                   data-action="prompt-submit"
                   type="submit"
-                  disabled={!working() && blank()}
+                  disabled={!stopping() && (collaboration()?.blocked() || (!working() && blank()))}
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}
                   variant="primary"
@@ -1600,7 +1650,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             </div>
           </div>
 
-          <div class="pointer-events-none absolute bottom-2 left-2">
+          <div class="pointer-events-none absolute bottom-2 start-2">
             <div
               aria-hidden={store.mode !== "normal"}
               class="pointer-events-auto"
@@ -1656,9 +1706,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </Button>
               </div>
               <div class="flex items-center gap-1.5 min-w-0 flex-1 h-7">
-                <Show when={props.project}>
-                  {(controller) => <PromptProjectSelector controller={controller()} />}
-                </Show>
+                <Show when={props.project}>{(controller) => <PromptProjectSelector controller={controller()} />}</Show>
                 <Show when={!agentsLoading()}>
                   <div
                     data-component="prompt-agent-control"

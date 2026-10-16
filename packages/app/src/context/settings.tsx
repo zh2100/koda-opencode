@@ -3,6 +3,7 @@ import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { persisted } from "@/utils/persist"
 import { usePlatform } from "@/context/platform"
+import type { CollaborationModels } from "@/utils/collaboration"
 
 export interface NotificationSettings {
   agent: boolean
@@ -230,6 +231,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
   gate: false,
   init: () => {
     const platform = usePlatform()
+    const [models, setModels, , modelsReady] = persisted(
+      "settings.collaboration.models",
+      createStore<CollaborationModels>({ worker: "" }),
+    )
     const [store, setStore, settingsInit, ready] = persisted("settings.v3", createStore<Settings>(defaultSettings))
     const [launch, setLaunch, , launchReady] = persisted(
       "app-version.v1",
@@ -357,6 +362,7 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
 
     return {
       ready,
+      collaboration: { models, setModels, ready: modelsReady },
       get current() {
         return store
       },

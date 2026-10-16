@@ -2,7 +2,12 @@ import { RelayAuth } from "@opencode-ai/core/relay-auth"
 import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
-import { ConflictError, InvalidRequestError, ServiceUnavailableError, UnauthorizedError } from "@opencode-ai/protocol/errors"
+import {
+  ConflictError,
+  InvalidRequestError,
+  ServiceUnavailableError,
+  UnauthorizedError,
+} from "@opencode-ai/protocol/errors"
 import { Api } from "../api"
 
 const mapError = (error: RelayAuth.AuthError | RelayCatalog.CatalogError) => {
@@ -24,20 +29,15 @@ export const RelayHandler = HttpApiBuilder.group(Api, "server.relay", (handlers)
     const catalog = yield* RelayCatalog.Service
     return handlers
       .handle("relay.auth.get", () => auth.get().pipe(Effect.mapError(mapError)))
-      .handle("relay.auth.mode", (ctx) =>
-        auth.setMode(ctx.payload).pipe(Effect.mapError(mapError)),
-      )
-      .handle("relay.auth.unified", (ctx) =>
-        auth.setUnifiedKey(ctx.payload).pipe(Effect.mapError(mapError)),
-      )
-      .handle("relay.auth.unified.clear", (ctx) =>
-        auth.clearUnifiedKey(ctx.payload).pipe(Effect.mapError(mapError)),
-      )
+      .handle("relay.auth.mode", (ctx) => auth.setMode(ctx.payload).pipe(Effect.mapError(mapError)))
+      .handle("relay.auth.unified", (ctx) => auth.setUnifiedKey(ctx.payload).pipe(Effect.mapError(mapError)))
+      .handle("relay.auth.unified.clear", (ctx) => auth.clearUnifiedKey(ctx.payload).pipe(Effect.mapError(mapError)))
       .handle("relay.auth.vendor", (ctx) =>
         auth
           .setVendor({
             id: ctx.params.vendorId,
             name: ctx.payload.name,
+            baseURL: ctx.payload.baseURL,
             key: ctx.payload.key,
             revision: ctx.payload.revision,
             operationId: ctx.payload.operationId,
@@ -53,9 +53,7 @@ export const RelayHandler = HttpApiBuilder.group(Api, "server.relay", (handlers)
           })
           .pipe(Effect.mapError(mapError)),
       )
-      .handle("relay.auth.rollback", (ctx) =>
-        auth.rollback(ctx.payload).pipe(Effect.mapError(mapError)),
-      )
+      .handle("relay.auth.rollback", (ctx) => auth.rollback(ctx.payload).pipe(Effect.mapError(mapError)))
       .handle("relay.auth.vendor.delete", (ctx) =>
         auth
           .deleteVendor({
@@ -68,7 +66,9 @@ export const RelayHandler = HttpApiBuilder.group(Api, "server.relay", (handlers)
       .handle("relay.models.probe", (ctx) => catalog.probe(ctx.payload.vendorId).pipe(Effect.mapError(mapError)))
       .handle("relay.models.refresh", (ctx) => catalog.refresh(ctx.payload.vendorId).pipe(Effect.mapError(mapError)))
       .handle("relay.models.managed", () => catalog.managed().pipe(Effect.mapError(mapError)))
-      .handle("relay.models.candidates", (ctx) => catalog.candidates(ctx.query.vendorId).pipe(Effect.mapError(mapError)))
+      .handle("relay.models.candidates", (ctx) =>
+        catalog.candidates(ctx.query.vendorId).pipe(Effect.mapError(mapError)),
+      )
       .handle("relay.models.visibility", (ctx) => catalog.setVisibility(ctx.payload).pipe(Effect.mapError(mapError)))
   }),
 )

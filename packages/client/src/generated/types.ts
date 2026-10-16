@@ -2323,6 +2323,7 @@ export type ServerRelayGetOutput = {
   readonly vendors: ReadonlyArray<{
     readonly id: string
     readonly name: string
+    readonly baseURL?: string
     readonly builtin: boolean
     readonly hasKey: boolean
     readonly updatedAt: number
@@ -2359,6 +2360,7 @@ export type ServerRelayModeOutput = {
   readonly vendors: ReadonlyArray<{
     readonly id: string
     readonly name: string
+    readonly baseURL?: string
     readonly builtin: boolean
     readonly hasKey: boolean
     readonly updatedAt: number
@@ -2395,6 +2397,7 @@ export type ServerRelayUnifiedOutput = {
   readonly vendors: ReadonlyArray<{
     readonly id: string
     readonly name: string
+    readonly baseURL?: string
     readonly builtin: boolean
     readonly hasKey: boolean
     readonly updatedAt: number
@@ -2418,6 +2421,7 @@ export type ServerRelayClearOutput = {
   readonly vendors: ReadonlyArray<{
     readonly id: string
     readonly name: string
+    readonly baseURL?: string
     readonly builtin: boolean
     readonly hasKey: boolean
     readonly updatedAt: number
@@ -2434,24 +2438,35 @@ export type ServerRelayVendorInput = {
   }["location"]
   readonly name?: {
     readonly name?: string | undefined
+    readonly baseURL?: string | undefined
     readonly key?: string | undefined
     readonly revision: number
     readonly operationId?: string | undefined
   }["name"]
+  readonly baseURL?: {
+    readonly name?: string | undefined
+    readonly baseURL?: string | undefined
+    readonly key?: string | undefined
+    readonly revision: number
+    readonly operationId?: string | undefined
+  }["baseURL"]
   readonly key?: {
     readonly name?: string | undefined
+    readonly baseURL?: string | undefined
     readonly key?: string | undefined
     readonly revision: number
     readonly operationId?: string | undefined
   }["key"]
   readonly revision: {
     readonly name?: string | undefined
+    readonly baseURL?: string | undefined
     readonly key?: string | undefined
     readonly revision: number
     readonly operationId?: string | undefined
   }["revision"]
   readonly operationId?: {
     readonly name?: string | undefined
+    readonly baseURL?: string | undefined
     readonly key?: string | undefined
     readonly revision: number
     readonly operationId?: string | undefined
@@ -2464,6 +2479,7 @@ export type ServerRelayVendorOutput = {
   readonly vendors: ReadonlyArray<{
     readonly id: string
     readonly name: string
+    readonly baseURL?: string
     readonly builtin: boolean
     readonly hasKey: boolean
     readonly updatedAt: number
@@ -2488,6 +2504,7 @@ export type ServerRelayKeyOutput = {
   readonly vendors: ReadonlyArray<{
     readonly id: string
     readonly name: string
+    readonly baseURL?: string
     readonly builtin: boolean
     readonly hasKey: boolean
     readonly updatedAt: number
@@ -2512,6 +2529,7 @@ export type ServerRelayDeleteOutput = {
   readonly vendors: ReadonlyArray<{
     readonly id: string
     readonly name: string
+    readonly baseURL?: string
     readonly builtin: boolean
     readonly hasKey: boolean
     readonly updatedAt: number
@@ -2535,6 +2553,7 @@ export type ServerRelayRollbackOutput = {
   readonly vendors: ReadonlyArray<{
     readonly id: string
     readonly name: string
+    readonly baseURL?: string
     readonly builtin: boolean
     readonly hasKey: boolean
     readonly updatedAt: number

@@ -15,7 +15,7 @@ test("resets transient prompt input state when the prompt session changes", () =
         prompt: [{ type: "text", content: "draft-A", start: 0, end: 7 }],
         comments: [],
       },
-      draggingType: "image",
+       draggingType: "file",
       mode: "shell",
       applyingHistory: true,
     })

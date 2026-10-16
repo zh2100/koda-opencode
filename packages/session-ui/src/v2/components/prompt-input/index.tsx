@@ -43,6 +43,10 @@ export type PromptInputV2Props = {
   modelControl?: JSX.Element
   leadingControl?: JSX.Element
   trailingControl?: JSX.Element
+  onVoice?: () => void
+  voiceListening?: boolean
+  voiceLabel?: string
+  voiceStopLabel?: string
   variantControlVisible?: boolean
   attachKeybind?: string[]
   attachShortcut?: string
@@ -263,6 +267,24 @@ export function PromptInputV2(props: PromptInputV2Props) {
             </Show>
             {props.trailingControl}
           </div>
+          <Show when={props.onVoice}>
+            <TooltipV2 placement="top" value={props.voiceListening ? props.voiceStopLabel : props.voiceLabel}>
+              <IconButton
+                data-action="prompt-voice"
+                type="button"
+                icon="microphone"
+                variant={props.voiceListening ? "primary" : "ghost"}
+                class="size-7"
+                aria-pressed={props.voiceListening}
+                aria-label={props.voiceListening ? props.voiceStopLabel : props.voiceLabel}
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  props.onVoice?.()
+                }}
+              />
+            </TooltipV2>
+          </Show>
           <PromptInputV2SubmitButton
             mode={state.mode}
             stopping={view.submit.stopping()}

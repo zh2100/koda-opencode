@@ -1,7 +1,7 @@
 export * as Relay from "./relay"
 
 import { Schema } from "effect"
-import { DateTimeUtcFromMillis, NonNegativeInt, statics } from "./schema"
+import { DateTimeUtcFromMillis, NonNegativeInt, optional, statics } from "./schema"
 
 export const VendorID = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-_]*$/)).pipe(
   Schema.brand("Relay.VendorID"),
@@ -12,10 +12,15 @@ export const VendorID = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-_
 )
 export type VendorID = typeof VendorID.Type
 
+export const VendorBaseURL = Schema.String.check(
+  Schema.isPattern(/^https?:\/\/(?:\[[0-9a-fA-F:]+\]|[^\s\/?#@:\\]+)(?::[0-9]{1,5})?(?:\/[^\s?#\\]*)?$/i),
+).annotate({ identifier: "Relay.VendorBaseURL" })
+
 export interface Vendor extends Schema.Schema.Type<typeof Vendor> {}
 export const Vendor = Schema.Struct({
   id: VendorID,
   name: Schema.String,
+  baseURL: optional(VendorBaseURL),
   builtin: Schema.Boolean,
   hasKey: Schema.Boolean,
   updatedAt: DateTimeUtcFromMillis,

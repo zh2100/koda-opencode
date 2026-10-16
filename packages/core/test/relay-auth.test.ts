@@ -28,6 +28,37 @@ const withAuth = <A, E, R>(body: (auth: RelayAuth.Interface) => Effect.Effect<A,
 const it = testEffect(Layer.empty)
 
 describe("RelayAuth", () => {
+  it.live("persists custom endpoints and never falls back to the unified key", () =>
+    withAuth((auth) =>
+      Effect.gen(function* () {
+        const id = Relay.VendorID.make("custom")
+        let state = yield* auth.setVendor({
+          id,
+          name: "Custom",
+          baseURL: "http://localhost:1234/v1/",
+          key: "custom-key",
+          revision: 0,
+        })
+        state = yield* auth.setUnifiedKey({ key: "shared-secret", revision: state.revision })
+        state = yield* auth.setMode({ unified: true, revision: state.revision })
+        expect(yield* auth.resolve(id)).toEqual({ key: "custom-key", baseURL: "http://localhost:1234/v1" })
+        state = yield* auth.setVendor({ id, name: "Renamed", revision: state.revision })
+        expect((yield* auth.get()).vendors.find((vendor) => vendor.id === id)?.baseURL).toBe("http://localhost:1234/v1")
+        const invalid = yield* auth
+          .setVendor({ id, baseURL: "https://user:pass@example.com", revision: state.revision })
+          .pipe(Effect.flip)
+        expect(invalid.info.code).toBe("REQUEST_CONFLICT")
+        const builtin = yield* auth
+          .setVendor({ id: Relay.VendorID.chatgpt, baseURL: "https://example.com", revision: state.revision })
+          .pipe(Effect.flip)
+        expect(builtin.info.code).toBe("REQUEST_CONFLICT")
+        state = yield* auth.clearVendorKey({ id, revision: state.revision })
+        expect((yield* auth.resolve(id).pipe(Effect.flip)).info.code).toBe("KEY_MISSING")
+        expect((yield* auth.resolve(Relay.VendorID.chatgpt)).key).toBe("shared-secret")
+      }),
+    ),
+  )
+
   it.live("defaults to built-in vendors without keys", () =>
     withAuth((auth) =>
       Effect.gen(function* () {
@@ -55,8 +86,8 @@ describe("RelayAuth", () => {
           revision: chatgpt.revision,
         })
         expect(JSON.stringify(grok)).not.toContain("sk-")
-        expect(yield* auth.resolve(Relay.VendorID.chatgpt)).toBe("sk-chatgpt")
-        expect(yield* auth.resolve(Relay.VendorID.grok)).toBe("sk-grok")
+        expect((yield* auth.resolve(Relay.VendorID.chatgpt)).key).toBe("sk-chatgpt")
+        expect((yield* auth.resolve(Relay.VendorID.grok)).key).toBe("sk-grok")
       }),
     ),
   )
@@ -68,11 +99,11 @@ describe("RelayAuth", () => {
         state = yield* auth.setVendor({ id: Relay.VendorID.grok, key: "sk-grok", revision: state.revision })
         state = yield* auth.setUnifiedKey({ key: "sk-unified", revision: state.revision })
         state = yield* auth.setMode({ unified: true, revision: state.revision })
-        expect(yield* auth.resolve(Relay.VendorID.chatgpt)).toBe("sk-unified")
-        expect(yield* auth.resolve(Relay.VendorID.grok)).toBe("sk-unified")
+        expect((yield* auth.resolve(Relay.VendorID.chatgpt)).key).toBe("sk-unified")
+        expect((yield* auth.resolve(Relay.VendorID.grok)).key).toBe("sk-unified")
         state = yield* auth.setMode({ unified: false, revision: state.revision })
-        expect(yield* auth.resolve(Relay.VendorID.chatgpt)).toBe("sk-chatgpt")
-        expect(yield* auth.resolve(Relay.VendorID.grok)).toBe("sk-grok")
+        expect((yield* auth.resolve(Relay.VendorID.chatgpt)).key).toBe("sk-chatgpt")
+        expect((yield* auth.resolve(Relay.VendorID.grok)).key).toBe("sk-grok")
       }),
     ),
   )
@@ -84,7 +115,7 @@ describe("RelayAuth", () => {
         state = yield* auth.setVendor({ id: Relay.VendorID.grok, key: "sk-grok", revision: state.revision })
         state = yield* auth.clearVendorKey({ id: Relay.VendorID.chatgpt, revision: state.revision })
         expect(state.vendors.find((vendor) => vendor.id === Relay.VendorID.chatgpt)?.hasKey).toBe(false)
-        expect(yield* auth.resolve(Relay.VendorID.grok)).toBe("sk-grok")
+        expect((yield* auth.resolve(Relay.VendorID.grok)).key).toBe("sk-grok")
         const missing = yield* auth.resolve(Relay.VendorID.chatgpt).pipe(Effect.flip)
         expect(missing.info.code).toBe("KEY_MISSING")
       }),
@@ -107,7 +138,7 @@ describe("RelayAuth", () => {
           operationId: "op-1",
         })
         expect(replayed.revision).toBe(first.revision)
-        expect(yield* auth.resolve(Relay.VendorID.chatgpt)).toBe("sk-one")
+        expect((yield* auth.resolve(Relay.VendorID.chatgpt)).key).toBe("sk-one")
         const conflict = yield* auth
           .setVendor({ id: Relay.VendorID.chatgpt, key: "sk-three", revision: 0 })
           .pipe(Effect.flip)
@@ -141,11 +172,9 @@ describe("RelayAuth", () => {
             const state = yield* auth.get()
             expect(state.vendors.find((vendor) => vendor.id === Relay.VendorID.chatgpt)?.hasKey).toBe(true)
             expect(state.vendors.find((vendor) => vendor.id === Relay.VendorID.grok)?.hasKey).toBe(true)
-            expect(yield* auth.resolve(Relay.VendorID.chatgpt)).toBe("sk-openai")
-            expect(yield* auth.resolve(Relay.VendorID.grok)).toBe("sk-xai")
-            const backup = yield* Effect.promise(() =>
-              Bun.file(path.join(tmp.path, "auth.relay-backup.json")).text(),
-            )
+            expect((yield* auth.resolve(Relay.VendorID.chatgpt)).key).toBe("sk-openai")
+            expect((yield* auth.resolve(Relay.VendorID.grok)).key).toBe("sk-xai")
+            const backup = yield* Effect.promise(() => Bun.file(path.join(tmp.path, "auth.relay-backup.json")).text())
             expect(backup).not.toContain("sk-openai")
             expect(backup).not.toContain("sk-xai")
             expect(backup).not.toContain("sk-anthropic")
@@ -159,7 +188,9 @@ describe("RelayAuth", () => {
             expect(rolled.vendors.every((vendor) => vendor.hasKey === false)).toBe(true)
             const missing = yield* auth.resolve(Relay.VendorID.chatgpt).pipe(Effect.flip)
             expect(missing.info.code).toBe("KEY_MISSING")
-            expect(yield* Effect.promise(() => Bun.file(path.join(tmp.path, "auth.json")).text())).toContain("sk-openai")
+            expect(yield* Effect.promise(() => Bun.file(path.join(tmp.path, "auth.json")).text())).toContain(
+              "sk-openai",
+            )
           }).pipe(Effect.provide(layer))
         }),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),

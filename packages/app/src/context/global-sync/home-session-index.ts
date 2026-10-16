@@ -160,6 +160,17 @@ export function createHomeSessionIndexCache(queryClient: QueryClient, server: st
         return { ...index, sessions: index.sessions.toSpliced(at, 1) }
       })
     },
+    update(sessionID: string, update: Partial<Session>) {
+      queryClient.setQueryData<HomeSessionIndex>(indexKey, (index) => {
+        if (!index) return index
+        const at = index.sessions.findIndex((session) => session.id === sessionID)
+        if (at === -1) return index
+        return {
+          ...index,
+          sessions: index.sessions.with(at, { ...index.sessions[at], ...update }),
+        }
+      })
+    },
     refresh(event: Event["type"]) {
       const result = homeSessionIndexRefresh(event, connected)
       connected = result.connected

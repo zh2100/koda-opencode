@@ -27,6 +27,7 @@ import { Relay } from "@opencode-ai/schema/relay"
 import { RelayAuth } from "@opencode-ai/core/relay-auth"
 import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
 import { RelayPolicy } from "@opencode-ai/core/relay-policy"
+import { RelaySecretStore } from "@opencode-ai/core/relay-secret-store"
 import {
   anthropicProvider,
   openaiProvider,
@@ -77,19 +78,84 @@ afterEach(async () => {
 
 const providerLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
   LayerNode.compile(
-    LayerNode.group([
-      Provider.node,
-      FSUtil.node,
-      Env.node,
-      Config.node,
-      Auth.node,
-      Plugin.node,
-      RuntimeFlags.node,
-    ]),
+    LayerNode.group([Provider.node, FSUtil.node, Env.node, Config.node, Auth.node, Plugin.node, RuntimeFlags.node]),
     [[RuntimeFlags.node, RuntimeFlags.layer(flags)]],
   )
 
 const list = Provider.use.list()
+
+const relayTest = testEffect(providerLayer().pipe(Layer.provideMerge(AppNodeBuilder.build(CrossSpawnSpawner.node))))
+relayTest.instance(
+  "custom relay requests use independent URLs, keys, and upstream IDs",
+  () =>
+    Effect.gen(function* () {
+      const directory = yield* tmpdirScoped()
+      const requests: Array<{ path: string; key: string | null; model: unknown }> = []
+      const server = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          Bun.serve({
+            port: 0,
+            hostname: "127.0.0.1",
+            async fetch(request) {
+              if (request.method === "GET") return Response.json({ data: [{ id: "same-model", owned_by: "openai" }] })
+              const body = await request.json()
+              requests.push({
+                path: new URL(request.url).pathname,
+                key: request.headers.get("authorization"),
+                model: body.model,
+              })
+              return Response.json({
+                id: "test",
+                created: 1,
+                model: "same-model",
+                choices: [{ index: 0, message: { role: "assistant", content: "hello" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+              })
+            },
+          }),
+        ),
+        (server) => Effect.sync(() => server.stop(true)),
+      )
+      yield* Effect.gen(function* () {
+        const auth = yield* RelayAuth.Service
+        const catalog = yield* RelayCatalog.Service
+        let state = yield* auth.setUnifiedKey({ key: "shared-secret", revision: 0 })
+        state = yield* auth.setMode({ unified: true, revision: state.revision })
+        for (const name of ["first", "second"]) {
+          const id = Relay.VendorID.make(name)
+          state = yield* auth.setVendor({
+            id,
+            name,
+            key: `${name}-key`,
+            baseURL: `${server.url}${name}/v1`,
+            revision: state.revision,
+          })
+          yield* catalog.refresh(id)
+          yield* catalog.setVisibility({ vendorId: id, modelId: ModelV2.ID.make("same-model"), visible: true })
+          const model = yield* Provider.use.getModel(
+            ProviderV2.ID.leidiandonghua,
+            RelayCatalog.modelID(id, "same-model"),
+          )
+          const language = yield* Provider.use.getLanguage(model)
+          yield* Effect.promise(() =>
+            language.doGenerate({ prompt: [{ role: "user", content: [{ type: "text", text: "Hello" }] }] }),
+          )
+        }
+        expect(requests).toEqual([
+          { path: "/first/v1/chat/completions", key: "Bearer first-key", model: "same-model" },
+          { path: "/second/v1/chat/completions", key: "Bearer second-key", model: "same-model" },
+        ])
+      }).pipe(
+        Effect.provide(
+          AppNodeBuilder.build(LayerNode.group([RelayAuth.node, RelayCatalog.node]), [
+            [Global.node, Global.layerWith({ data: directory })],
+            [RelaySecretStore.node, RelaySecretStore.memoryLayer],
+          ]),
+        ),
+      )
+    }),
+  { config: { provider: { leidiandonghua: leidiandonghuaProvider } }, timeout: 30000 },
+)
 
 const paid = (providers: Record<string, { models: Record<string, { cost: { input: number } }> }>) => {
   const item = providers[ProviderV2.ID.make("opencode")]
@@ -183,6 +249,13 @@ it.instance(
     expect(relay).toBeDefined()
     expect(relay.models["gpt-5.2"]?.name).toBe("GPT-5.2")
     expect(relay.models["gpt-5.2"]?.family).toBe("chatgpt")
+    expect(relay.models["gpt-5.2"]?.variants).toEqual({
+      low: { reasoning_effort: "low" },
+      medium: { reasoning_effort: "medium" },
+      high: { reasoning_effort: "high" },
+      xhigh: { reasoning_effort: "xhigh" },
+    })
+    expect(relay.models["gpt-5.2"]?.variants?.high?.reasoning_effort).toBe("high")
     expect(relay.options.baseURL).toBe(RelayPolicy.BaseURL)
     expect(relay.models["hidden"]).toBeUndefined()
     expect(relay.models["gpt-5.2"]?.options.apiKey).toBe("chatgpt-key")
@@ -220,7 +293,10 @@ it.instance(
               ],
             } as never),
           resolve: (vendorId) =>
-            Effect.succeed(vendorId === Relay.VendorID.grok ? "grok-key" : "chatgpt-key"),
+            Effect.succeed({
+              key: vendorId === Relay.VendorID.grok ? "grok-key" : "chatgpt-key",
+              baseURL: RelayPolicy.BaseURL,
+            }),
         }),
       ),
     ),
@@ -1484,7 +1560,9 @@ it.instance(
   }),
   {
     config: {
-      provider: { nvidia: { ...nvidiaProvider, options: { apiKey: "test-api-key", baseURL: "http://localhost:8000/v1" } } },
+      provider: {
+        nvidia: { ...nvidiaProvider, options: { apiKey: "test-api-key", baseURL: "http://localhost:8000/v1" } },
+      },
     },
   },
 )

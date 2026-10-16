@@ -79,6 +79,7 @@ const names = [
   "square-arrow-top-right",
   "open-file",
   "speech-bubble",
+  "microphone",
   "comment",
   "folder-add-left",
   "github",

@@ -9,7 +9,7 @@ export type PromptInputTransientState = {
   historyIndex: number
   savedPrompt: PromptHistoryEntry | null
   placeholder: number
-  draggingType: "image" | "@mention" | null
+  draggingType: "file" | "@mention" | null
   mode: "normal" | "shell"
   applyingHistory: boolean
 }

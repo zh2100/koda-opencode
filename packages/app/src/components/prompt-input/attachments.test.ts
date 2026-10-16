@@ -18,6 +18,17 @@ describe("attachmentMime", () => {
     expect(await attachmentMime(file)).toBe("text/plain")
   })
 
+  test("accepts common raster image types and extension fallbacks", async () => {
+    expect(await attachmentMime(new File(["bmp"], "image.bmp", { type: "image/bmp" }))).toBe("image/bmp")
+    expect(await attachmentMime(new File(["tiff"], "image.tiff", { type: "application/octet-stream" }))).toBe("image/tiff")
+    expect(await attachmentMime(new File(["avif"], "image.avif", { type: "" }))).toBe("image/avif")
+  })
+
+  test("rejects SVG and unsupported image formats", async () => {
+    expect(await attachmentMime(new File(["<svg />"], "image.svg", { type: "image/svg+xml" }))).toBeUndefined()
+    expect(await attachmentMime(new File(["sheet"], "image.sheet", { type: "image/fastbidsheet" }))).toBeUndefined()
+  })
+
   test("rejects binary files", async () => {
     const file = new File([Uint8Array.of(0, 255, 1, 2)], "blob.bin", { type: "application/octet-stream" })
     expect(await attachmentMime(file)).toBeUndefined()
@@ -27,11 +38,13 @@ describe("attachmentMime", () => {
 describe("pickAttachmentFiles", () => {
   test("reads the current project directory for every native picker invocation", async () => {
     const paths: string[] = []
+    const accepts: unknown[] = []
     const files: File[] = []
     const file = new File(["hello"], "hello.txt", { type: "text/plain" })
     let directory = "C:\\Projects\\LoremIpsum"
-    const picker = async (options?: { defaultPath?: string }, onFile?: (file: File) => Promise<unknown>) => {
+    const picker = async (options?: { defaultPath?: string; accept?: string[] }, onFile?: (file: File) => Promise<unknown>) => {
       paths.push(options?.defaultPath ?? "")
+      accepts.push(options?.accept)
       await onFile?.(file)
     }
 
@@ -54,6 +67,7 @@ describe("pickAttachmentFiles", () => {
     await Promise.resolve()
     expect(files).toEqual([file, file])
     expect(paths).toEqual(["C:\\Projects\\LoremIpsum", "C:\\Projects\\DolorSit"])
+    expect(accepts).toEqual([undefined, undefined])
   })
 
   test("uses the browser file input when no native picker exists", async () => {

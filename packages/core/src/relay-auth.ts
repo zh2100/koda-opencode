@@ -22,6 +22,7 @@ const StoredVendor = Schema.Struct({
   name: Schema.String,
   builtin: Schema.Boolean,
   keyRef: Schema.optional(Schema.String),
+  baseURL: Schema.optional(Relay.VendorBaseURL),
   updatedAt: Schema.Finite,
   revision: NonNegativeInt,
 })
@@ -88,6 +89,7 @@ export interface Interface {
   readonly setVendor: (input: {
     readonly id: Relay.VendorID
     readonly name?: string
+    readonly baseURL?: string
     readonly key?: string
     readonly revision: number
     readonly operationId?: string
@@ -102,7 +104,7 @@ export interface Interface {
     readonly revision: number
     readonly operationId?: string
   }) => Effect.Effect<Relay.AuthState, AuthError>
-  readonly resolve: (vendorId: Relay.VendorID) => Effect.Effect<string, AuthError>
+  readonly resolve: (vendorId: Relay.VendorID) => Effect.Effect<{ key: string; baseURL: string }, AuthError>
   readonly rollback: (input: {
     readonly revision: number
     readonly operationId?: string
@@ -163,6 +165,7 @@ const layer = Layer.effect(
           Relay.Vendor.make({
             id: vendor.id,
             name: vendor.name,
+            baseURL: vendor.baseURL,
             builtin: vendor.builtin,
             hasKey: vendor.keyRef !== undefined,
             updatedAt: DateTime.makeUnsafe(vendor.updatedAt),
@@ -327,6 +330,12 @@ const layer = Layer.effect(
           revision: 0,
         }
         if (!existing && !input.name) return yield* fail("REQUEST_CONFLICT", false, "name required")
+        if (input.baseURL !== undefined) {
+          if (vendor.builtin || !Schema.is(Relay.VendorBaseURL)(input.baseURL) || !URL.canParse(input.baseURL)) {
+            return yield* fail("REQUEST_CONFLICT", false, "invalid vendor baseURL")
+          }
+          vendor.baseURL = input.baseURL.replace(/\/+$/, "")
+        }
         if (input.name !== undefined) vendor.name = input.name
         if (input.key !== undefined) {
           const ref = vendor.keyRef ?? `vendor:${input.id}`
@@ -371,15 +380,18 @@ const layer = Layer.effect(
       }),
       resolve: Effect.fn("RelayAuth.resolve")(function* (vendorId) {
         const stored = yield* read()
-        if (stored.unified) {
+        const vendor = stored.vendors[vendorId]
+        if (!vendor) return yield* fail("KEY_MISSING")
+        const baseURL = vendor.builtin ? RelayPolicy.BaseURL : (vendor.baseURL ?? RelayPolicy.BaseURL)
+        // A custom endpoint must never receive the shared relay credential.
+        if (stored.unified && !vendor.baseURL) {
           const key = yield* getSecret(stored.unifiedKeyRef)
           if (!key) return yield* fail("KEY_MISSING")
-          return key
+          return { key, baseURL }
         }
-        const vendor = stored.vendors[vendorId]
         const key = yield* getSecret(vendor?.keyRef)
         if (!key) return yield* fail("KEY_MISSING")
-        return key
+        return { key, baseURL }
       }),
       rollback: Effect.fn("RelayAuth.rollback")(function* (input) {
         const replayed = replay(input.operationId)
