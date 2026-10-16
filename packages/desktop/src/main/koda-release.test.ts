@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test"
-import { newerKodaRelease } from "./koda-release"
+import { KODA_VERSION, newerKodaRelease } from "./koda-release"
+
+test("uses the current desktop release version", () => {
+  expect(KODA_VERSION).toBe("1.0.5")
+})
 
 test("compares release titles numerically", () => {
   expect(newerKodaRelease({ name: "Koda v1.0.0" }, "1.0.0")).toBeUndefined()
