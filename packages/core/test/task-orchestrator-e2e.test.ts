@@ -21,6 +21,7 @@ const makeDb = EffectDrizzleSqlite.makeWithDefaults().pipe(Effect.tap((db) => Da
 describe("TaskOrchestrator end to end", () => {
   test("creates, switches models, and completes", async () => {
     const calls: string[] = []
+    const prompts: Array<{ sessionID: string; text: string }> = []
     const session = SessionSchema.ID.make("ses")
     const info = {
       id: session,
@@ -48,11 +49,20 @@ describe("TaskOrchestrator end to end", () => {
         Layer.effect(Database.Service, makeDb.pipe(Effect.map((db) => ({ db })))),
         Layer.succeed(SessionV2.Service, {
           get: (id: SessionSchema.ID) => Effect.succeed(id === session ? info : { ...info, id, location: { directory: "C:/isolated" } }),
+          create: () => Effect.sync(() => {
+            calls.push("private-session")
+            return { ...info, id: SessionSchema.ID.make("ses_private") }
+          }),
           interrupt: () => Effect.void,
-          switchAgent: ({ agent }: { agent: string }) => Effect.sync(() => calls.push(`agent:${agent}`)),
-          switchModel: ({ model }: { model: ModelV2.Ref }) => Effect.sync(() => calls.push(`model:${model.providerID}/${model.id}`)),
-          prompt: () => Effect.void,
-          context: () => Effect.succeed([{ type: "text", text: '{"approved":true,"findings":[]}' }]),
+          switchAgent: ({ sessionID, agent }: { sessionID: SessionSchema.ID; agent: string }) => Effect.sync(() => calls.push(`agent:${sessionID}:${agent}`)),
+          switchModel: ({ sessionID, model }: { sessionID: SessionSchema.ID; model: ModelV2.Ref }) => Effect.sync(() => calls.push(`model:${sessionID}:${model.providerID}/${model.id}`)),
+           prompt: ({ sessionID, prompt }: { sessionID: SessionSchema.ID; prompt: { text: string } }) => Effect.sync(() => {
+             prompts.push({ sessionID, text: prompt.text })
+             return { id: "prompt" }
+           }),
+           resume: () => Effect.void,
+           active: Effect.succeed(new Set()),
+           context: () => Effect.succeed([{ type: "assistant", content: [{ type: "text", id: "text", text: '{"approved":true,"findings":[]}' }] }]),
         } as never),
         WorkspaceOwnership.layer,
         Layer.succeed(TaskOrchestratorWorkerSchedulerService.Service, { schedule: () => Effect.sync(() => calls.push("schedule")) } as never),
@@ -66,8 +76,12 @@ describe("TaskOrchestrator end to end", () => {
     )
     expect(result.steps.map((item) => item.status)).toEqual(["completed", "completed", "completed", "completed", "completed"])
     expect(result.task[0]?.status).toBe("completed")
-    expect(calls).toContain("model:openai/gpt-5")
-    expect(calls).toContain("model:openai/review")
+    expect(calls).toContain("model:ses_private:openai/gpt-5")
+    expect(calls).toContain("model:ses_private:openai/review")
+    expect(calls.filter((item) => item === "private-session")).toHaveLength(1)
+    expect(prompts.filter((item) => item.sessionID === session).map((item) => item.text)).toHaveLength(1)
+    expect(prompts.find((item) => item.sessionID === session)?.text).toContain("planner:")
+    expect(prompts.find((item) => item.sessionID === session)?.text).toContain("worker:")
     expect(calls).not.toContain("schedule")
   })
 })

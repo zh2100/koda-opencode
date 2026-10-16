@@ -2,10 +2,12 @@ export * as TaskOrchestrator from "./task-orchestrator"
 
 import { asc, eq } from "drizzle-orm"
 import { Context, Effect, Layer, Schema } from "effect"
+import { AgentV2 } from "./agent"
 import { Database } from "./database/database"
 import { EventV2 } from "./event"
 import { makeGlobalNode } from "./effect/app-node"
 import { SessionV2 } from "./session"
+import { SessionMessage } from "./session/message"
 import { ProjectV2 } from "./project"
 import { SessionSchema } from "./session/schema"
 import { TaskOrchestratorRunTable, TaskOrchestratorStepTable, TaskOrchestratorTaskTable } from "./task-orchestrator/sql"
@@ -121,6 +123,36 @@ const prompts: Record<Role, string> = {
   finalizer: "You are the finalizer. Summarize the verified result, changed files, risks, and follow-up actions.",
 }
 
+const assistantText = (context: ReadonlyArray<SessionMessage.Message>, promptID?: SessionMessage.ID) => {
+  const start = promptID === undefined ? 0 : Math.max(0, context.findIndex((message) => message.id === promptID) + 1)
+  return context
+    .slice(start)
+    .findLast((message): message is SessionMessage.Assistant => message.type === "assistant")
+    ?.content.filter((part): part is SessionMessage.AssistantText => part.type === "text")
+    .map((part) => part.text)
+    .join("")
+}
+
+const roleOutput = Effect.fnUntraced(function* (
+  session: SessionV2.Interface,
+  sessionID: SessionSchema.ID,
+  promptID: SessionMessage.ID,
+) {
+  yield* session.active.pipe(Effect.repeat({ until: (active) => !active.has(sessionID) }))
+  return assistantText(yield* session.context(sessionID), promptID) ?? ""
+})
+
+const rolePrompt = (role: Role, prompt: string, prior: ReadonlyArray<readonly [Role, string]> = []) =>
+  [
+    prompts[role],
+    "This is a fresh orchestration step. Produce only the new result required by your role.",
+    "User task:",
+    prompt,
+    ...(prior.length
+      ? ["Completed orchestration steps:", ...prior.map(([item, output]) => `${item}:\n${output}`)]
+      : []),
+  ].join("\n\n")
+
 export const RoleAgents: Record<Role, string> = {
   planner: "orchestrator-readonly",
   worker: "build",
@@ -140,6 +172,8 @@ export const layer = Layer.effect(
     const tester = yield* TesterSessionBridge.Service
     const controls = new Map<string, "pause" | "abort" | "retry">()
     const audits = new Map<string, ReadonlyArray<string>>()
+    const privateSessions = new Map<string, SessionSchema.ID>()
+    const completedSteps = new Map<string, Array<readonly [Role, string]>>()
 
     const get = Effect.fn("TaskOrchestrator.get")(function* (taskID: string) {
       const row = yield* db.select().from(TaskOrchestratorTaskTable).where(eq(TaskOrchestratorTaskTable.id, taskID)).get().pipe(Effect.orDie)
@@ -196,21 +230,40 @@ export const layer = Layer.effect(
           taskID,
           runner: {
             output: ({ role, prompt }) => Effect.gen(function* () {
+              const selectedRole = role as Role
               const step = yield* db.select().from(TaskOrchestratorStepTable).where(eq(TaskOrchestratorStepTable.task_id, taskID)).all().pipe(Effect.orDie)
               const selected = step.find((item) => item.role === role)
-              yield* session.switchAgent({ sessionID: task.session_id, agent: RoleAgents[role as Role] })
-              if (selected) yield* session.switchModel({ sessionID: task.session_id, model: modelRef(selected.model) })
-              yield* session.prompt({ sessionID: task.session_id, prompt: { text: `${prompts[role as Role]}\n\nUser task:\n${prompt}` }, resume: false })
-              const context = yield* session.context(task.session_id)
-                const text = context.findLast((item): item is Extract<typeof item, { text: string }> => "text" in item && typeof item.text === "string")?.text
-              return text ?? JSON.stringify(context)
+              const visible = selectedRole === "finalizer"
+              const target = visible
+                ? task.session_id
+                : privateSessions.get(taskID) ??
+                  (yield* session.create({ location: info.location, model: info.model, agent: AgentV2.ID.make(RoleAgents[selectedRole]) })).id
+              if (!visible && !privateSessions.has(taskID)) privateSessions.set(taskID, target)
+              yield* session.switchAgent({ sessionID: target, agent: RoleAgents[selectedRole] })
+              if (selected) yield* session.switchModel({ sessionID: target, model: modelRef(selected.model) })
+              const admitted = yield* session.prompt({
+                sessionID: target,
+                prompt: { text: rolePrompt(selectedRole, prompt, visible ? completedSteps.get(taskID) ?? [] : []) },
+                delivery: "queue",
+                resume: false,
+              })
+              yield* session.resume(target).pipe(Effect.forkDetach)
+              const output = yield* roleOutput(session, target, admitted.id)
+              if (!visible) completedSteps.set(taskID, [...(completedSteps.get(taskID) ?? []), [selectedRole, output]])
+              return output
             }),
             schedule: (input) => scheduler.schedule(input),
             test: ({ prompt }) => tester.use({
               source: info,
               name: `${taskID}:tester`,
               run: (sessionID) => Effect.gen(function* () {
-                yield* session.prompt({ sessionID, prompt: { text: `${prompts.tester}\n\nUser task:\n${prompt}` }, resume: false })
+                const admitted = yield* session.prompt({
+                  sessionID,
+                  prompt: { text: rolePrompt("tester", prompt) },
+                  delivery: "queue",
+                  resume: false,
+                })
+                yield* session.resume(sessionID).pipe(Effect.forkDetach)
                 const isolated = yield* session.get(sessionID)
                 const changes = yield* TaskOrchestratorChanges.collect({
                   directory: isolated.location.directory,
@@ -220,9 +273,7 @@ export const layer = Layer.effect(
                   }),
                 }).pipe(Effect.orElseSucceed(() => []))
                 audits.set(sessionID, changes)
-                const context = yield* session.context(sessionID)
-              const text = context.findLast((item): item is Extract<typeof item, { text: string }> => "text" in item && typeof item.text === "string")?.text
-                return text ?? JSON.stringify(context)
+                return yield* roleOutput(session, sessionID, admitted.id)
               }),
             }),
             audit: ({ changes }) => Effect.sync(() => audits.set(taskID, changes)),
