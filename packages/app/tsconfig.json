@@ -15,6 +15,7 @@
     "strict": true,
     "noEmit": false,
     "emitDeclarationOnly": true,
+    "rootDir": "..",
     "outDir": "node_modules/.ts-dist",
     "isolatedModules": true,
     "paths": {
