@@ -66,7 +66,13 @@ describe("RelayAuth", () => {
         expect(state.unified).toBe(false)
         expect(state.hasUnifiedKey).toBe(false)
         expect(state.canRollback).toBe(false)
-        expect(state.vendors.map((vendor) => vendor.id)).toEqual([Relay.VendorID.chatgpt, Relay.VendorID.grok])
+        expect(state.vendors.map((vendor) => vendor.id)).toEqual([
+          Relay.VendorID.chatgpt,
+          Relay.VendorID.claude,
+          Relay.VendorID.gemini,
+          Relay.VendorID.grok,
+          Relay.VendorID.kimi,
+        ])
         expect(state.vendors.every((vendor) => vendor.hasKey === false && vendor.builtin)).toBe(true)
       }),
     ),

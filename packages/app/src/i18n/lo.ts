@@ -1271,4 +1271,7 @@ export const dict = {
   "workspace.reset.archived.many": "ເຊດຊັນ {{count}} ຈະຖືກເກັບໄວ້.",
   "workspace.reset.note": "ນີ້ຈະຣີເຊັດພື້ນທີ່ເຮັດວຽກໃຫ້ກົງກັບສາຂາເລີ່ມຕົ້ນ.",
   "dialog.usageExceeded.dontShowAgain": "ຢ່າສະແດງອີກ",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

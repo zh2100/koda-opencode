@@ -105,6 +105,7 @@ const getBase = (appId: string): Configuration => ({
     "resources/**/*",
     "!resources/opencode-cli*",
     "!resources/gdal/**/*",
+    "!resources/open-computer-use/**/*",
     ...excludeForeignNativeModules(),
   ],
   asarUnpack: ["**/*.node", "**/node_modules/@lydell/node-pty*/**"],
@@ -113,15 +114,11 @@ const getBase = (appId: string): Configuration => ({
       from: "resources/icons/",
       to: "icons/",
     },
-    ...(channel === "dev"
-      ? [
-          {
-            from: "resources/",
-            to: "",
-            filter: ["opencode-cli*"],
-          },
-        ]
-      : []),
+    {
+      from: "resources/",
+      to: "",
+      filter: ["opencode-cli*"],
+    },
     {
       from: "native/",
       to: "native/",
@@ -130,6 +127,10 @@ const getBase = (appId: string): Configuration => ({
     {
       from: "resources/windows-fetch-proxy.exe",
       to: "windows-fetch-proxy.exe",
+    },
+    {
+      from: "resources/open-computer-use/",
+      to: "open-computer-use/",
     },
     ...(bundleGdal ? [{ from: gdalResource, to: `gdal/${gdalTarget}` }] : []),
   ],

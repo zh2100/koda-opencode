@@ -1275,4 +1275,7 @@ export const dict = {
   "workspace.reset.archived.many": "សម័យ {{count}} នឹងត្រូវបានទុកក្នុងប័ណ្ណសារ។",
   "workspace.reset.note": "វានឹងកំណត់កន្លែងធ្វើការឡើងវិញដើម្បីផ្គូផ្គងសាខាលំនាំដើម។",
   "dialog.usageExceeded.dontShowAgain": "កុំបង្ហាញម្តងទៀត",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

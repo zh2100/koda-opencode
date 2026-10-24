@@ -164,6 +164,17 @@ describe("SessionV2.create", () => {
     }),
   )
 
+  it.effect("persists a renamed title through the existing updated event", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const created = yield* session.create({ location, title: "before" })
+
+      yield* session.setTitle({ sessionID: created.id, title: "after" })
+
+      expect(yield* session.get(created.id)).toMatchObject({ id: created.id, title: "after" })
+    }),
+  )
+
   it.effect("persists creation through the existing legacy created event", () =>
     Effect.gen(function* () {
       const session = yield* SessionV2.Service

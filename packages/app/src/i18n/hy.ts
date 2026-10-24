@@ -1290,4 +1290,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} նիստերը կարխիվացվեն։",
   "workspace.reset.note": "Սա կվերակայի աշխատանքային տարածքը, որպեսզի համապատասխանի լռելյայն ճյուղին:",
   "dialog.usageExceeded.dontShowAgain": "Այլևս չցուցադրել",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

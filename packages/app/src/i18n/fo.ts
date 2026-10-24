@@ -1281,4 +1281,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} setur verða arkiveraðar.",
   "workspace.reset.note": "Hetta nullstillar workspace til at passa til forsettu greinina.",
   "dialog.usageExceeded.dontShowAgain": "Vís ikki aftur",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

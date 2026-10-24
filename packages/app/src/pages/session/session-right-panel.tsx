@@ -110,7 +110,7 @@ export function SessionRightPanel(props: {
               }
             >
               <div class="min-h-0 flex-1 overflow-y-auto">
-                <TodoList todos={props.todos} />
+                <TodoList todos={props.todos} grouped />
               </div>
             </Show>
           </Match>

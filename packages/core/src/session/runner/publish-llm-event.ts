@@ -13,6 +13,11 @@ type Input = {
   readonly snapshot?: string
 }
 
+const reasoningTrace = (stage: string, data: Record<string, unknown>) => {
+  if (process.env.OPENCODE_REASONING_TRACE !== "1") return
+  console.debug("[reasoning-trace]", { stage, ...data })
+}
+
 const safe = (value: number | undefined) => Math.max(0, Number.isFinite(value) ? (value ?? 0) : 0)
 
 const tokens = (usage: Usage | undefined) => {
@@ -276,6 +281,12 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
         })
         return
       case "reasoning-delta":
+        reasoningTrace("publisher", {
+          sessionID: input.sessionID,
+          assistantMessageID: assistantMessageID,
+          reasoningID: event.id,
+          delta: event.text,
+        })
         yield* reasoning.append(event.id, event.text)
         yield* events.publish(SessionEvent.Reasoning.Delta, {
           sessionID: input.sessionID,

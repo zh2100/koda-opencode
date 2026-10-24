@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { SessionMessageInfo } from "@opencode-ai/client/promise"
+import type { SessionMessageInfo } from "@/utils/protocol-types"
 import { normalizeSessionMessages } from "./session-message"
 
 describe("normalizeSessionMessages", () => {
@@ -24,6 +24,11 @@ describe("normalizeSessionMessages", () => {
             source: { type: "inline" },
           },
           {
+            data: "data:image/png;base64,AAA",
+            mime: "image/png",
+            name: "screenshot.png",
+          },
+          {
             data: "ZXhwb3J0IHt9",
             mime: "text/plain",
             name: "client.ts",
@@ -40,8 +45,8 @@ describe("normalizeSessionMessages", () => {
         agent: "build",
         model: { id: "claude", providerID: "anthropic", variant: "high" },
         content: [
-          { type: "reasoning", text: "Thinking", time: { created: 4, completed: 5 } },
-          { type: "text", text: "Result" },
+          { id: "part_reasoning", type: "reasoning", text: "Thinking", time: { created: 4, completed: 5 } },
+          { id: "part_text", type: "text", text: "Result" },
           {
             type: "tool",
             id: "call_1",
@@ -50,7 +55,7 @@ describe("normalizeSessionMessages", () => {
               status: "completed",
               input: { filePath: "note.txt" },
               metadata: { title: "note.txt" },
-              content: [{ type: "text", text: "hello" }],
+               content: [{ type: "text", text: "hello" }],
             },
             time: { created: 5, ran: 6, completed: 7 },
           },
@@ -84,10 +89,16 @@ describe("normalizeSessionMessages", () => {
       "msg_3:text:0",
       "msg_3:file:0",
       "msg_3:file:1",
+      "msg_3:file:2",
       "msg_3:agent:0",
       "msg_5:compaction",
     ])
     expect(result.parts.get("msg_3")?.[2]).toMatchObject({
+      type: "file",
+      url: "data:image/png;base64,AAA",
+      source: undefined,
+    })
+    expect(result.parts.get("msg_3")?.[3]).toMatchObject({
       type: "file",
       source: {
         type: "file",
@@ -110,7 +121,7 @@ describe("normalizeSessionMessages", () => {
         type: "assistant",
         agent: "build",
         model: { id: "model", providerID: "provider" },
-        content: [{ type: "text", text: "orphan" }],
+         content: [{ id: "part_orphan", type: "text", text: "orphan" }],
         time: { created: 2 },
       },
     ] satisfies SessionMessageInfo[]
@@ -169,7 +180,7 @@ describe("normalizeSessionMessages", () => {
             state: {
               status: "completed",
               input: { path: "/repo/README.md", oldString: "old", newString: "new" },
-              content: [{ type: "text", text: "Edited file successfully" }],
+               content: [{ type: "text", text: "Edited file successfully" }],
               metadata: {
                 files: [
                   {

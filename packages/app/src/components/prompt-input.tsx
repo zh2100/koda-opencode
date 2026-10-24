@@ -76,7 +76,7 @@ import {
   type PromptInputSubmission,
 } from "./prompt-input/contracts"
 import { createPromptSubmit } from "./prompt-input/submit"
-import { CollaborationToggle } from "./prompt-input/collaboration-toggle"
+
 import { PromptPopover, type AtOption, type SlashCommand } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
@@ -295,7 +295,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .join("")
     return text.trim().length === 0 && imageAttachments().length === 0 && commentCount() === 0
   })
-  const stopping = createMemo(() => working() && blank())
+  const stopping = createMemo(() => working())
   const tip = () => {
     if (stopping()) {
       return (
@@ -601,12 +601,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     Object.values(sync().data.mcp_resource).map(
       (resource): AtOption => ({
         type: "resource",
-        name: resource.name,
+        name: resource.name ?? resource.uri,
         uri: resource.uri,
-        client: resource.server,
-        display: resource.name,
+        client: resource.server ?? "",
+        display: resource.name ?? resource.uri,
         description: resource.description,
-        mime: resource.mimeType,
+        mime: resource.mime,
       }),
     ),
   )
@@ -1612,7 +1612,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             />
 
             <div class="flex items-center gap-1 pointer-events-auto">
-              <Show when={collaboration()}>{(control) => <CollaborationToggle control={control()} />}</Show>
+
               <Show when={voice && store.mode === "normal"}>
                 <Tooltip
                   placement="top"

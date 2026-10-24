@@ -1250,4 +1250,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} ክፍለ-ጊዜዎች በማህደር ይቀመጣሉ።",
   "workspace.reset.note": "ይህ workspaceን ከነባሪው ቅርንጫፍ ጋር እንዲመሳሰል ዳግም ያስጀምረዋል።",
   "dialog.usageExceeded.dontShowAgain": "እንደገና አታሳይ",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

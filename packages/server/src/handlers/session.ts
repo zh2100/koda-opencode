@@ -1,4 +1,5 @@
 import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionTodo } from "@opencode-ai/core/session/todo"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
@@ -99,6 +100,49 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                     sessionID: error.sessionID,
                     message: `Session not found: ${error.sessionID}`,
                   }),
+              ),
+            ),
+          }
+        }),
+      )
+      .handle(
+        "session.remove",
+        Effect.fn(function* (ctx) {
+          yield* session.remove(ctx.params.sessionID).pipe(
+            Effect.catchTag("Session.NotFoundError", (error) =>
+              Effect.fail(
+                new SessionNotFoundError({
+                  sessionID: error.sessionID,
+                  message: `Session not found: ${error.sessionID}`,
+                }),
+              ),
+            ),
+          )
+          return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle(
+        "session.update",
+        Effect.fn(function* (ctx) {
+          yield* session.setTitle({ sessionID: ctx.params.sessionID, title: ctx.payload.title }).pipe(
+            Effect.catchTag("Session.NotFoundError", (error) =>
+              Effect.fail(
+                new SessionNotFoundError({
+                  sessionID: error.sessionID,
+                  message: `Session not found: ${error.sessionID}`,
+                }),
+              ),
+            ),
+          )
+          return {
+            data: yield* session.get(ctx.params.sessionID).pipe(
+              Effect.catchTag("Session.NotFoundError", (error) =>
+                Effect.fail(
+                  new SessionNotFoundError({
+                    sessionID: error.sessionID,
+                    message: `Session not found: ${error.sessionID}`,
+                  }),
+                ),
               ),
             ),
           }
@@ -299,6 +343,13 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
             ),
           )
           return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle(
+        "session.todo",
+        Effect.fn(function* (ctx) {
+          const todos = yield* SessionTodo.Service
+          return { data: yield* todos.get(ctx.params.sessionID) }
         }),
       )
       .handle(

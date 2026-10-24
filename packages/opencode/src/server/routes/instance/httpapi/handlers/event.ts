@@ -22,6 +22,17 @@ function eventID() {
   return EventV2.ID.create()
 }
 
+const reasoningTrace = (stage: string, event: EventV2.Payload) => {
+  if (process.env.OPENCODE_REASONING_TRACE !== "1") return
+  if (event.type !== "session.next.reasoning.delta") return
+  console.debug("[reasoning-trace]", {
+    stage,
+    eventID: event.id,
+    eventType: event.type,
+    data: event.data,
+  })
+}
+
 function eventResponse(events: EventV2.Interface) {
   return Effect.gen(function* () {
     const instance = yield* InstanceState.context
@@ -37,7 +48,10 @@ function eventResponse(events: EventV2.Interface) {
           event.location?.directory === instance.directory &&
           (event.location.workspaceID === undefined || event.location.workspaceID === workspaceID),
       ),
-      Stream.map((event) => ({ id: event.id, type: event.type, properties: event.data })),
+       Stream.map((event) => {
+         reasoningTrace("sse", event)
+         return { id: event.id, type: event.type, properties: event.data }
+       }),
     )
     const disposed = Stream.callback<{ id: string; type: string; properties: unknown }>((queue) => {
       const listener = (event: {

@@ -34,7 +34,10 @@ it.live("reads, persists, and clears relay vendor auth through the default v1 ro
     const initial = yield* request(HttpClientRequest.get("/api/relay/auth"))
     expect(initial.vendors).toEqual([
       expect.objectContaining({ id: "chatgpt", name: "ChatGPT", builtin: true, hasKey: false }),
+      expect.objectContaining({ id: "claude", name: "Claude", builtin: true, hasKey: false }),
+      expect.objectContaining({ id: "gemini", name: "Gemini", builtin: true, hasKey: false }),
       expect.objectContaining({ id: "grok", name: "Grok", builtin: true, hasKey: false }),
+      expect.objectContaining({ id: "kimi", name: "Kimi", builtin: true, hasKey: false }),
     ])
 
     const saved = yield* request(

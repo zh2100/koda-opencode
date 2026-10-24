@@ -13,6 +13,7 @@ describe("TaskOrchestratorWorkerSchedulerService", () => {
       prompt: (input) => Effect.sync(() => calls.push(input)).pipe(
         Effect.andThen(Effect.fail(new SessionV2.NotFoundError({ sessionID }))),
       ),
+      resume: () => Effect.void,
     })
     const transitions: TaskOrchestratorRetry.Transition[] = [
       { action: "continue", stepStatus: "completed", taskStatus: "pending", runStatus: "completed", retryCount: 0 },
@@ -28,16 +29,24 @@ describe("TaskOrchestratorWorkerSchedulerService", () => {
 
   test("passes revision input and preserves Session errors", async () => {
     const calls: Parameters<SessionV2.Interface["prompt"]>[0][] = []
+    const resumed: string[] = []
     const sessionID = SessionSchema.ID.make("ses_worker")
     const error = new SessionV2.NotFoundError({ sessionID })
     const service = TaskOrchestratorWorkerSchedulerService.make({
       prompt: (input) => Effect.sync(() => calls.push(input)).pipe(Effect.andThen(Effect.fail(error))),
+      resume: (id) => Effect.sync(() => resumed.push(id)),
     })
     const result = await Effect.runPromise(service.schedule({
       sessionID,
       transition: { action: "revise", stepStatus: "needs_revision", taskStatus: "pending", runStatus: "needs_revision", retryCount: 2, workerPrompt: "Fix validation" },
     }).pipe(Effect.flip))
     expect(result).toBe(error)
-    expect(calls).toEqual([{ sessionID, prompt: { text: "Worker revision #2:\n\nFix validation" } }])
+    expect(calls).toEqual([{
+      sessionID,
+      prompt: { text: "Worker revision #2:\n\nFix validation" },
+      delivery: "queue",
+      resume: false,
+    }])
+    expect(resumed).toEqual([])
   })
 })

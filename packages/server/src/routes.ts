@@ -12,6 +12,8 @@ import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { PtyTicket } from "@opencode-ai/core/pty/ticket"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
+import { TaskOrchestrator } from "@opencode-ai/core/task-orchestrator"
+import { TesterIsolation } from "@opencode-ai/core/tester-isolation"
 import { LocationServiceMap } from "@opencode-ai/core/location-service-map"
 import { SessionExecutionLocal } from "@opencode-ai/core/session/execution/local"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
@@ -22,10 +24,12 @@ import { Api } from "./api"
 import { ServerAuth } from "./auth"
 import { handlers } from "./handlers"
 import { authorizationLayer } from "./middleware/authorization"
+import { corsLayer } from "./middleware/cors"
 import { schemaErrorLayer } from "./middleware/schema-error"
 import { PtyEnvironment } from "./pty-environment"
 import { layer as locationLayer } from "./location"
 import { sessionLocationLayer } from "./middleware/session-location"
+import { ServerTesterIsolation } from "./tester-isolation"
 
 const applicationServices = LayerNode.group([
   Database.node,
@@ -42,6 +46,7 @@ const applicationServices = LayerNode.group([
   ScheduledTaskStore.node,
   PtyEnvironment.node,
   LocationServiceMap.node,
+  TaskOrchestrator.node,
 ])
 
 export function createRoutes(password?: string) {
@@ -57,7 +62,10 @@ export function createEmbeddedRoutes() {
 }
 
 function makeRoutes<AuthError, AuthServices>(auth: Layer.Layer<ServerAuth.Config, AuthError, AuthServices>) {
-  const serviceLayer = AppNodeBuilder.build(applicationServices, [[SessionExecution.node, SessionExecutionLocal.node]])
+  const serviceLayer = AppNodeBuilder.build(applicationServices, [
+    [SessionExecution.node, SessionExecutionLocal.node],
+    [TesterIsolation.node, ServerTesterIsolation.node],
+  ])
 
   return HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
     Layer.provide(handlers),
@@ -65,6 +73,7 @@ function makeRoutes<AuthError, AuthServices>(auth: Layer.Layer<ServerAuth.Config
     Layer.provide(locationLayer),
     Layer.provide(authorizationLayer),
     Layer.provide(schemaErrorLayer),
+    Layer.provide(corsLayer),
     Layer.provide(auth),
     Layer.provide(serviceLayer),
   )

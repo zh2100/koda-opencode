@@ -99,7 +99,10 @@ export function selectUserMessages(messages: Message[]) {
 }
 
 export function isTimelineReady(messages: Message[] | undefined, loading: boolean) {
-  return messages !== undefined && (messages.some((message) => message.role === "user") || !loading)
+  return (
+    messages !== undefined &&
+    (messages.length === 0 || messages.some((message) => message.role === "user") || !loading)
+  )
 }
 
 export function selectVisibleUserMessages(messages: UserMessage[], revertMessageID?: string) {

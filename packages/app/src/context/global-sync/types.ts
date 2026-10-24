@@ -13,11 +13,18 @@ import type {
   Todo,
   VcsInfo,
 } from "@opencode-ai/sdk/v2/client"
-import type { FileDiffInfo } from "@opencode-ai/client/promise"
+import type { FileDiffInfo } from "@/utils/protocol-types"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
-import type { CommandInfo, McpResource, McpServer, SessionMessageInfo } from "@opencode-ai/client/promise"
+import type { SessionMessageInfo } from "@/utils/protocol-types"
 import type { Accessor } from "solid-js"
 import type { SetStoreFunction, Store } from "solid-js/store"
+
+export type CommandInfo = { name: string; description?: string; template?: string }
+export type McpServer = {
+  status: "connected" | "needs_auth" | "disabled" | "failed" | "pending" | "needs_client_registration"
+  error?: string
+}
+export type McpResource = { uri: string; name?: string; description?: string; mime?: string; server?: string }
 
 export type ProjectMeta = {
   name?: string
@@ -62,7 +69,7 @@ export type State = {
   }
   mcp_ready: boolean
   mcp: {
-    [name: string]: McpServer["status"]
+    [name: string]: McpServer
   }
   mcp_resource: {
     [key: string]: McpResource

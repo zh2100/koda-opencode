@@ -15,8 +15,10 @@ import type { PromptInputProps } from "@/components/prompt-input/contracts"
 import { normalizePromptHistoryEntry, promptLength, type PromptHistoryComment } from "@/components/prompt-input/history"
 import { createPersistedPromptInputHistory } from "@/components/prompt-input/history-store"
 import { promptDesignPlaceholder, promptPlaceholder } from "@/components/prompt-input/placeholder"
-import { createPromptSubmit } from "@/components/prompt-input/submit"
 import { CollaborationToggle } from "@/components/prompt-input/collaboration-toggle"
+import { ComputerUseToggle } from "@/components/prompt-input/computer-use-toggle"
+import { createPromptSubmit } from "@/components/prompt-input/submit"
+
 import { selectionFromLines, type SelectedLineRange, useFile } from "@/context/file"
 import { useComments } from "@/context/comments"
 import { useCommand } from "@/context/command"
@@ -91,7 +93,13 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
             {(controller) => <PromptProjectSelector controller={controller()} />}
           </Show>
         }
-        trailingControl={<CollaborationToggle control={props.controller.collaboration} />}
+        trailingControl={
+          <>
+            <ComputerUseToggle />
+            <CollaborationToggle control={props.controller.collaboration} />
+          </>
+        }
+
         onVoice={voice ? toggleVoice : undefined}
         voiceListening={listening()}
         voiceLabel={language.t("prompt.action.voice")}
@@ -158,14 +166,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     if (mode() === "shell") return 0
     return prompt.context.items().filter((item) => !!item.comment?.trim()).length
   })
-  const blank = createMemo(() => {
-    const text = prompt
-      .current()
-      .map((part) => ("content" in part ? part.content : ""))
-      .join("")
-    return text.trim().length === 0 && attachments().length === 0 && commentCount() === 0
-  })
-  const stopping = createMemo(() => working() && blank())
+  const stopping = createMemo(() => working())
   const placeholder = createMemo(() =>
     promptPlaceholder({
       mode: mode(),
@@ -289,7 +290,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     Object.values(sync().data.mcp_resource).map((resource) => ({
       id: `resource:${resource.server}:${resource.uri}`,
       kind: "resource" as const,
-      label: `@${resource.name}`,
+       label: `@${resource.name ?? resource.uri}`,
       path: resource.uri,
       description: resource.description,
       mention: {
@@ -298,20 +299,20 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
         content: `@${resource.name}`,
         start: 0,
         end: 0,
-        mime: resource.mimeType ?? "text/plain",
-        filename: resource.name,
+         mime: resource.mime ?? "text/plain",
+        filename: resource.name ?? resource.uri,
         url: resource.uri,
         source: {
           type: "resource" as const,
-          text: { value: `@${resource.name}`, start: 0, end: resource.name.length + 1 },
+         text: { value: `@${resource.name ?? resource.uri}`, start: 0, end: (resource.name ?? resource.uri).length + 1 },
           clientName: resource.server,
           uri: resource.uri,
         },
       },
-      resource,
+       resource,
     })),
   )
-  const context = createMemo<PromptInputV2Suggestion[]>(() => [
+  const context = createMemo(() => [
     ...references(),
     ...props.controls.agents.available
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
@@ -330,7 +331,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       recent: true,
       mention: { type: "file" as const, path, content: `@${path}`, start: 0, end: 0 },
     })),
-  ])
+  ].map((item) => item as PromptInputV2Suggestion))
   const slashCommands = createMemo(() => [
     ...sync().data.command.map((item) => ({
       id: `custom.${item.name}`,

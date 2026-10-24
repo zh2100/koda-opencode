@@ -40,7 +40,10 @@ type Draft = DeepMutable<typeof Stored.Type>
 
 const builtin = [
   { id: Relay.VendorID.chatgpt, name: "ChatGPT" },
+  { id: Relay.VendorID.claude, name: "Claude" },
+  { id: Relay.VendorID.gemini, name: "Gemini" },
   { id: Relay.VendorID.grok, name: "Grok" },
+  { id: Relay.VendorID.kimi, name: "Kimi" },
 ] as const
 
 const initialVendors = (): Record<string, DraftVendor> =>
@@ -68,6 +71,9 @@ const MIGRATION_VERSION = 1
 const vendorFromProvider = (id: string) => {
   if (id === "openai" || id === "chatgpt") return Relay.VendorID.chatgpt
   if (id === "xai" || id === "grok") return Relay.VendorID.grok
+  if (id === "google" || id === "gemini") return Relay.VendorID.gemini
+  if (id === "anthropic" || id === "claude") return Relay.VendorID.claude
+  if (id === "moonshot" || id === "kimi") return Relay.VendorID.kimi
 }
 
 export interface Interface {

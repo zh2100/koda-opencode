@@ -46,9 +46,11 @@ import { createWslServersController } from "./wsl/servers"
 import { registerWslIpcHandlers } from "./wsl/ipc"
 import { spawnWslSidecar } from "./wsl/sidecar"
 import { migrate } from "./migrate"
+import { migrateLegacyUserData } from "./user-data"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { startBackgroundCli } from "./background-cli"
 import { setNativeTranslations } from "./native-translations"
+import { configureComputerUse } from "./computer-use"
 import { configureGdalRuntime } from "./gdal"
 
 const APP_NAMES: Record<string, string> = {
@@ -59,10 +61,14 @@ const APP_NAMES: Record<string, string> = {
 const APP_IDS: Record<string, string> = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
+  // Keep the Koda profile separate from OpenCode so both apps can run and hold
+  // their own single-instance lock without sharing stores.
+  prod: "com.shuyuanai.koda.desktop",
 }
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
-const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
+// Packaged desktop builds use the v2 service by default. Development keeps the
+// opt-in switch so legacy local sidecar workflows remain available.
+const SIDECAR_VERSION = app.isPackaged || process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
 let logger: ReturnType<typeof initLogging>
@@ -91,6 +97,14 @@ async function killSidecar() {
   const current = server
   server = null
   await current.stop()
+}
+
+async function restartSidecar() {
+  if (SIDECAR_VERSION !== "v2") return
+  await killSidecar()
+  configureComputerUse()
+  const sidecar = await startBackgroundCli(logger, process.env.XDG_STATE_HOME)
+  server = { stop: sidecar.stop }
 }
 
 function ensureLoopbackNoProxy() {
@@ -148,8 +162,15 @@ const main = Effect.gen(function* () {
     onboardingTestRoot ? join(onboardingTestRoot, "desktop") : join(app.getPath("appData"), appId),
   )
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
+  const migratedUserData =
+    onboardingTestRoot || !app.isPackaged || CHANNEL !== "prod"
+      ? []
+      : migrateLegacyUserData(app.getPath("userData"))
   initializeOldLayoutEligibility(app.getPath("userData"))
   logger = initLogging()
+  if (migratedUserData.length > 0) {
+    logger.log("migrated legacy desktop data", { count: migratedUserData.length, files: migratedUserData })
+  }
   initCrashReporter()
 
   const wslServers = createWslServersController(
@@ -205,6 +226,7 @@ const main = Effect.gen(function* () {
 
   const shellEnv = preferAppEnv(app.getPath("userData"))
   configureGdalRuntime()
+  configureComputerUse()
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
@@ -286,6 +308,7 @@ const main = Effect.gen(function* () {
   }
   registerIpcHandlers({
     killSidecar: () => killSidecar(),
+    restartSidecar: () => restartSidecar(),
     relaunch,
     awaitInitialization: Effect.fnUntraced(
       function* () {
@@ -337,6 +360,7 @@ const main = Effect.gen(function* () {
     if (SIDECAR_VERSION === "v2") {
       logger.log("spawning v2 sidecar")
       const sidecar = yield* Effect.promise(() => startBackgroundCli(logger, shellEnv?.XDG_STATE_HOME))
+      server = { stop: sidecar.stop }
       yield* Deferred.succeed(serverReady, {
         url: sidecar.url,
         username: sidecar.username,

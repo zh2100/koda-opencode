@@ -2,6 +2,7 @@ import { createEffect, createMemo, createRoot, getOwner, onCleanup } from "solid
 import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import type { PermissionRequest } from "@opencode-ai/sdk/v2/client"
+import type { PermissionV2Request } from "@opencode-ai/sdk/v2/client"
 import { Persist, persisted } from "@/utils/persist"
 import type { ServerSDK } from "@/context/server-sdk"
 import type { ServerSync } from "./server-sync"
@@ -245,12 +246,11 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
 
   const respond: PermissionRespondFn = (request) => {
     if (meta.disposed) return
-    input.sdk.api.permission
+    input.sdk.api.permissions
       .reply({
         sessionID: request.sessionID,
         requestID: request.permissionID,
         reply: request.response,
-        location: request.directory ? { directory: request.directory } : undefined,
       })
       .catch(() => {
         responded.delete(request.permissionID)
@@ -261,9 +261,9 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
     if ((await input.sdk.protocol) === "v1") {
       return (await input.sdk.client.permission.list({ directory })).data ?? []
     }
-    return input.sdk.api.permission.request
-      .list({ location: { directory } })
-      .then((result) => result.data.map(normalizePermissionRequest))
+    return input.sdk.api.permissions
+      .listRequests({ location: { directory } })
+       .then((result) => (result.data ?? []).map((item) => normalizePermissionRequest({ ...item, resources: [...item.resources] } as PermissionV2Request)))
   }
 
   function respondOnce(permission: PermissionRequest, directory?: string) {

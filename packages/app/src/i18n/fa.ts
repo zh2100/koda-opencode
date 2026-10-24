@@ -1281,4 +1281,7 @@ export const dict = {
   "workspace.reset.archived.many": "جلسات {{count}} بایگانی خواهد شد.",
   "workspace.reset.note": "این کار فضای کاری را برای مطابقت با شاخه پیش فرض بازنشانی می کند.",
   "dialog.usageExceeded.dontShowAgain": "دیگر نشان نده",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

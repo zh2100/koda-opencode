@@ -73,7 +73,7 @@ const empty = (): Draft => ({ candidates: [], managed: [], requestVersion: 0 })
 
 export const modelID = (vendorId: string, upstreamID: string) =>
   Model.ID.make(
-    vendorId === "chatgpt" || vendorId === "grok" ? upstreamID : `custom:${vendorId}:${encodeURIComponent(upstreamID)}`,
+    ["chatgpt", "claude", "gemini", "grok", "kimi"].includes(vendorId) ? upstreamID : `custom:${vendorId}:${encodeURIComponent(upstreamID)}`,
   )
 
 const prefixes: Record<string, RegExp> = {

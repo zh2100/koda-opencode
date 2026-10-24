@@ -9,10 +9,12 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { TaskOrchestrator } from "@opencode-ai/core/task-orchestrator"
 import { TaskOrchestratorStepTable, TaskOrchestratorTaskTable } from "@opencode-ai/core/task-orchestrator/sql"
 import { TesterSessionBridge } from "@opencode-ai/core/tester-session-bridge"
 import { WorkspaceOwnership } from "@opencode-ai/core/workspace-ownership"
+import { Git } from "@opencode-ai/core/git"
 import { TaskOrchestratorWorkerSchedulerService } from "@opencode-ai/core/task-orchestrator/worker-scheduler-service"
 
 const sqlite = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
@@ -22,6 +24,7 @@ describe("TaskOrchestrator end to end", () => {
   test("creates, switches models, and completes", async () => {
     const calls: string[] = []
     const prompts: Array<{ sessionID: string; text: string }> = []
+    const notices: string[] = []
     const session = SessionSchema.ID.make("ses")
     const info = {
       id: session,
@@ -47,7 +50,7 @@ describe("TaskOrchestrator end to end", () => {
       Effect.provide(TaskOrchestrator.layer),
       Effect.provide(Layer.mergeAll(
         Layer.effect(Database.Service, makeDb.pipe(Effect.map((db) => ({ db })))),
-        Layer.succeed(SessionV2.Service, {
+         Layer.succeed(SessionV2.Service, {
           get: (id: SessionSchema.ID) => Effect.succeed(id === session ? info : { ...info, id, location: { directory: "C:/isolated" } }),
           create: () => Effect.sync(() => {
             calls.push("private-session")
@@ -56,19 +59,28 @@ describe("TaskOrchestrator end to end", () => {
           interrupt: () => Effect.void,
           switchAgent: ({ sessionID, agent }: { sessionID: SessionSchema.ID; agent: string }) => Effect.sync(() => calls.push(`agent:${sessionID}:${agent}`)),
           switchModel: ({ sessionID, model }: { sessionID: SessionSchema.ID; model: ModelV2.Ref }) => Effect.sync(() => calls.push(`model:${sessionID}:${model.providerID}/${model.id}`)),
+          notice: ({ text }: { text: string }) => Effect.sync(() => notices.push(text)),
+          recordPrompt: () => Effect.succeed("prompt-message"),
            prompt: ({ sessionID, prompt }: { sessionID: SessionSchema.ID; prompt: { text: string } }) => Effect.sync(() => {
              prompts.push({ sessionID, text: prompt.text })
              return { id: "prompt" }
            }),
            resume: () => Effect.void,
            active: Effect.succeed(new Set()),
-           context: () => Effect.succeed([{ type: "assistant", content: [{ type: "text", id: "text", text: '{"approved":true,"findings":[]}' }] }]),
-        } as never),
+           context: () => Effect.succeed([{
+             id: "assistant",
+             type: "assistant",
+             time: { created: Date.now(), completed: Date.now() },
+             content: [{ type: "text", id: "text", text: '{"approved":true,"findings":[]}' }],
+           }]),
+         } as never),
+         SessionExecution.noopLayer,
         WorkspaceOwnership.layer,
         Layer.succeed(TaskOrchestratorWorkerSchedulerService.Service, { schedule: () => Effect.sync(() => calls.push("schedule")) } as never),
         Layer.succeed(TesterSessionBridge.Service, {
           use: ({ run }: { run: (id: SessionSchema.ID) => Effect.Effect<unknown> }) => run(SessionSchema.ID.make("ses_tester")),
         } as never),
+        Layer.succeed(Git.Service, { repo: { discover: () => Effect.succeed(undefined) } } as never),
       )),
       Effect.provide(sqlite),
       Effect.scoped,
@@ -79,9 +91,12 @@ describe("TaskOrchestrator end to end", () => {
     expect(calls).toContain("model:ses_private:openai/gpt-5")
     expect(calls).toContain("model:ses_private:openai/review")
     expect(calls.filter((item) => item === "private-session")).toHaveLength(1)
-    expect(prompts.filter((item) => item.sessionID === session).map((item) => item.text)).toHaveLength(1)
-    expect(prompts.find((item) => item.sessionID === session)?.text).toContain("planner:")
-    expect(prompts.find((item) => item.sessionID === session)?.text).toContain("worker:")
+    expect(prompts.filter((item) => item.sessionID === session)).toHaveLength(0)
+    const finalPrompt = prompts.find((item) => item.text.includes("You are the finalizer"))
+    expect(finalPrompt?.sessionID).toBe("ses_private")
+    expect(finalPrompt?.text).toContain("planner:")
+    expect(finalPrompt?.text).toContain("worker:")
+    expect(notices.some((text) => text.includes("Finalizer completed"))).toBe(true)
     expect(calls).not.toContain("schedule")
   })
 })

@@ -14,9 +14,9 @@ export const todoState = (input: {
   count: number
   done: boolean
   live: boolean
-}): "hide" | "clear" | "open" | "close" => {
+}): "hide" | "open" | "close" => {
   if (input.count === 0) return "hide"
-  if (!input.live) return "clear"
+  if (!input.live) return "close"
   if (!input.done) return "open"
   return "close"
 }
@@ -82,7 +82,7 @@ export function createSessionComposerController(options?: { closeMs?: number | (
 
     setStore("responding", perm.id)
     sdk()
-      .api.permission.reply({ sessionID: perm.sessionID, requestID: perm.id, reply: response })
+      .api.permissions.reply({ sessionID: perm.sessionID, requestID: perm.id, reply: response })
       .catch((err: unknown) => {
         const description = err instanceof Error ? err.message : String(err)
         showToast({ title: language.t("common.requestFailed"), description })
@@ -110,13 +110,6 @@ export function createSessionComposerController(options?: { closeMs?: number | (
     }, closeMs())
   }
 
-  // Keep stale turn todos from reopening if the model never clears them.
-  const clear = () => {
-    const id = params.id
-    if (!id) return
-    sync().set("todo", id, [])
-  }
-
   createEffect(
     on(
       () => [params.id, todos().length, done(), live()] as const,
@@ -134,7 +127,6 @@ export function createSessionComposerController(options?: { closeMs?: number | (
           if (timer) window.clearTimeout(timer)
           timer = undefined
           setStore({ sessionID: id, dock: todoDockAtBoundary(next), closing: false, opening: false })
-          if (next === "clear") clear()
           return
         }
 
@@ -142,13 +134,6 @@ export function createSessionComposerController(options?: { closeMs?: number | (
           if (timer) window.clearTimeout(timer)
           timer = undefined
           setStore({ dock: false, closing: false, opening: false })
-          return
-        }
-
-        if (next === "clear") {
-          if (timer) window.clearTimeout(timer)
-          timer = undefined
-          clear()
           return
         }
 

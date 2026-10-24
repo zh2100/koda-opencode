@@ -68,7 +68,7 @@ export function DialogCreateProject(props: {
         return
       }
     }
-    const listed = await ctx.sdk.api.file
+    const listed = await ctx.sdk.api.files
       .list({ path: ".", location: { directory } })
       .then((result) => result.data)
       .catch(() => undefined)

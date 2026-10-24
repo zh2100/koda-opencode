@@ -205,7 +205,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
     const search = (query: string, dirs: "true" | "false", options?: { limit?: number; signal?: AbortSignal }) =>
       serverSDK()
-        .api.file.find(
+        .api.files.find(
           {
             location: { directory: sdk().directory },
             query,

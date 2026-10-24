@@ -1295,4 +1295,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} sesijos bus archyvuojamos.",
   "workspace.reset.note": "Tai iš naujo nustatys darbo sritį, kad ji atitiktų numatytąją šaką.",
   "dialog.usageExceeded.dontShowAgain": "Daugiau nerodyti",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

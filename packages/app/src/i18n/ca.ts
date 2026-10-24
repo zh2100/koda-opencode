@@ -1300,4 +1300,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} sessions s'arxivaran.",
   "workspace.reset.note": "Això restablirà l'espai de treball perquè coincideixi amb la branca predeterminada.",
   "dialog.usageExceeded.dontShowAgain": "No ho tornis a mostrar",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

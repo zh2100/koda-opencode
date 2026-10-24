@@ -2,6 +2,8 @@
 
 Koda 是数元AI打造的 AI 编程桌面应用，将项目管理、AI 对话、代码修改和终端工具整合到同一个工作空间，帮助你理解项目、编写代码和排查问题。
 
+Koda 面向日常开发工作流，让项目上下文、代码修改和终端操作始终处于同一个桌面工作空间。
+
 当前版本：**v1.0.0**。
 
 [下载安装](https://github.com/zh2100/koda-opencode/releases/tag/Koda) · [GitHub 仓库](https://github.com/zh2100/koda-opencode) · [报告问题](https://github.com/zh2100/koda-opencode/issues/new)

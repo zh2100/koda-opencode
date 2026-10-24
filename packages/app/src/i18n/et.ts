@@ -1275,4 +1275,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} seanssi arhiivitakse.",
   "workspace.reset.note": "See lähtestab tööruumi, et see vastaks vaikeharule.",
   "dialog.usageExceeded.dontShowAgain": "Ära kuva enam",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

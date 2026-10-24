@@ -28,5 +28,7 @@ resources/opencode-cli*
 resources/icons
 resources/*.metainfo.xml
 resources/gdal/
+resources/open-computer-use/
 vendor/gdal/
 .cache/gdal/
+.cache/open-computer-use/

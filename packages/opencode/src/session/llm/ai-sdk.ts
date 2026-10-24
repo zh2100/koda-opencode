@@ -7,6 +7,11 @@ import { ProviderError } from "@/provider/error"
 type Result = Awaited<ReturnType<typeof streamText>>
 type AISDKEvent = Result["fullStream"] extends AsyncIterable<infer T> ? T : never
 
+const reasoningTrace = (stage: string, data: Record<string, unknown>) => {
+  if (process.env.OPENCODE_REASONING_TRACE !== "1") return
+  console.debug("[reasoning-trace]", { stage, ...data })
+}
+
 export function adapterState() {
   return {
     step: 0,
@@ -170,13 +175,17 @@ export function toLLMEvents(
       })
 
     case "reasoning-delta":
-      return Effect.succeed([
-        LLMEvent.reasoningDelta({
-          id: currentReasoningID(state, event.id),
-          text: event.text,
-          providerMetadata: providerMetadata(event.providerMetadata),
-        }),
-      ])
+      return Effect.sync(() => {
+        const id = currentReasoningID(state, event.id)
+        reasoningTrace("ai-sdk", { id, delta: event.text })
+        return [
+          LLMEvent.reasoningDelta({
+            id,
+            text: event.text,
+            providerMetadata: providerMetadata(event.providerMetadata),
+          }),
+        ]
+      })
 
     case "reasoning-end":
       return Effect.sync(() => {

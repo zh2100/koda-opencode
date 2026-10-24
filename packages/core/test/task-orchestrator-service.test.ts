@@ -8,10 +8,12 @@ import { DatabaseMigration } from "@opencode-ai/core/database/migration"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { TaskOrchestrator } from "@opencode-ai/core/task-orchestrator"
 import { TaskOrchestratorStepTable, TaskOrchestratorTaskTable } from "@opencode-ai/core/task-orchestrator/sql"
 import { TesterSessionBridge } from "@opencode-ai/core/tester-session-bridge"
 import { WorkspaceOwnership } from "@opencode-ai/core/workspace-ownership"
+import { Git } from "@opencode-ai/core/git"
 import { TaskOrchestratorWorkerSchedulerService } from "@opencode-ai/core/task-orchestrator/worker-scheduler-service"
 
 const sqlite = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
@@ -50,10 +52,12 @@ describe("TaskOrchestrator service", () => {
         return yield* db.select().from(TaskOrchestratorTaskTable).where(eq(TaskOrchestratorTaskTable.id, action)).get().pipe(Effect.orDie)
       }).pipe(Effect.provide(TaskOrchestrator.layer.pipe(Layer.provide(Layer.mergeAll(
           Layer.succeed(Database.Service, { db }),
-          Layer.succeed(SessionV2.Service, { get: () => Effect.die("unused"), interrupt: () => Effect.void } as never),
+           Layer.succeed(SessionV2.Service, { get: () => Effect.die("unused"), interrupt: () => Effect.void } as never),
+           SessionExecution.noopLayer,
           WorkspaceOwnership.layer,
           Layer.succeed(TaskOrchestratorWorkerSchedulerService.Service, { schedule: () => Effect.void } as never),
           Layer.succeed(TesterSessionBridge.Service, { use: () => Effect.void } as never),
+          Layer.succeed(Git.Service, { repo: { discover: () => Effect.succeed(undefined) } } as never),
         ))))),
         ),
         Effect.provide(sqlite),

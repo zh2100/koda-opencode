@@ -1280,4 +1280,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} setur verða settar í geymslu.",
   "workspace.reset.note": "Þetta mun endurstilla vinnusvæðið til að passa við sjálfgefna útibúið.",
   "dialog.usageExceeded.dontShowAgain": "Ekki sýna aftur",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

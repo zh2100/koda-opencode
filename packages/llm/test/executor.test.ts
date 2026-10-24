@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect, Fiber, Layer, Random, Ref } from "effect"
 import * as TestClock from "effect/testing/TestClock"
-import { Headers, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { Headers, HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { LLM, LLMError } from "../src"
 import { LLMClient, RequestExecutor } from "../src/route"
 import * as OpenAIChat from "../src/protocols/openai-chat"
@@ -263,6 +263,52 @@ describe("RequestExecutor", () => {
         ]),
       ),
     ),
+  )
+
+  it.effect("retries transport failures before returning the stream", () =>
+    Effect.gen(function* () {
+      const attempts = yield* Ref.make(0)
+      return yield* Effect.gen(function* () {
+        const executor = yield* RequestExecutor.Service
+        const fiber = yield* executor.execute(request).pipe(Effect.forkChild)
+
+        yield* Effect.yieldNow
+        expect(yield* Ref.get(attempts)).toBe(1)
+
+        yield* TestClock.adjust(600)
+        const response = yield* Fiber.join(fiber)
+
+        expect(response.status).toBe(200)
+        expect(yield* response.text).toBe("ok")
+        expect(yield* Ref.get(attempts)).toBe(2)
+      }).pipe(
+        Effect.provide(
+          RequestExecutor.layer.pipe(
+            Layer.provide(
+              Layer.succeed(
+                HttpClient.HttpClient,
+                HttpClient.make((clientRequest) =>
+                  Effect.gen(function* () {
+                    const attempt = yield* Ref.updateAndGet(attempts, (value) => value + 1)
+                    if (attempt === 1) {
+                      return yield* Effect.fail(
+                        new HttpClientError.HttpClientError({
+                          reason: new HttpClientError.TransportError({
+                            request: clientRequest,
+                            description: "HTTP transport failed",
+                          }),
+                        }),
+                      )
+                    }
+                    return HttpClientResponse.fromWeb(clientRequest, new Response("ok", { status: 200 }))
+                  }),
+                ),
+              ),
+            ),
+          ),
+        ),
+      )
+    }).pipe(Effect.provideService(Random.Random, randomMidpoint)),
   )
 
   it.effect("marks 504 and 529 status responses retryable", () =>

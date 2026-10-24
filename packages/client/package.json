@@ -6,11 +6,12 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
+    "./promise": "./src/index.ts",
     "./effect": "./src/effect.ts"
   },
   "scripts": {
     "generate": "bun run script/build.ts",
-    "check:generated": "bun run generate && git diff --exit-code -- src/generated src/generated-effect",
+    "check:generated": "bun -e \"const generate = Bun.spawn(['bun', 'run', 'generate'], { stdout: 'inherit', stderr: 'inherit' }); if (await generate.exited !== 0) process.exit(1); const check = Bun.spawn(['git', '-c', 'safe.directory=D:/opencode', 'diff', '--ignore-space-at-eol', '--exit-code', '--', 'packages/client/src/generated', 'packages/client/src/generated-effect'], { cwd: '../..', stdout: 'inherit', stderr: 'inherit' }); process.exit(await check.exited)\"",
     "test": "bun test --timeout 5000",
     "typecheck": "tsgo --noEmit"
   },

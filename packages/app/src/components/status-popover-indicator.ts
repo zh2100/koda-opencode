@@ -1,12 +1,12 @@
 import type { LspStatus } from "@opencode-ai/sdk/v2/client"
-import type { McpServer } from "@opencode-ai/client/promise"
+type McpStatus = "connected" | "needs_auth" | "disabled" | "failed" | "pending" | "needs_client_registration"
 
-export function hasServiceNeedingAttention(input: { mcp: Array<McpServer["status"]["status"]> }) {
+export function hasServiceNeedingAttention(input: { mcp: Array<McpStatus> }) {
   return input.mcp.some((status) => status === "needs_auth" || status === "needs_client_registration")
 }
 
 export function hasNonBlockingServiceIssue(input: {
-  mcp: Array<McpServer["status"]["status"]>
+  mcp: Array<McpStatus>
   lsp: Array<LspStatus["status"]>
 }) {
   return (

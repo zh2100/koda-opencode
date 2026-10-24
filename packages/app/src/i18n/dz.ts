@@ -1306,4 +1306,7 @@ export const dict: Record<string, string> = {
   "workspace.reset.archived.many": "{{count}} ལཱ་ཡུན་ཚུ་ཡིག་མཛོད་ནང་བཞག་འོང་།",
   "workspace.reset.note": "འདི་གིས་ སྔོན་སྒྲིག་ཡན་ལག་མཐུན་སྒྲིག་འབད་ནི་ལུ་ ལཱ་གི་ས་སྒོ་འདི་སླར་སྒྲིག་འབད་འོང་།",
   "dialog.usageExceeded.dontShowAgain": "ལོག་སྟེ་མ་སྟོན།",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

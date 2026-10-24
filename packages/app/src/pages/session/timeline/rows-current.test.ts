@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test"
-import type { SessionMessageInfo } from "@opencode-ai/client/promise"
+import type { Message } from "@opencode-ai/sdk/v2/client"
+import type { SessionMessageInfo } from "@/utils/protocol-types"
 import { normalizeSessionMessages } from "@/utils/session-message"
 
 mock.module("@opencode-ai/session-ui/message-part", () => ({
@@ -23,7 +24,7 @@ describe("current session timeline rows", () => {
         type: "assistant",
         agent: "build",
         model: { id: "model", providerID: "provider" },
-        content: [{ type: "text", text: "answer" }],
+         content: [{ id: "part_2", type: "text", text: "answer" }],
         time: { created: 2, completed: 3 },
       },
       { id: "msg_3", type: "user", text: "second", time: { created: 4 } },
@@ -32,7 +33,7 @@ describe("current session timeline rows", () => {
         type: "assistant",
         agent: "build",
         model: { id: "model", providerID: "provider" },
-        content: [{ type: "reasoning", text: "working" }],
+         content: [{ id: "part_4", type: "reasoning", text: "working" }],
         time: { created: 5 },
       },
     ] satisfies SessionMessageInfo[]
@@ -100,7 +101,7 @@ describe("current session timeline rows", () => {
         type: "assistant",
         agent: "build",
         model: { id: "model", providerID: "provider" },
-        content: [{ type: "text", text: "first answer" }],
+         content: [{ id: "part_assistant_1", type: "text", text: "first answer" }],
         time: { created: 2, completed: 3 },
       },
       { id: "msg_user_2", type: "user", text: "second question", time: { created: 4 } },
@@ -109,7 +110,7 @@ describe("current session timeline rows", () => {
         type: "assistant",
         agent: "build",
         model: { id: "model", providerID: "provider" },
-        content: [{ type: "text", text: "second answer" }],
+         content: [{ id: "part_assistant_2", type: "text", text: "second answer" }],
         time: { created: 5, completed: 6 },
       },
     ] satisfies SessionMessageInfo[]
@@ -140,18 +141,18 @@ describe("current session timeline rows", () => {
       { id: "msg_z", type: "user", text: "existing", time: { created: 1 } },
     ] satisfies SessionMessageInfo[]
     const normalized = normalizeSessionMessages("ses_1", source)
-    const optimistic = {
+    const optimistic: Extract<Message, { role: "user" }> = {
       id: "msg_a",
       sessionID: "ses_1",
-      role: "user" as const,
+       role: "user" as const,
       time: { created: 2 },
       agent: "build",
-      model: { modelID: "model", providerID: "provider" },
+         model: { modelID: "model", providerID: "provider" },
     }
     const result = Timeline.constructSessionMessageRows(
       source,
       (messageID) =>
-        messageID === optimistic.id ? optimistic : normalized.messages.find((message) => message.id === messageID),
+         messageID === optimistic.id ? optimistic : normalized.messages.find((message) => message.id === messageID),
       () => [],
       true,
       "busy",
@@ -185,7 +186,7 @@ describe("current session timeline rows", () => {
         type: "assistant",
         agent: "build",
         model: { id: "model", providerID: "provider" },
-        content: [{ type: "text", text: "streaming again" }],
+         content: [{ id: "part_recovery", type: "text", text: "streaming again" }],
         time: { created: 4 },
       },
     ] satisfies SessionMessageInfo[]

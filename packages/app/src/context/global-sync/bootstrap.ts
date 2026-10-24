@@ -9,20 +9,8 @@ import type {
   ReferenceInfo,
   Session,
 } from "@opencode-ai/sdk/v2/client"
-import type {
-  AgentListInput,
-  AgentListOutput,
-  CatalogApi,
-  CommandInfo,
-  CommandListInput,
-  CommandListOutput,
-  ProjectCurrentInput,
-  ProjectCurrentOutput,
-  ProjectListOutput,
-  ReferenceListInput,
-  ReferenceListOutput,
-  SessionApi,
-} from "@opencode-ai/client/promise"
+import type { AgentsListInput, AgentsListOutput, CommandsListInput, CommandsListOutput, ModelsListOutput, ReferencesListInput, ReferencesListOutput } from "@opencode-ai/client"
+import type { CommandInfo } from "./types"
 import { showToast } from "@/utils/toast"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { retry } from "@opencode-ai/core/util/retry"
@@ -38,9 +26,9 @@ import {
   normalizeProviderList,
 } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
-import { CancelledError, QueryClient, queryOptions } from "@tanstack/solid-query"
+import { CancelledError, QueryClient, queryOptions, type SolidQueryOptions } from "@tanstack/solid-query"
 import { loadMcpQuery, loadMcpResourcesQuery } from "../server-sync"
-import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
+import type { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import { ScopedKey, type ServerScope } from "@/utils/server-scope"
 import { normalizeSessionInfo } from "@/utils/session"
 import type { ServerProtocol } from "@/utils/server-protocol"
@@ -124,23 +112,15 @@ export const loadGlobalConfigQuery = (scope: ServerScope, sdk: OpencodeClient, p
     },
   })
 
-type ProjectApi = {
-  readonly list: () => Promise<ProjectListOutput>
-  readonly current: (input?: ProjectCurrentInput) => Promise<ProjectCurrentOutput>
-}
-
-type McpApi = ServerApi["mcp"]
-type PermissionApi = ServerApi["permission"]
-type QuestionApi = ServerApi["question"]
-type VcsApi = ServerApi["vcs"]
+type ProjectApi = { readonly list: () => Promise<{ data: readonly Project[] }> }
 
 export const loadProjectsQuery = (scope: ServerScope, api: ProjectApi) =>
   queryOptions({
     queryKey: [scope, "project"],
     queryFn: () =>
       retry(() =>
-        api.list().then((projects) => {
-          return projects
+        api.list().then((result) => {
+          return result.data
             .filter((p) => !!p?.id)
             .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
             .map(normalizeProjectInfo)
@@ -152,7 +132,7 @@ export const loadProjectsQuery = (scope: ServerScope, api: ProjectApi) =>
 
 export async function bootstrapGlobal(input: {
   serverSDK: OpencodeClient
-  serverAPI: CatalogApi & { readonly project: ProjectApi }
+  serverAPI: ServerApi
   protocol?: Promise<ServerProtocol>
   scope: ServerScope
   requestFailedTitle: string
@@ -170,7 +150,9 @@ export async function bootstrapGlobal(input: {
     () => input.queryClient.fetchQuery(loadPathQuery(input.scope, null, input.serverSDK, input.protocol)),
     () =>
       input.queryClient
-        .fetchQuery(loadProjectsQuery(input.scope, input.serverAPI.project))
+        .fetchQuery(loadProjectsQuery(input.scope, {
+          list: () => input.serverSDK.project.list().then((result) => ({ data: result.data ?? [] })),
+        }))
         .then((data) => input.setGlobalStore("project", data)),
   ]
   await runAll(slow)
@@ -214,7 +196,7 @@ function warmSessions(input: {
   ids: string[]
   store: Store<State>
   setStore: SetStoreFunction<State>
-  api: SessionApi
+  api: Pick<ServerApi["sessions"], "get">
 }) {
   const known = new Set(input.store.session.map((item) => item.id))
   const ids = [...new Set(input.ids)].filter((id) => !!id && !known.has(id))
@@ -228,15 +210,21 @@ function warmSessions(input: {
   ).then(() => undefined)
 }
 
-export const loadProvidersQuery = (
+export const loadProvidersQuery: (
   scope: ServerScope,
   directory: string | null,
-  sdk: CatalogApi,
+  sdk: Pick<ServerApi, "providers" | "models">,
   legacy?: OpencodeClient,
   protocol?: Promise<ServerProtocol>,
+) => SolidQueryOptions<NormalizedProviderListResponse, Error, NormalizedProviderListResponse, [ServerScope, string | null, "providers"]> = (
+  scope,
+  directory,
+  sdk,
+  legacy,
+  protocol,
 ) =>
-  queryOptions({
-    queryKey: [scope, directory, "providers"],
+  queryOptions<NormalizedProviderListResponse, Error, NormalizedProviderListResponse, [ServerScope, string | null, "providers"]>({
+    queryKey: [scope, directory, "providers"] as [ServerScope, string | null, "providers"],
     queryFn: () =>
       retry(async () => {
         if ((await protocol) === "v1" && legacy) {
@@ -245,24 +233,24 @@ export const loadProvidersQuery = (
         }
         const location = directory ? { location: { directory } } : undefined
         const [providers, models, defaultModel] = await Promise.all([
-          sdk.provider.list(location),
-          sdk.model.list(location),
-          sdk.model.default(location),
+          sdk.providers.list(location),
+          sdk.models.list(location),
+          Promise.resolve(undefined as ModelsListOutput["data"][number] | undefined),
         ])
-        return normalizeProviderList(providers.data, models.data, defaultModel.data)
+        return normalizeProviderList(providers.data, models.data, defaultModel)
       }),
   })
 
 type AgentListApi = {
-  readonly list: (input?: AgentListInput) => Promise<AgentListOutput>
+  readonly list: (input?: AgentsListInput) => Promise<AgentsListOutput>
 }
 
 type CommandListApi = {
-  readonly list: (input?: CommandListInput) => Promise<CommandListOutput>
+  readonly list: (input?: CommandsListInput) => Promise<CommandsListOutput>
 }
 
 type ReferenceListApi = {
-  readonly list: (input?: ReferenceListInput) => Promise<ReferenceListOutput>
+  readonly list: (input?: ReferencesListInput) => Promise<ReferencesListOutput>
 }
 
 export const loadAgentsQuery = (
@@ -302,7 +290,7 @@ export const loadCommands = (
         }
       })
     }
-    return api.list({ location: { directory } }).then((result) => result.data)
+    return api.list({ location: { directory } }).then((result) => [...result.data])
   })
 
 export const loadPathQuery = (
@@ -332,7 +320,7 @@ export const loadReferencesQuery = (
     queryFn: () =>
       retry(async () => {
         if ((await protocol) === "v1" && legacy) return (await legacy.v2.reference.list()).data?.data ?? []
-        return api.list({ location: { directory } }).then((result) => result.data)
+        return api.list({ location: { directory } }).then((result) => [...result.data])
       }).catch(() => []),
     placeholderData: [],
   })
@@ -342,17 +330,7 @@ export async function bootstrapDirectory(input: {
   scope: ServerScope
   mcp: boolean
   sdk: OpencodeClient
-  api: CatalogApi & {
-    readonly agent: AgentListApi
-    readonly command: CommandListApi
-    readonly mcp: McpApi
-    readonly permission: PermissionApi
-    readonly project: ProjectApi
-    readonly question: QuestionApi
-    readonly reference: ReferenceListApi
-    readonly session: SessionApi
-    readonly vcs: VcsApi
-  }
+  api: ServerApi
   store: Store<State>
   setStore: SetStoreFunction<State>
   vcsCache: VcsCache
@@ -386,7 +364,7 @@ export async function bootstrapDirectory(input: {
       () => Promise.resolve(input.loadSessions(input.directory)),
       () =>
         input.queryClient
-          .ensureQueryData(loadAgentsQuery(input.scope, input.directory, input.api.agent, input.sdk, input.protocol))
+          .ensureQueryData(loadAgentsQuery(input.scope, input.directory, input.api.agents, input.sdk, input.protocol))
           .then((data) => input.setStore("agent", data))
           .catch(() => undefined),
       () =>
@@ -423,8 +401,8 @@ export async function bootstrapDirectory(input: {
         ).catch(() => undefined),
       !seededProject &&
         (() =>
-          retry(() => input.api.project.current({ location: { directory: input.directory } }))
-            .then((project) => input.setStore("project", project.id))
+          retry(() => input.sdk.project.current({ directory: input.directory }))
+            .then((project) => input.setStore("project", project.data?.id ?? ""))
             .catch(() => undefined)),
       !seededPath &&
         (() =>
@@ -446,20 +424,19 @@ export async function bootstrapDirectory(input: {
         }).catch(() => undefined),
       input.mcp &&
         (() =>
-          loadCommands(input.directory, input.api.command, input.sdk, input.protocol)
+          loadCommands(input.directory, input.api.commands, input.sdk, input.protocol)
             .then((commands) => input.setStore("command", commands))
             .catch(() => undefined)),
       () =>
         input.queryClient.fetchQuery(
-          loadReferencesQuery(input.scope, input.directory, input.api.reference, input.sdk, input.protocol),
+          loadReferencesQuery(input.scope, input.directory, input.api.references, input.sdk, input.protocol),
         ),
       () =>
         retry(() =>
           (async () => {
             if ((await input.protocol) === "v1") return (await input.sdk.permission.list()).data ?? []
-            return input.api.permission.request
-              .list({ location: { directory: input.directory } })
-              .then((result) => result.data.map(normalizePermissionRequest))
+              return input.api.permissions.listRequests({ location: { directory: input.directory } })
+              .then((result) => result.data.map((item) => normalizePermissionRequest({ ...item, resources: [...item.resources], save: item.save ? [...item.save] : undefined })))
           })().then((permissions) => {
             const ids = permissions.map((permission) => permission.sessionID)
             const grouped = groupBySession(
@@ -467,7 +444,7 @@ export async function bootstrapDirectory(input: {
             )
             const warm = input.session
               ? Promise.all(ids.map((sessionID) => input.session!.resolve(sessionID))).then(() => undefined)
-              : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.session })
+              : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.sessions })
             return warm.then(() =>
               batch(() => {
                 const current = input.session?.data.permission ?? input.store.permission
@@ -493,8 +470,7 @@ export async function bootstrapDirectory(input: {
         retry(() =>
           (async () => {
             if ((await input.protocol) === "v1") return (await input.sdk.question.list()).data ?? []
-            return input.api.question.request
-              .list({ location: { directory: input.directory } })
+            return input.api.questions.listRequests({ location: { directory: input.directory } })
               .then((result) => result.data)
           })().then((questions) => {
             const ids = questions.map((question) => question.sessionID)
@@ -503,7 +479,7 @@ export async function bootstrapDirectory(input: {
             )
             const warm = input.session
               ? Promise.all(ids.map((sessionID) => input.session!.resolve(sessionID))).then(() => undefined)
-              : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.session })
+              : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.sessions })
             return warm.then(() =>
               batch(() => {
                 const current = input.session?.data.question ?? input.store.question
@@ -529,12 +505,12 @@ export async function bootstrapDirectory(input: {
       input.mcp &&
         (() =>
           input.queryClient
-            .fetchQuery(loadMcpQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol))
+           .fetchQuery(loadMcpQuery(input.scope, input.directory, input.sdk, input.sdk, input.protocol))
             .catch(() => undefined)),
       input.mcp &&
         (() =>
           input.queryClient
-            .fetchQuery(loadMcpResourcesQuery(input.scope, input.directory, input.api.mcp, input.sdk, input.protocol))
+           .fetchQuery(loadMcpResourcesQuery(input.scope, input.directory, input.sdk, input.sdk, input.protocol))
             .catch(() => undefined)),
       () =>
         input.queryClient

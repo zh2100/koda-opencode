@@ -31,8 +31,8 @@ export function createPromptInputController(input: {
   const providers = useProviders(() => sdk().directory)
   const view = layout.view(input.sessionKey)
   const agentsQuery = createQuery(() => input.queryOptions.agents(pathKey(sdk().directory)))
-  const globalProvidersQuery = createQuery(() => input.queryOptions.providers(null))
-  const providersQuery = createQuery(() => input.queryOptions.providers(pathKey(sdk().directory)))
+  const globalProvidersQuery = createQuery(() => ({ ...input.queryOptions.providers(null), initialData: undefined }))
+  const providersQuery = createQuery(() => ({ ...input.queryOptions.providers(pathKey(sdk().directory)), initialData: undefined }))
 
   return createMemo<PromptInputControls>(() => {
     return {

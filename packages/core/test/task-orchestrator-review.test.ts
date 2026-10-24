@@ -6,9 +6,19 @@ describe("TaskOrchestratorReview", () => {
     expect(TaskOrchestratorReview.parse('{"approved":true,"findings":[]}')).toEqual({ approved: true, findings: [] })
   })
 
-  test("rejects malformed or incomplete output", () => {
-    expect(TaskOrchestratorReview.parse("approved")).toBeUndefined()
-    expect(TaskOrchestratorReview.parse('{"approved":false}')).toBeUndefined()
+  test("normalizes prose and embedded reviewer JSON", () => {
+    expect(TaskOrchestratorReview.parse("Missing a regression test")).toEqual({
+      approved: true,
+      findings: [{ message: "Missing a regression test" }],
+    })
+    expect(TaskOrchestratorReview.parse("```json\n{\"approved\":true,\"findings\":[]}\n```")).toEqual({
+      approved: true,
+      findings: [],
+    })
+    expect(TaskOrchestratorReview.parse('{"approved":false}')).toEqual({
+      approved: true,
+      findings: [{ message: '{"approved":false}' }],
+    })
   })
 
   test("requests revision until the retry limit, then fails", () => {
@@ -32,11 +42,11 @@ describe("TaskOrchestratorReview", () => {
     })
   })
 
-  test("fails malformed output without creating a worker retry", () => {
+  test("keeps prose moving and records it as a finding", () => {
     expect(TaskOrchestratorReview.plan("not-json", 0, 3)).toEqual({
-      action: "fail",
+      action: "continue",
       retryCount: 0,
-      findings: [],
+      findings: [{ message: "not-json" }],
       reviewerOutput: "not-json",
     })
   })

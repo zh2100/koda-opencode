@@ -1291,4 +1291,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} sesije će biti arhivirane.",
   "workspace.reset.note": "Ovo će resetirati radni prostor kako bi odgovarao zadanoj grani.",
   "dialog.usageExceeded.dontShowAgain": "Ne prikazuj ponovno",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

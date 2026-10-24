@@ -21,6 +21,7 @@ import { Model } from "@opencode-ai/schema/model"
 import { Location } from "@opencode-ai/schema/location"
 import { Revert } from "@opencode-ai/schema/revert"
 import { SessionEvent } from "@opencode-ai/schema/session-event"
+import { SessionTodo } from "@opencode-ai/schema/session-todo"
 
 const SessionsQueryFields = {
   workspace: Workspace.ID.pipe(Schema.optional),
@@ -160,7 +161,6 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         success: Schema.Struct({ data: Session.Info }),
         error: SessionNotFoundError,
       })
-        .middleware(sessionLocationMiddleware)
         .annotateMerge(
           OpenApi.annotations({
             identifier: "v2.session.get",
@@ -168,6 +168,34 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
             description: "Retrieve a session by ID.",
           }),
         ),
+    )
+    .add(
+      HttpApiEndpoint.delete("session.remove", "/api/session/:sessionID", {
+        params: { sessionID: Session.ID },
+        success: HttpApiSchema.NoContent,
+        error: SessionNotFoundError,
+      })
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.remove",
+            summary: "Delete session",
+            description: "Delete a session and its messages.",
+          }),
+        ),
+    )
+    .add(
+      HttpApiEndpoint.patch("session.update", "/api/session/:sessionID", {
+        params: { sessionID: Session.ID },
+        payload: Schema.Struct({ title: Schema.String }),
+        success: Schema.Struct({ data: Session.Info }),
+        error: SessionNotFoundError,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "v2.session.update",
+          summary: "Update session",
+          description: "Update a session title.",
+        }),
+      ),
     )
     .add(
       HttpApiEndpoint.post("session.switchAgent", "/api/session/:sessionID/agent", {
@@ -286,6 +314,21 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         .middleware(sessionLocationMiddleware)
         .annotateMerge(
           OpenApi.annotations({ identifier: "v2.session.revert.commit", summary: "Commit staged revert" }),
+        ),
+    )
+    .add(
+      HttpApiEndpoint.get("session.todo", "/api/session/:sessionID/todo", {
+        params: { sessionID: Session.ID },
+        success: Schema.Struct({ data: Schema.Array(SessionTodo.Info) }),
+        error: SessionNotFoundError,
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.todo",
+            summary: "Get session todos",
+            description: "Retrieve the persisted todo list for a session.",
+          }),
         ),
     )
     .add(

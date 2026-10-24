@@ -37,6 +37,7 @@ const pickedFiles = createPickedFileAuthorizations()
 
 type Deps = {
   killSidecar: () => Promise<void> | void
+  restartSidecar: () => Promise<void>
   relaunch: () => void
   awaitInitialization: () => Promise<ServerReadyData>
   consumeInitialDeepLinks: () => Promise<string[]> | string[]
@@ -66,6 +67,7 @@ export function registerIpcHandlers(deps: Deps) {
   app.on("browser-window-created", (_event, win) => win.on("session-end", () => drafts.flush()))
 
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
+  ipcMain.handle("restart-sidecar", () => deps.restartSidecar())
   ipcMain.handle("await-initialization", () => deps.awaitInitialization())
   ipcMain.handle("consume-initial-deep-links", () => deps.consumeInitialDeepLinks())
   ipcMain.handle("get-default-server-url", () => deps.getDefaultServerUrl())

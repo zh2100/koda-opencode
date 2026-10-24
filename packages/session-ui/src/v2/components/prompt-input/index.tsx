@@ -167,7 +167,11 @@ export function PromptInputV2(props: PromptInputV2Props) {
             // @ts-expect-error
             autocomplete="off"
             class="relative z-10 block min-h-[60px] max-h-[180px] w-full overflow-y-auto whitespace-pre-wrap bg-transparent px-4 pt-4 pb-2 text-[13px] font-[440] leading-5 text-v2-text-text-base focus:outline-none empty:before:content-['\200B'] [&_[data-mention=file]]:text-syntax-property [&_[data-mention=agent]]:text-syntax-type [&_[data-mention=reference]]:text-syntax-keyword"
-            classList={{ "font-mono!": state.mode === "shell", "opacity-50": props.disabled }}
+            classList={{
+              "font-mono!": state.mode === "shell",
+              "opacity-50": props.disabled,
+              "pe-16": !!props.trailingControl,
+            }}
             onInput={(event) => {
               const cursor = promptInputV2Cursor(event.currentTarget)
               const prompt = parsePromptInputV2Editor(event.currentTarget)
@@ -191,13 +195,16 @@ export function PromptInputV2(props: PromptInputV2Props) {
           <Show when={!props.controller.value()}>
             <div
               class="pointer-events-none absolute inset-x-0 top-0 px-4 pt-4 text-[13px] font-[440] leading-5 text-v2-text-text-faint"
-              classList={{ "font-mono!": state.mode === "shell" }}
+              classList={{ "font-mono!": state.mode === "shell", "pe-16": !!props.trailingControl }}
             >
               {view.placeholder?.() ??
                 (state.mode === "shell"
                   ? i18n.t("ui.promptInput.placeholder.shell")
                   : i18n.t("ui.promptInput.placeholder.normal", { slash: "/", at: "@" }))}
             </div>
+          </Show>
+          <Show when={props.trailingControl}>
+            <div class="absolute end-1.5 top-1.5 z-20 flex items-center gap-0.5">{props.trailingControl}</div>
           </Show>
         </div>
 
@@ -265,7 +272,6 @@ export function PromptInputV2(props: PromptInputV2Props) {
                 <PromptInputV2ConfiguredSelect title={control.current()} control={control} />
               )}
             </Show>
-            {props.trailingControl}
           </div>
           <Show when={props.onVoice}>
             <TooltipV2 placement="top" value={props.voiceListening ? props.voiceStopLabel : props.voiceLabel}>

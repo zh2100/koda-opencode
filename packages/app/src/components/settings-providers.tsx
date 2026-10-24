@@ -144,7 +144,19 @@ const VendorCard: Component<{
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div class="flex items-center gap-3 min-w-0">
           <ProviderIcon
-            id={props.vendor.id === "chatgpt" ? "openai" : props.vendor.id === "grok" ? "xai" : props.vendor.id}
+            id={
+              props.vendor.id === "chatgpt"
+                ? "openai"
+                : props.vendor.id === "claude"
+                  ? "anthropic"
+                  : props.vendor.id === "gemini"
+                    ? "google"
+                    : props.vendor.id === "grok"
+                      ? "xai"
+                      : props.vendor.id === "kimi"
+                        ? "moonshot"
+                        : props.vendor.id
+            }
             class="size-5 shrink-0 icon-strong-base"
           />
           <div class="flex min-w-0 flex-col gap-1">

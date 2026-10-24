@@ -555,6 +555,39 @@ describe("applyDirectoryEvent", () => {
     expect(store.question[sessionID]?.map((x) => x.id)).toEqual(["q_1", "q_3"])
   })
 
+  test("replaces session todos without requiring an item id", () => {
+    const sessionID = "ses_1"
+    const [store, setStore] = createStore(baseState())
+    const todos: { sessionID: string; count: number }[] = []
+
+    applyDirectoryEvent({
+      event: {
+        type: "todo.updated",
+        properties: {
+          sessionID,
+          todos: [
+            { content: "plan", status: "pending", priority: "high" },
+            { content: "doing", status: "in_progress", priority: "medium" },
+          ],
+        },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+      setSessionTodo(id, value) {
+        todos.push({ sessionID: id, count: value?.length ?? 0 })
+      },
+    })
+
+    expect(store.todo[sessionID]).toEqual([
+      { content: "plan", status: "pending", priority: "high" },
+      { content: "doing", status: "in_progress", priority: "medium" },
+    ])
+    expect(todos).toEqual([{ sessionID, count: 2 }])
+  })
+
   test("updates vcs branch in store and cache", () => {
     const [store, setStore] = createStore(baseState({ vcs: { branch: "main", default_branch: "main" } }))
     const [cacheStore, setCacheStore] = createStore({

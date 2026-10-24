@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process"
-import { existsSync } from "node:fs"
-import { chmod, copyFile, mkdir, rename, rm } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { createHash } from "node:crypto"
+import { createReadStream, existsSync } from "node:fs"
+import { chmod, copyFile, mkdir, readdir, rename, rm } from "node:fs/promises"
+import { basename, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { app } from "electron"
@@ -9,7 +10,6 @@ import { app } from "electron"
 const execFileAsync = promisify(execFile)
 const root = dirname(fileURLToPath(import.meta.url))
 const stateHome = process.env.XDG_STATE_HOME
-const desktopStateNames = ["ai.opencode.desktop.dev", "ai.opencode.desktop.beta", "ai.opencode.desktop"]
 
 type Logger = {
   log(message: string, meta?: Record<string, unknown>): void
@@ -22,11 +22,27 @@ export async function startBackgroundCli(logger: Logger, shellStateHome?: string
     : join(root, "../../resources", executableName())
   logger.log("v2 CLI executable resolved", { bundled, packaged: app.isPackaged })
   const version = await run(bundled, ["--version"], logger)
-  const binary = app.isPackaged ? await installCli(bundled, version, logger) : bundled
+  const staged = app.isPackaged
+    ? await installCli(bundled, version, logger)
+    : { binary: bundled, directory: undefined, installed: false }
+  const binary = staged.binary
 
   const candidates = [
-    ...new Set([stateHome, shellStateHome, ...desktopStateNames.map((name) => join(app.getPath("appData"), name))]),
-  ].filter((candidate) => candidate === undefined || existsSync(candidate))
+    ...new Set([stateHome, shellStateHome, app.getPath("userData")]),
+  ].filter((candidate): candidate is string => candidate !== undefined && existsSync(candidate))
+  const daemonStateHome = stateHome ?? app.getPath("userData")
+
+  // A newly staged binary replaces an older build, so any daemon already
+  // registered from a previous install must be stopped before it is reused.
+  if (staged.installed) {
+    await Promise.all(
+      candidates.map((candidate) =>
+        run(binary, ["service", "stop"], logger, { stateHome: candidate }).catch(() => undefined),
+      ),
+    )
+    await pruneStagedClis(staged.directory, logger)
+  }
+
   const discovered = await Promise.all(
     candidates.map(async (candidate) => ({
       stateHome: candidate,
@@ -39,11 +55,12 @@ export async function startBackgroundCli(logger: Logger, shellStateHome?: string
     ...endpoint(found?.url),
   })
 
-  const daemonStateHome = found?.stateHome ?? stateHome
-  const url = await run(binary, ["service", "start"], logger, { stateHome: daemonStateHome })
-  const password = await run(binary, ["service", "get", "password"], logger, {
+  const url = await run(binary, ["service", "start"], logger, {
+    stateHome: found?.stateHome ?? daemonStateHome,
+  })
+  const password = await run(binary, ["service", "password"], logger, {
     redact: true,
-    stateHome: daemonStateHome,
+    stateHome: found?.stateHome ?? daemonStateHome,
   })
   logger.log("v2 CLI background service ready", {
     existing: Boolean(found),
@@ -54,15 +71,21 @@ export async function startBackgroundCli(logger: Logger, shellStateHome?: string
     url,
     username: "opencode",
     password,
+    stop: () => run(binary, ["service", "stop"], logger, { stateHome: found?.stateHome ?? daemonStateHome }).then(() => undefined),
   }
 }
 
 async function installCli(source: string, version: string, logger: Logger) {
-  const directory = join(app.getPath("userData"), "cli", version.replace(/[^a-zA-Z0-9._-]/g, "-"))
+  const fingerprint = await fileFingerprint(source)
+  const directory = join(
+    app.getPath("userData"),
+    "cli",
+    `${version.replace(/[^a-zA-Z0-9._-]/g, "-")}-${fingerprint.slice(0, 12)}`,
+  )
   const destination = join(directory, executableName())
   if (existsSync(destination)) {
-    logger.log("v2 CLI staged executable reused", { path: destination, version })
-    return destination
+    logger.log("v2 CLI staged executable reused", { path: destination, version, fingerprint })
+    return { binary: destination, directory, installed: false }
   }
 
   const temp = destination + `.${process.pid}.tmp`
@@ -73,8 +96,32 @@ async function installCli(source: string, version: string, logger: Logger) {
     await rm(temp, { force: true })
     throw error
   })
-  logger.log("v2 CLI executable staged", { source, path: destination, version })
-  return destination
+  logger.log("v2 CLI executable staged", { source, path: destination, version, fingerprint })
+  return { binary: destination, directory, installed: true }
+}
+
+async function pruneStagedClis(directory: string | undefined, logger: Logger) {
+  if (!directory) return
+  const parent = dirname(directory)
+  const entries = await readdir(parent, { withFileTypes: true }).catch(() => [])
+  await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && entry.name !== basename(directory))
+      .map((entry) =>
+        rm(join(parent, entry.name), { recursive: true, force: true }).catch((error: unknown) => {
+          logger.error("v2 CLI staged executable cleanup failed", {
+            path: join(parent, entry.name),
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }),
+      ),
+  )
+}
+
+async function fileFingerprint(path: string) {
+  const hash = createHash("sha256")
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest("hex")
 }
 
 async function run(

@@ -145,6 +145,7 @@
   [data-description],
   [data-slot="toast-v2-description"] {
     color: var(--v2-text-text-muted);
+    white-space: pre-line;
     text-wrap-style: pretty;
     overflow-wrap: anywhere;
     word-break: break-word;

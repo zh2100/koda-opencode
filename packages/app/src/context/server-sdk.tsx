@@ -1,5 +1,5 @@
-import type { OpenCodeEvent } from "@opencode-ai/client/promise"
 import type { Event } from "@opencode-ai/sdk/v2/client"
+import type { OpenCodeEvent } from "@opencode-ai/client"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { makeEventListener } from "@solid-primitives/event-listener"
@@ -18,7 +18,6 @@ import { createRefCountMap } from "@/utils/refcount"
 import { useGlobal } from "./global"
 import { ServerScope } from "@/utils/server-scope"
 import { detectServerProtocol, type ServerProtocol } from "@/utils/server-protocol"
-import { createCompatibleApi, type CompatibleApi } from "@/utils/server-compat"
 
 const isAbortError = (error: unknown) =>
   error !== null && typeof error === "object" && "name" in error && error.name === "AbortError"
@@ -28,8 +27,27 @@ export type ServerEvent = Event & { current?: OpenCodeEvent }
 type QueuedServerEvent = { directory: string; payload: ServerEvent }
 type CurrentDelta = Extract<
   OpenCodeEvent,
-  { type: "session.text.delta" | "session.reasoning.delta" | "session.tool.input.delta" | "session.compaction.delta" }
+  {
+    type:
+      | "session.next.text.delta"
+      | "session.next.reasoning.delta"
+      | "session.next.tool.input.delta"
+      | "session.next.compaction.delta"
+  }
 >
+
+const reasoningTrace = (stage: string, event: ServerEvent) => {
+  if (!import.meta.env.DEV && import.meta.env.VITE_REASONING_TRACE !== "1") return
+  if (event.type !== "message.part.delta" && event.current?.type !== "session.next.reasoning.delta") return
+  console.debug("[reasoning-trace]", {
+    stage,
+    eventID: event.id,
+    eventType: event.type,
+    currentType: event.current?.type,
+    properties: event.properties,
+    current: event.current?.data,
+  })
+}
 
 export function adaptServerEvent(event: OpenCodeEvent): ServerEvent {
   if (event.type === "permission.v2.asked") {
@@ -97,7 +115,7 @@ export function coalesceServerEvents(events: QueuedServerEvent[]) {
       ) {
         const fragment = currentDeltaFragment(prior) + currentDeltaFragment(current)
         const data =
-          current.type === "session.compaction.delta"
+          current.type === "session.next.compaction.delta"
             ? { ...current.data, text: fragment }
             : { ...current.data, delta: fragment }
         output[output.length - 1] = {
@@ -146,23 +164,23 @@ export function coalesceServerEvents(events: QueuedServerEvent[]) {
 
 function currentDelta(event: OpenCodeEvent | undefined): CurrentDelta | undefined {
   if (
-    event?.type === "session.text.delta" ||
-    event?.type === "session.reasoning.delta" ||
-    event?.type === "session.tool.input.delta" ||
-    event?.type === "session.compaction.delta"
+    event?.type === "session.next.text.delta" ||
+    event?.type === "session.next.reasoning.delta" ||
+    event?.type === "session.next.tool.input.delta" ||
+    event?.type === "session.next.compaction.delta"
   )
     return event
 }
 
 function currentDeltaKey(event: CurrentDelta) {
-  if (event.type === "session.tool.input.delta")
+  if (event.type === "session.next.tool.input.delta")
     return `${event.type}:${event.data.sessionID}:${event.data.assistantMessageID}:${event.data.callID}`
-  if (event.type === "session.compaction.delta") return `${event.type}:${event.data.sessionID}`
-  return `${event.type}:${event.data.sessionID}:${event.data.assistantMessageID}:${event.data.ordinal}`
+  if (event.type === "session.next.compaction.delta") return `${event.type}:${event.data.sessionID}`
+  return `${event.type}:${event.data.sessionID}:${event.data.assistantMessageID}:${event.type === "session.next.text.delta" ? event.data.textID : event.data.reasoningID}`
 }
 
 function currentDeltaFragment(event: CurrentDelta) {
-  return event.type === "session.compaction.delta" ? event.data.text : event.data.delta
+  return event.type === "session.next.compaction.delta" ? event.data.text : event.data.delta
 }
 
 export function resumeStreamAfterPageShow(event: PageTransitionEvent, start: () => unknown) {
@@ -178,7 +196,7 @@ type ServerSDKBase = {
   protocolKind: Accessor<ServerProtocol | undefined>
   url: string
   client: ReturnType<typeof createSdkForServer>
-  api: CompatibleApi
+  api: GeneratedApi
   currentApi: ServerApi
   generatedApi: GeneratedApi
   event: {
@@ -283,7 +301,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
           const events =
             kind === "v1"
               ? (await eventSdk.global.event({ signal: attempt.signal })).stream
-              : eventApi.event.subscribe({ signal: attempt.signal })
+              : eventApi.events.subscribe({ signal: attempt.signal })
           let yielded = Date.now()
           for await (const event of events) {
             streamErrorLogged = false
@@ -291,6 +309,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
             if (legacy && event.payload.type === "sync") continue
             const directory = legacy ? (event.directory ?? "global") : (event.location?.directory ?? "global")
             const payload = legacy ? (event.payload as Event) : adaptServerEvent(event)
+            reasoningTrace("client-received", payload)
             if (enqueueServerEvent(queue, { directory, payload })) schedule()
 
             if (Date.now() - yielded < STREAM_YIELD_MS) continue
@@ -347,14 +366,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
   })
   const currentApi: ServerApi = createApiForServer({ server: server.http, fetch: platform.fetch })
   const generatedApi = createGeneratedApiForServer({ server: server.http, fetch: platform.fetch })
-  const legacy = (directory?: string) =>
-    createSdkForServer({
-      server: server.http,
-      fetch: platform.fetch,
-      throwOnError: true,
-      directory,
-    })
-  const api = createCompatibleApi({ protocol, current: currentApi, legacy })
+  const api = generatedApi
 
   return {
     server,
@@ -418,7 +430,16 @@ type SDKEventMap = {
   [key in Event["type"]]: Extract<ServerEvent, { type: key }>
 }
 
-function createDirSdkContext(directory: string, serverSDK: ServerSDKBase) {
+function createDirSdkContext(directory: string, serverSDK: ServerSDKBase): {
+  scope: ServerScope
+  protocol: Promise<ServerProtocol>
+  directory: string
+  client: ReturnType<ServerSDKBase["createClient"]>
+  api: GeneratedApi
+  event: ReturnType<typeof createGlobalEmitter<SDKEventMap>>
+  url: string
+  createClient: ServerSDKBase["createClient"]
+} {
   const client = serverSDK.createClient({
     directory,
     throwOnError: true,
@@ -436,18 +457,11 @@ function createDirSdkContext(directory: string, serverSDK: ServerSDKBase) {
     protocol: serverSDK.protocol,
     directory,
     client,
-    api: createCompatibleApi({
-      protocol: serverSDK.protocol,
-      current: serverSDK.currentApi,
-      legacy: (next) => serverSDK.createClient({ directory: next ?? directory, throwOnError: true }),
-      directory,
-    }),
+    api: createGeneratedApiForServer({ server: serverSDK.server.http, directory }),
+    createClient: serverSDK.createClient,
     event: emitter,
     get url() {
       return serverSDK.url
-    },
-    createClient(opts: Parameters<typeof serverSDK.createClient>[0]) {
-      return serverSDK.createClient(opts)
     },
   }
 }

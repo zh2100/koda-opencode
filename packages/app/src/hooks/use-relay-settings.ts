@@ -259,7 +259,10 @@ export function useRelaySettings() {
     vendors: () =>
       store.auth?.vendors ?? [
         { id: "chatgpt", name: "ChatGPT", builtin: true, hasKey: false, revision: 0, updatedAt: 0 },
+        { id: "claude", name: "Claude", builtin: true, hasKey: false, revision: 0, updatedAt: 0 },
+        { id: "gemini", name: "Gemini", builtin: true, hasKey: false, revision: 0, updatedAt: 0 },
         { id: "grok", name: "Grok", builtin: true, hasKey: false, revision: 0, updatedAt: 0 },
+        { id: "kimi", name: "Kimi", builtin: true, hasKey: false, revision: 0, updatedAt: 0 },
       ],
     setStore,
     resource,

@@ -78,6 +78,8 @@ export type ListInput = typeof ListInput.Type
 
 type CreateInput = {
   id?: SessionSchema.ID
+  parentID?: SessionSchema.ID
+  title?: string
   agent?: AgentV2.ID
   model?: ModelV2.Ref
   location: Location.Ref
@@ -114,6 +116,8 @@ export interface Interface {
   readonly list: (input?: ListInput) => Effect.Effect<SessionSchema.Info[]>
   readonly create: (input: CreateInput) => Effect.Effect<SessionSchema.Info>
   readonly get: (sessionID: SessionSchema.ID) => Effect.Effect<SessionSchema.Info, NotFoundError>
+  readonly setTitle: (input: { sessionID: SessionSchema.ID; title: string }) => Effect.Effect<void, NotFoundError>
+  readonly remove: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError>
   readonly messages: (input: {
     sessionID: SessionSchema.ID
     limit?: number
@@ -144,6 +148,16 @@ export interface Interface {
     sessionID: SessionSchema.ID
     model: ModelV2.Ref
   }) => Effect.Effect<void, NotFoundError>
+  readonly notice: (input: {
+    sessionID: SessionSchema.ID
+    text: string
+    agent: string
+    model: ModelV2.Ref
+  }) => Effect.Effect<void, NotFoundError>
+  readonly recordPrompt: (input: {
+    sessionID: SessionSchema.ID
+    prompt: PromptInput.Prompt
+  }) => Effect.Effect<SessionMessage.ID, NotFoundError>
   readonly prompt: (input: {
     id?: SessionMessage.ID
     sessionID: SessionSchema.ID
@@ -225,7 +239,8 @@ const layer = Layer.effect(
           directory: input.location.directory,
           path: path.relative(project.directory, input.location.directory).replaceAll("\\", "/"),
           workspaceID: input.location.workspaceID ? WorkspaceV2.ID.make(input.location.workspaceID) : undefined,
-          title: `New session - ${new Date(now).toISOString()}`,
+          parentID: input.parentID,
+          title: input.title ?? `New session - ${new Date(now).toISOString()}`,
           agent: input.agent,
           model: input.model
             ? {
@@ -260,10 +275,83 @@ const layer = Layer.effect(
         // TODO: Restore recorded sessions onto replacement synchronized workspaces in a future API slice.
         return yield* result.get(sessionID).pipe(Effect.orDie)
       }),
+      setTitle: Effect.fn("V2Session.setTitle")(function* (input) {
+        const session = yield* result.get(input.sessionID)
+        if (session.title === input.title) return
+        const now = Date.now()
+        yield* events.publish(
+          SessionV1.Event.Updated,
+          {
+            sessionID: input.sessionID,
+            info: SessionV1.SessionInfo.make({
+              id: session.id,
+              slug: session.id,
+              projectID: session.projectID,
+              workspaceID: session.location.workspaceID,
+              directory: session.location.directory,
+              path: session.subpath,
+              parentID: session.parentID,
+              cost: session.cost,
+              tokens: session.tokens,
+              title: input.title,
+              agent: session.agent,
+              model: session.model,
+              version: InstallationVersion,
+              time: {
+                created: DateTime.toEpochMillis(session.time.created),
+                updated: now,
+                archived: session.time.archived ? DateTime.toEpochMillis(session.time.archived) : undefined,
+              },
+            }),
+          },
+          { location: session.location },
+        )
+      }),
       get: Effect.fn("V2Session.get")(function* (sessionID) {
         const session = yield* store.get(sessionID)
         if (!session) return yield* new NotFoundError({ sessionID })
         return session
+      }),
+      remove: Effect.fn("V2Session.remove")(function* (sessionID) {
+        const session = yield* result.get(sessionID)
+        yield* execution.interrupt(sessionID)
+        const children = yield* db
+          .select({ id: SessionTable.id })
+          .from(SessionTable)
+          .where(eq(SessionTable.parent_id, sessionID))
+          .all()
+          .pipe(Effect.orDie)
+        for (const child of children) {
+          yield* result.remove(SessionSchema.ID.make(child.id))
+        }
+        yield* events.publish(
+          SessionV1.Event.Deleted,
+          {
+            sessionID,
+            info: SessionV1.SessionInfo.make({
+              id: session.id,
+              slug: session.id,
+              projectID: session.projectID,
+              workspaceID: session.location.workspaceID,
+              directory: session.location.directory,
+              path: session.subpath,
+              parentID: session.parentID,
+              cost: session.cost,
+              tokens: session.tokens,
+              title: session.title,
+              agent: session.agent,
+              model: session.model,
+              version: InstallationVersion,
+              time: {
+                created: DateTime.toEpochMillis(session.time.created),
+                updated: DateTime.toEpochMillis(session.time.updated),
+                archived: session.time.archived ? DateTime.toEpochMillis(session.time.archived) : undefined,
+              },
+            }),
+          },
+          { location: session.location },
+        )
+        yield* events.remove(sessionID)
       }),
       list: Effect.fn("V2Session.list")(function* (input = {}) {
         const direction = input.anchor?.direction ?? "next"
@@ -413,6 +501,52 @@ const layer = Layer.effect(
           timestamp: yield* DateTime.now,
           model: input.model,
         })
+      }),
+      notice: Effect.fn("V2Session.notice")(function* (input) {
+        yield* result.get(input.sessionID)
+        const timestamp = yield* DateTime.now
+        const assistantMessageID = SessionMessage.ID.create()
+        yield* events.publish(SessionEvent.Step.Started, {
+          sessionID: input.sessionID,
+          assistantMessageID,
+          timestamp,
+          agent: input.agent,
+          model: input.model,
+        })
+        const textID = `text_${assistantMessageID}`
+        yield* events.publish(SessionEvent.Text.Started, {
+          sessionID: input.sessionID,
+          assistantMessageID,
+          timestamp,
+          textID,
+        })
+        yield* events.publish(SessionEvent.Text.Ended, {
+          sessionID: input.sessionID,
+          assistantMessageID,
+          timestamp,
+          textID,
+          text: input.text,
+        })
+        yield* events.publish(SessionEvent.Step.Ended, {
+          sessionID: input.sessionID,
+          assistantMessageID,
+          timestamp,
+          finish: "stop",
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        })
+      }),
+      recordPrompt: Effect.fn("V2Session.recordPrompt")(function* (input) {
+        yield* result.get(input.sessionID)
+        const messageID = SessionMessage.ID.create()
+        yield* events.publish(SessionEvent.Prompted, {
+          sessionID: input.sessionID,
+          messageID,
+          timestamp: yield* DateTime.now,
+          prompt: resolvePrompt(input.prompt),
+          delivery: "queue",
+        })
+        return messageID
       }),
       compact: Effect.fn("V2Session.compact")(function* (input) {
         yield* result.get(input.sessionID)

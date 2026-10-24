@@ -11,6 +11,7 @@ import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsServers } from "./settings-servers"
 import { SettingsCollaboration } from "./settings-collaboration"
+import { SettingsComputerUse } from "./settings-computer-use"
 
 export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
   const language = useLanguage()
@@ -64,6 +65,10 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
                       <Icon name="models" />
                       {language.t("settings.models.title")}
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="computer-use">
+                      <Icon name="sliders" />
+                      {language.t("settings.computerUse.title")}
+                    </Tabs.Trigger>
                     <Tabs.Trigger value="collaboration">
                       <Icon name="brain" />
                       {language.t("settings.tab.collaboration")}
@@ -93,6 +98,9 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
         </Tabs.Content>
         <Tabs.Content value="models" class="no-scrollbar">
           <SettingsModels />
+        </Tabs.Content>
+        <Tabs.Content value="computer-use" class="no-scrollbar">
+          <SettingsComputerUse />
         </Tabs.Content>
         <Tabs.Content value="collaboration" class="no-scrollbar">
           <SettingsCollaboration />

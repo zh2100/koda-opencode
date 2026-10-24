@@ -14,6 +14,7 @@ import { SettingsSkillsV2 } from "./skills"
 import { SettingsMcpV2 } from "./mcp"
 import { SettingsScheduledV2 } from "./scheduled"
 import { SettingsCollaboration } from "../settings-collaboration"
+import { SettingsComputerUse } from "../settings-computer-use"
 import { useRelayGates } from "@/hooks/use-relay-gates"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLayout } from "@/context/layout"
@@ -90,6 +91,10 @@ export const DialogSettings: Component<{
                       <Icon name="models" />
                       {language.t("settings.models.title")}
                     </TabsV2.Trigger>
+                    <TabsV2.Trigger value="computer-use">
+                      <Icon name="sliders" />
+                      {language.t("settings.computerUse.title")}
+                    </TabsV2.Trigger>
                     <TabsV2.Trigger value="collaboration">
                       <Icon name="brain" />
                       {language.t("settings.tab.collaboration")}
@@ -137,6 +142,9 @@ export const DialogSettings: Component<{
         </TabsV2.Content>
         <TabsV2.Content value="models" class="settings-v2-panel">
           <SettingsModelsV2 />
+        </TabsV2.Content>
+        <TabsV2.Content value="computer-use" class="settings-v2-panel">
+          <SettingsComputerUse />
         </TabsV2.Content>
         <TabsV2.Content value="collaboration" class="settings-v2-panel">
           <SettingsCollaboration />

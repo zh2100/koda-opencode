@@ -13,15 +13,21 @@ export interface Interface {
     readonly transition: TaskOrchestratorRetry.Transition
   }) => Effect.Effect<
     Effect.Success<ReturnType<SessionV2.Interface["prompt"]>>,
-    Effect.Error<ReturnType<SessionV2.Interface["prompt"]>> | TaskOrchestratorWorkerScheduler.InvalidTransitionError
+    | Effect.Error<ReturnType<SessionV2.Interface["prompt"]>>
+    | Effect.Error<ReturnType<SessionV2.Interface["resume"]>>
+    | TaskOrchestratorWorkerScheduler.InvalidTransitionError
   >
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/TaskOrchestratorWorkerScheduler") {}
 
-export const make = (session: Pick<SessionV2.Interface, "prompt">): Interface => ({
+export const make = (session: Pick<SessionV2.Interface, "prompt" | "resume">): Interface => ({
   schedule: Effect.fn("TaskOrchestratorWorkerScheduler.schedule")(function* (input) {
-    const scheduler = TaskOrchestratorWorkerSessionScheduler.make({ sessionID: input.sessionID, prompt: session.prompt })
+    const scheduler = TaskOrchestratorWorkerSessionScheduler.make({
+      sessionID: input.sessionID,
+      prompt: session.prompt,
+      resume: session.resume,
+    })
     return yield* TaskOrchestratorWorkerScheduler.schedule({ transition: input.transition, scheduler })
   }),
 })

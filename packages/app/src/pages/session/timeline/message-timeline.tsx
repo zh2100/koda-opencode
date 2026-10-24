@@ -673,8 +673,13 @@ export function MessageTimeline(props: {
   }))
 
   const titleMutation = useMutation(() => ({
-    mutationFn: (input: { id: string; title: string }) =>
-      sdk().api.session.rename({ sessionID: input.id, title: input.title }),
+    mutationFn: async (input: { id: string; title: string }) => {
+      if ((await serverSDK().protocol) === "v2") {
+        await serverSDK().currentApi.sessions.update({ sessionID: input.id, title: input.title })
+        return
+      }
+      await sdk().client.session.update({ sessionID: input.id, title: input.title })
+    },
     onSuccess: (_, input) => {
       sync().set(
         produce((draft) => {
@@ -822,16 +827,29 @@ export function MessageTimeline(props: {
     const index = sessions.findIndex((s) => s.id === sessionID)
     const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
 
-    const result = await sdk()
-      .api.session.remove({ sessionID })
-      .then(() => true)
-      .catch((err) => {
-        showToast({
-          title: language.t("session.delete.failed.title"),
-          description: errorMessage(err),
-        })
-        return false
-      })
+    const protocol = await serverSDK().protocol
+    const result =
+      protocol === "v2"
+        ? await serverSDK()
+            .api.sessions.remove({ sessionID })
+            .then(() => true)
+            .catch((err) => {
+              showToast({
+                title: language.t("session.delete.failed.title"),
+                description: errorMessage(err),
+              })
+              return false
+            })
+        : await sdk()
+            .client.session.delete({ sessionID })
+            .then(() => true)
+            .catch((err) => {
+              showToast({
+                title: language.t("session.delete.failed.title"),
+                description: errorMessage(err),
+              })
+              return false
+            })
 
     if (!result) return false
 

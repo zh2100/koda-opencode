@@ -44,4 +44,14 @@ describe("WSL desktop connections", () => {
     expect(availableStartupServer(key, state("starting"))).toBe("sidecar")
     expect(availableStartupServer(key, state("ready"))).toBe(key)
   })
+
+  test("migrates a persisted local URL to the built-in sidecar", () => {
+    for (const url of ["http://127.0.0.1:64099", "http://localhost:4096", "http://[::1]:4096"]) {
+      expect(availableStartupServer(url)).toBe("sidecar")
+    }
+  })
+
+  test("keeps remote startup servers", () => {
+    expect(availableStartupServer("https://example.test")).toBe("https://example.test")
+  })
 })

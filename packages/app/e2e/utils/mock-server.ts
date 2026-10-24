@@ -163,7 +163,10 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
         hasUnifiedKey: false,
         vendors: [
           { id: "chatgpt", name: "ChatGPT", builtin: true, hasKey: false, updatedAt: 0, revision: 0 },
+          { id: "claude", name: "Claude", builtin: true, hasKey: false, updatedAt: 0, revision: 0 },
+          { id: "gemini", name: "Gemini", builtin: true, hasKey: false, updatedAt: 0, revision: 0 },
           { id: "grok", name: "Grok", builtin: true, hasKey: false, updatedAt: 0, revision: 0 },
+          { id: "kimi", name: "Kimi", builtin: true, hasKey: false, updatedAt: 0, revision: 0 },
         ],
         revision: 0,
         canRollback: false,

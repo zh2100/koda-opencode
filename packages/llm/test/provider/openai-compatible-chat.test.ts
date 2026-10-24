@@ -235,4 +235,48 @@ describe("OpenAI-compatible Chat route", () => {
       expect(response.events.at(-1)).toMatchObject({ type: "finish", reason: "stop" })
     }),
   )
+
+  it.effect("accepts Grok-style extra fields and array content deltas", () =>
+    Effect.gen(function* () {
+      const response = yield* LLMClient.generate(request).pipe(
+        Effect.provide(
+          dynamicResponse((input) =>
+            Effect.succeed(
+              input.respond(
+                sseEvents(
+                  {
+                    id: "chatcmpl_fixture",
+                    object: "chat.completion.chunk",
+                    created: 1,
+                    model: "grok-4",
+                    choices: [
+                      {
+                        index: 0,
+                        delta: { reasoning: "think" },
+                        finish_reason: null,
+                      },
+                    ],
+                  },
+                  {
+                    id: "chatcmpl_fixture",
+                    choices: [
+                      {
+                        delta: { content: [{ type: "text", text: "Hello" }, { type: "text", text: "!" }] },
+                        finish_reason: "stop",
+                      },
+                    ],
+                  },
+                ),
+                { headers: { "content-type": "text/event-stream" } },
+              ),
+            ),
+          ),
+        ),
+      )
+
+      expect(response.reasoning).toBe("think")
+      expect(response.text).toBe("Hello!")
+      expect(response.events.at(-1)).toMatchObject({ type: "finish", reason: "stop" })
+    }),
+  )
 })

@@ -4,7 +4,7 @@ import { CheckboxV2 } from "@opencode-ai/ui/v2/checkbox-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { showToast } from "@/utils/toast"
-import { type Accessor, type Component, For, Show } from "solid-js"
+import { type Accessor, type Component, createSignal, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { relayErrorKey, useRelaySettings, vendorURLValid } from "@/hooks/use-relay-settings"
@@ -141,13 +141,27 @@ const VendorCard: Component<{
   const hasKey = () => props.vendor.hasKey
   const draft = () => props.relay.draft(props.vendor)
   const status = () => props.relay.store.status[props.vendor.id]
+  const collapsible = () => props.vendor.builtin
+  const [open, setOpen] = createSignal(false)
 
   return (
     <div class="settings-v2-relay-card">
       <div class="settings-v2-provider-row">
         <div class="settings-v2-provider-lead">
           <ProviderIcon
-            id={props.vendor.id === "chatgpt" ? "openai" : props.vendor.id === "grok" ? "xai" : props.vendor.id}
+            id={
+              props.vendor.id === "chatgpt"
+                ? "openai"
+                : props.vendor.id === "claude"
+                  ? "anthropic"
+                  : props.vendor.id === "gemini"
+                    ? "google"
+                    : props.vendor.id === "grok"
+                      ? "xai"
+                      : props.vendor.id === "kimi"
+                        ? "moonshot"
+                        : props.vendor.id
+            }
             width={PROVIDER_ICON_SIZE}
             height={PROVIDER_ICON_SIZE}
             class="settings-v2-provider-icon shrink-0"
@@ -179,8 +193,19 @@ const VendorCard: Component<{
             </Show>
           </div>
         </div>
+        <Show when={collapsible()}>
+          <ButtonV2
+            size="normal"
+            variant="ghost-muted"
+            aria-expanded={open()}
+            onClick={() => setOpen((value) => !value)}
+          >
+            {language.t(open() ? "common.close" : "settings.providers.title")}
+          </ButtonV2>
+        </Show>
       </div>
 
+      <Show when={!collapsible() || open()}>
       <div class="settings-v2-relay-editor">
         <Show when={!props.vendor.builtin}>
           <TextInputV2
@@ -270,6 +295,7 @@ const VendorCard: Component<{
           </For>
         </Show>
       </div>
+      </Show>
     </div>
   )
 }

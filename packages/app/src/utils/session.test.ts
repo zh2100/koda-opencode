@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import type { SessionApi, SessionInfo, SessionListInput } from "@opencode-ai/client/promise"
+import type { SessionsListInput, SessionsListOutput } from "@opencode-ai/client/promise"
+import type { ServerApi } from "./server"
 import { listAllSessions, normalizeSessionInfo } from "./session"
 
 describe("normalizeSessionInfo", () => {
@@ -16,7 +17,7 @@ describe("normalizeSessionInfo", () => {
       location: { directory: "/repo/worktree", workspaceID: "workspace-1" },
       subpath: "worktree",
       revert: { messageID: "message-1", partID: "part-1", snapshot: "snapshot", files: [] },
-    } as SessionInfo)
+    } as Parameters<typeof normalizeSessionInfo>[0])
 
     expect(result).toEqual({
       id: "session-1",
@@ -48,17 +49,17 @@ describe("normalizeSessionInfo", () => {
 
 describe("listAllSessions", () => {
   test("loads every page in server order and retains the query", async () => {
-    const calls: SessionListInput[] = []
-    const pages = new Map<string | undefined, { data: SessionInfo[]; cursor: { next?: string } }>([
+    const calls: SessionsListInput[] = []
+    const pages = new Map<string | undefined, { data: ReturnType<typeof sessionInfo>[]; cursor: { next?: string } }>([
       [undefined, { data: [sessionInfo("session-3"), sessionInfo("session-2")], cursor: { next: "next" } }],
       ["next", { data: [sessionInfo("session-1", true)], cursor: {} }],
     ])
     const api = {
-      list: async (query = {}) => {
+       list: async (query: SessionsListInput = {}) => {
         calls.push(query)
-        return pages.get(query.cursor) ?? { data: [], cursor: {} }
+         return pages.get(query.cursor) ?? { data: [], cursor: {} }
       },
-    } satisfies Pick<SessionApi, "list">
+    } as unknown as Pick<ServerApi["sessions"], "list">
 
     const result = await listAllSessions(api, { directory: "/repo", order: "desc" })
 
@@ -73,12 +74,12 @@ describe("listAllSessions", () => {
   test("requests the terminal empty page when the server returns a next cursor", async () => {
     const cursors: Array<string | undefined> = []
     const api = {
-      list: async (query = {}) => {
+       list: async (query: SessionsListInput = {}) => {
         cursors.push(query.cursor)
-        if (query.cursor) return { data: [], cursor: { next: "unused" } }
+         if (query.cursor) return { data: [], cursor: { next: "unused" } }
         return { data: [sessionInfo("session-1")], cursor: { next: "terminal" } }
       },
-    } satisfies Pick<SessionApi, "list">
+    } as unknown as Pick<ServerApi["sessions"], "list">
 
     const result = await listAllSessions(api, { directory: "/repo", limit: 25 })
 
@@ -98,7 +99,7 @@ function sessionInfo(id: string, archived = false) {
     time: { created: 1, updated: 1, archived: archived ? 2 : undefined },
     title: id,
     location: { directory: "/repo" },
-  } as SessionInfo
+  } as Parameters<typeof normalizeSessionInfo>[0]
 }
 
 function currentSession(id: string, parentID?: string) {
@@ -110,5 +111,5 @@ function currentSession(id: string, parentID?: string) {
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: 0, updated: 0 },
     location: { directory: "/repo" },
-  } as SessionInfo
+  } as Parameters<typeof normalizeSessionInfo>[0]
 }

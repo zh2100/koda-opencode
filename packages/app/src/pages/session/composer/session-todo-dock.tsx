@@ -7,7 +7,7 @@ import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
 import { TextStrikethrough } from "@opencode-ai/ui/text-strikethrough"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
-import { Index, createEffect, createMemo } from "solid-js"
+import { For, Index, Show, createEffect, createMemo } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
@@ -216,54 +216,96 @@ export function SessionTodoDock(props: {
   )
 }
 
-export function TodoList(props: { todos: Todo[] }) {
+function TodoItem(props: { todo: Todo }) {
+  return (
+    <Checkbox
+      readOnly
+      checked={props.todo.status === "completed"}
+      indeterminate={props.todo.status === "in_progress"}
+      data-in-progress={props.todo.status === "in_progress" ? "" : undefined}
+      data-state={props.todo.status}
+      icon={dot(props.todo.status)}
+      style={{
+        "--checkbox-align": "flex-start",
+        "--checkbox-offset": "1px",
+        transition: "opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
+        opacity: props.todo.status === "pending" ? "0.94" : "1",
+      }}
+    >
+      <TextStrikethrough
+        active={props.todo.status === "completed" || props.todo.status === "cancelled"}
+        text={props.todo.content}
+        class="text-14-regular min-w-0 break-words"
+        style={{
+          "line-height": "var(--line-height-normal)",
+          transition:
+            "color 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1)), opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
+          color:
+            props.todo.status === "completed" || props.todo.status === "cancelled"
+              ? "var(--text-weak)"
+              : "var(--text-strong)",
+          opacity: props.todo.status === "pending" ? "0.92" : "1",
+        }}
+      />
+    </Checkbox>
+  )
+}
+
+function TodoGroup(props: { label: string; todos: Todo[] }) {
+  return (
+    <Show when={props.todos.length > 0}>
+      <div class="flex flex-col gap-1.5">
+        <div class="text-[12px] text-v2-text-text-muted px-0.5">{props.label}</div>
+        <Index each={props.todos}>{(todo) => <TodoItem todo={todo()} />}</Index>
+      </div>
+    </Show>
+  )
+}
+
+export function TodoList(props: { todos: Todo[]; grouped?: boolean }) {
+  const language = useLanguage()
   const [store, setStore] = createStore({
     stuck: false,
   })
+  const groups = createMemo(() => [
+    {
+      key: "planning",
+      label: language.t("session.todo.planning"),
+      todos: props.todos.filter(
+        (todo) => todo.status !== "in_progress" && todo.status !== "completed" && todo.status !== "cancelled",
+      ),
+    },
+    {
+      key: "active",
+      label: language.t("session.todo.active"),
+      todos: props.todos.filter((todo) => todo.status === "in_progress"),
+    },
+    {
+      key: "completed",
+      label: language.t("session.todo.completed"),
+      todos: props.todos.filter((todo) => todo.status === "completed" || todo.status === "cancelled"),
+    },
+  ])
 
   return (
     <div class="relative">
       <div
-        class="px-3 pb-11 flex flex-col gap-1.5 max-h-42 overflow-y-auto no-scrollbar"
+        classList={{
+          "px-3 overflow-y-auto no-scrollbar flex flex-col": true,
+          "pb-11 gap-1.5 max-h-42": !props.grouped,
+          "py-3 gap-3": props.grouped,
+        }}
         style={{ "overflow-anchor": "none" }}
         onScroll={(e) => {
           setStore("stuck", e.currentTarget.scrollTop > 0)
         }}
       >
-        <Index each={props.todos}>
-          {(todo) => (
-            <Checkbox
-              readOnly
-              checked={todo().status === "completed"}
-              indeterminate={todo().status === "in_progress"}
-              data-in-progress={todo().status === "in_progress" ? "" : undefined}
-              data-state={todo().status}
-              icon={dot(todo().status)}
-              style={{
-                "--checkbox-align": "flex-start",
-                "--checkbox-offset": "1px",
-                transition: "opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
-                opacity: todo().status === "pending" ? "0.94" : "1",
-              }}
-            >
-              <TextStrikethrough
-                active={todo().status === "completed" || todo().status === "cancelled"}
-                text={todo().content}
-                class="text-14-regular min-w-0 break-words"
-                style={{
-                  "line-height": "var(--line-height-normal)",
-                  transition:
-                    "color 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1)), opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
-                  color:
-                    todo().status === "completed" || todo().status === "cancelled"
-                      ? "var(--text-weak)"
-                      : "var(--text-strong)",
-                  opacity: todo().status === "pending" ? "0.92" : "1",
-                }}
-              />
-            </Checkbox>
-          )}
-        </Index>
+        <Show
+          when={props.grouped}
+          fallback={<Index each={props.todos}>{(todo) => <TodoItem todo={todo()} />}</Index>}
+        >
+          <For each={groups()}>{(group) => <TodoGroup label={group.label} todos={group.todos} />}</For>
+        </Show>
       </div>
       <div
         class="pointer-events-none absolute top-0 left-0 right-0 h-4 transition-opacity duration-150"

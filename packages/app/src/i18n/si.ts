@@ -1275,4 +1275,7 @@ export const dict: Record<string, string> = {
   "workspace.reset.archived.many": "සැසි {{count}} සංරක්ෂිත වනු ඇත.",
   "workspace.reset.note": "මෙය පෙරනිමි ශාඛාවට ගැලපෙන පරිදි වැඩබිම නැවත සකසනු ඇත.",
   "dialog.usageExceeded.dontShowAgain": "නැවත නොපෙන්වන්න",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

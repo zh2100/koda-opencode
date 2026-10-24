@@ -20,4 +20,9 @@ describe("authTokenFromCredentials", () => {
   test("encodes credentials with the default username", () => {
     expect(authTokenFromCredentials({ password: "secret" })).toBe(btoa("opencode:secret"))
   })
+
+  test("encodes non-Latin credentials", () => {
+    const token = authTokenFromCredentials({ username: "用户", password: "密码" })
+    expect(authFromToken(token)).toEqual({ username: "用户", password: "密码" })
+  })
 })

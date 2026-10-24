@@ -1276,6 +1276,7 @@ export function UserMessageDisplay(props: {
                   <div
                     data-slot="user-message-attachment"
                     data-type={type}
+                    data-layout={newLayout() ? "v2" : undefined}
                     data-clickable={type === "image" || file.mime === "application/pdf" ? "true" : undefined}
                     title={type === "file" ? name : undefined}
                     onClick={() => {

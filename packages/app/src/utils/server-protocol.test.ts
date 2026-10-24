@@ -28,6 +28,16 @@ describe("detectServerProtocol", () => {
     expect(await detectServerProtocol(server, fetcher)).toBe("v2")
   })
 
+  test("recognizes V2 health by its relay gates", async () => {
+    const fetcher = mockFetch((input) => {
+      const path = new URL(input instanceof Request ? input.url : input).pathname
+      if (path === "/global/health") return Promise.resolve(json({}, 404))
+      return Promise.resolve(json({ healthy: true, gates: { relayCoreUi: true } }))
+    })
+
+    expect(await detectServerProtocol(server, fetcher)).toBe("v2")
+  })
+
   test("recognizes the transitional V1 API health response", async () => {
     const fetcher = mockFetch((input) => {
       const path = new URL(input instanceof Request ? input.url : input).pathname

@@ -235,6 +235,14 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       "settings.collaboration.models",
       createStore<CollaborationModels>({ worker: "" }),
     )
+    const [computerUse, setComputerUse, , computerUseReady] = persisted(
+      "settings.computer-use",
+      createStore({ enabled: false, scope: "any" as "any" | "chrome" | "excel" }),
+    )
+    const [collaborationSettings, setCollaborationSettings, , collaborationReady] = persisted(
+      "settings.collaboration.preferences",
+      createStore({ enabled: false, jevUrl: "https://jevmodel.org/v1/systemone", jevKey: "" }),
+    )
     const [store, setStore, settingsInit, ready] = persisted("settings.v3", createStore<Settings>(defaultSettings))
     const [launch, setLaunch, , launchReady] = persisted(
       "app-version.v1",
@@ -362,7 +370,38 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
 
     return {
       ready,
-      collaboration: { models, setModels, ready: modelsReady },
+      computerUse: {
+        enabled: withFallback(() => computerUse.enabled, false),
+        setEnabled(value: boolean) {
+          setComputerUse("enabled", value)
+          void window.api?.restartSidecar?.()
+        },
+        scope: withFallback(() => computerUse.scope, "any" as const),
+        setScope(value: "any" | "chrome" | "excel") {
+          setComputerUse("scope", value)
+          if (computerUse.enabled) void window.api?.restartSidecar?.()
+        },
+        ready: computerUseReady,
+      },
+      collaboration: {
+        models,
+        setModels,
+        ready: modelsReady,
+        enabled: withFallback(() => collaborationSettings.enabled, false),
+        setEnabled(value: boolean) {
+          setCollaborationSettings("enabled", value)
+        },
+        jevUrl: withFallback(() => collaborationSettings.jevUrl, "https://jevmodel.org/v1/systemone"),
+        setJevUrl(value: string) {
+          setCollaborationSettings("jevUrl", value.trim())
+        },
+        jevConfigured: () => (collaborationSettings.jevKey ?? "").trim().length > 0,
+        jevKey: withFallback(() => collaborationSettings.jevKey, ""),
+        setJevKey(value: string) {
+          setCollaborationSettings("jevKey", value.trim())
+        },
+        preferencesReady: collaborationReady,
+      },
       get current() {
         return store
       },

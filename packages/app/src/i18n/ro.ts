@@ -1287,4 +1287,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} sesiuni vor fi arhivate.",
   "workspace.reset.note": "Aceasta va reseta spațiul de lucru la ramura implicită.",
   "dialog.usageExceeded.dontShowAgain": "Nu mai afișa",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

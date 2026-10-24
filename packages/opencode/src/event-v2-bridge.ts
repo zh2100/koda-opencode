@@ -11,6 +11,17 @@ import { Context, Effect, Layer } from "effect"
 
 export class Service extends Context.Service<Service, EventV2.Interface>()("@opencode/EventV2Bridge") {}
 
+const reasoningTrace = (stage: string, event: EventV2.Payload) => {
+  if (process.env.OPENCODE_REASONING_TRACE !== "1") return
+  if (event.type !== "session.next.reasoning.delta") return
+  console.debug("[reasoning-trace]", {
+    stage,
+    eventID: event.id,
+    eventType: event.type,
+    data: event.data,
+  })
+}
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -34,6 +45,7 @@ const layer = Layer.effect(
 
     const unsubscribe = yield* events.listen((event) =>
       Effect.gen(function* () {
+        reasoningTrace("global-bus", event)
         const ctx = yield* InstanceRef
         const workspaceID = (yield* WorkspaceRef) ?? event.location?.workspaceID
         GlobalBus.emit("event", {

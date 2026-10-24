@@ -92,7 +92,7 @@ export default {
           \`project_id\` text NOT NULL,
           \`action\` text NOT NULL,
           \`resource\` text NOT NULL,
-          \`effect\` text NOT NULL DEFAULT 'allow',
+          \`effect\` text DEFAULT 'allow' NOT NULL,
           \`time_created\` integer NOT NULL,
           \`time_updated\` integer NOT NULL,
           CONSTRAINT \`fk_permission_project_id_project_id_fk\` FOREIGN KEY (\`project_id\`) REFERENCES \`project\`(\`id\`) ON DELETE CASCADE
@@ -123,6 +123,44 @@ export default {
           \`time_initialized\` integer,
           \`sandboxes\` text NOT NULL,
           \`commands\` text
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`scheduled_task_run\` (
+          \`id\` text PRIMARY KEY,
+          \`task_id\` text NOT NULL,
+          \`scheduled_at\` integer NOT NULL,
+          \`revision\` integer NOT NULL,
+          \`status\` text NOT NULL,
+          \`session_id\` text,
+          \`prompt_message_id\` text,
+          \`started_at\` integer,
+          \`ended_at\` integer,
+          \`error\` text,
+          \`time_created\` integer NOT NULL,
+          \`time_updated\` integer NOT NULL,
+          CONSTRAINT \`fk_scheduled_task_run_task_id_scheduled_task_id_fk\` FOREIGN KEY (\`task_id\`) REFERENCES \`scheduled_task\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`scheduled_task\` (
+          \`id\` text PRIMARY KEY,
+          \`name\` text NOT NULL,
+          \`project_id\` text NOT NULL,
+          \`location\` text NOT NULL,
+          \`prompt\` text NOT NULL,
+          \`schedule\` text NOT NULL,
+          \`timezone\` text NOT NULL,
+          \`run_at\` integer NOT NULL,
+          \`model\` text NOT NULL,
+          \`effort\` text,
+          \`approval_mode\` text NOT NULL,
+          \`enabled\` integer NOT NULL,
+          \`revision\` integer NOT NULL,
+          \`next_run\` integer,
+          \`last_run\` integer,
+          \`time_created\` integer NOT NULL,
+          \`time_updated\` integer NOT NULL
         );
       `)
       yield* tx.run(`
@@ -238,48 +276,71 @@ export default {
         );
       `)
       yield* tx.run(`
-        CREATE TABLE \`scheduled_task\` (
+        CREATE TABLE \`task_orchestrator_message\` (
           \`id\` text PRIMARY KEY,
-          \`name\` text NOT NULL,
-          \`project_id\` text NOT NULL,
-          \`location\` text NOT NULL,
-          \`prompt\` text NOT NULL,
-          \`schedule\` text NOT NULL,
-          \`timezone\` text NOT NULL,
-          \`run_at\` integer NOT NULL,
-          \`model\` text NOT NULL,
-          \`effort\` text,
-          \`approval_mode\` text NOT NULL,
-          \`enabled\` integer NOT NULL,
-          \`revision\` integer NOT NULL,
-          \`next_run\` integer,
-          \`last_run\` integer,
-          \`time_created\` integer NOT NULL,
-          \`time_updated\` integer NOT NULL
+          \`task_id\` text NOT NULL,
+          \`role\` text NOT NULL,
+          \`kind\` text NOT NULL,
+          \`content\` text NOT NULL,
+          \`created_at\` integer NOT NULL
         );
       `)
       yield* tx.run(`
-        CREATE TABLE \`scheduled_task_run\` (
+        CREATE TABLE \`task_orchestrator_run\` (
           \`id\` text PRIMARY KEY,
           \`task_id\` text NOT NULL,
-          \`scheduled_at\` integer NOT NULL,
-          \`revision\` integer NOT NULL,
+          \`step_id\` text NOT NULL,
+          \`model\` text NOT NULL,
+          \`role\` text NOT NULL,
+          \`input_snapshot\` text NOT NULL,
+          \`output\` text,
           \`status\` text NOT NULL,
-          \`session_id\` text,
-          \`prompt_message_id\` text,
-          \`started_at\` integer,
-          \`ended_at\` integer,
-          \`error\` text,
-          \`time_created\` integer NOT NULL,
-          \`time_updated\` integer NOT NULL,
-          CONSTRAINT \`fk_scheduled_task_run_task_id_scheduled_task_id_fk\` FOREIGN KEY (\`task_id\`) REFERENCES \`scheduled_task\`(\`id\`) ON DELETE CASCADE
+          \`retry_count\` integer DEFAULT 0 NOT NULL,
+          \`started_at\` integer NOT NULL,
+          \`finished_at\` integer,
+          \`failure_reason\` text
         );
       `)
-      yield* tx.run(`CREATE UNIQUE INDEX \`scheduled_task_run_task_scheduled_idx\` ON \`scheduled_task_run\` (\`task_id\`,\`scheduled_at\`);`)
+      yield* tx.run(`
+        CREATE TABLE \`task_orchestrator_step\` (
+          \`id\` text PRIMARY KEY,
+          \`task_id\` text NOT NULL,
+          \`ordinal\` integer NOT NULL,
+          \`role\` text NOT NULL,
+          \`model\` text NOT NULL,
+          \`status\` text NOT NULL,
+          \`retry_count\` integer DEFAULT 0 NOT NULL,
+          \`output\` text,
+          \`failure_reason\` text,
+          \`started_at\` integer,
+          \`finished_at\` integer
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`task_orchestrator_task\` (
+          \`id\` text PRIMARY KEY,
+          \`session_id\` text NOT NULL,
+          \`project_id\` text NOT NULL,
+          \`workspace_key\` text NOT NULL,
+          \`prompt\` text NOT NULL,
+          \`status\` text NOT NULL,
+          \`mode\` text DEFAULT 'sequential' NOT NULL,
+          \`current_step\` integer DEFAULT 0 NOT NULL,
+          \`created_at\` integer NOT NULL,
+          \`updated_at\` integer NOT NULL,
+          \`failure_reason\` text,
+          \`timeout_ms\` integer DEFAULT 300000 NOT NULL,
+          \`max_retries\` integer DEFAULT 1 NOT NULL,
+          \`fallback_model\` text
+        );
+      `)
       yield* tx.run(`CREATE UNIQUE INDEX \`event_aggregate_seq_idx\` ON \`event\` (\`aggregate_id\`,\`seq\`);`)
       yield* tx.run(`CREATE INDEX \`event_aggregate_type_seq_idx\` ON \`event\` (\`aggregate_id\`,\`type\`,\`seq\`);`)
       yield* tx.run(
         `CREATE UNIQUE INDEX \`permission_project_action_resource_idx\` ON \`permission\` (\`project_id\`,\`action\`,\`resource\`);`,
+      )
+      yield* tx.run(
+        `CREATE UNIQUE INDEX \`scheduled_task_run_task_scheduled_idx\` ON \`scheduled_task_run\` (\`task_id\`,\`scheduled_at\`);`,
       )
       yield* tx.run(
         `CREATE INDEX \`message_session_time_created_id_idx\` ON \`message\` (\`session_id\`,\`time_created\`,\`id\`);`,
@@ -309,12 +370,14 @@ export default {
       yield* tx.run(`CREATE INDEX \`session_workspace_idx\` ON \`session\` (\`workspace_id\`);`)
       yield* tx.run(`CREATE INDEX \`session_parent_idx\` ON \`session\` (\`parent_id\`);`)
       yield* tx.run(`CREATE INDEX \`todo_session_idx\` ON \`todo\` (\`session_id\`);`)
-      yield* tx.run(`CREATE TABLE \`task_orchestrator_task\` (\`id\` text PRIMARY KEY, \`session_id\` text NOT NULL, \`project_id\` text NOT NULL, \`workspace_key\` text NOT NULL, \`prompt\` text NOT NULL, \`status\` text NOT NULL, \`current_step\` integer NOT NULL DEFAULT 0, \`created_at\` integer NOT NULL, \`updated_at\` integer NOT NULL, \`failure_reason\` text, \`timeout_ms\` integer NOT NULL DEFAULT 300000, \`max_retries\` integer NOT NULL DEFAULT 1, \`fallback_model\` text);`)
-      yield* tx.run(`CREATE TABLE \`task_orchestrator_step\` (\`id\` text PRIMARY KEY, \`task_id\` text NOT NULL, \`ordinal\` integer NOT NULL, \`role\` text NOT NULL, \`model\` text NOT NULL, \`status\` text NOT NULL, \`retry_count\` integer NOT NULL DEFAULT 0, \`output\` text, \`failure_reason\` text, \`started_at\` integer, \`finished_at\` integer);`)
-      yield* tx.run(`CREATE TABLE \`task_orchestrator_run\` (\`id\` text PRIMARY KEY, \`task_id\` text NOT NULL, \`step_id\` text NOT NULL, \`model\` text NOT NULL, \`role\` text NOT NULL, \`input_snapshot\` text NOT NULL, \`output\` text, \`status\` text NOT NULL, \`retry_count\` integer NOT NULL DEFAULT 0, \`started_at\` integer NOT NULL, \`finished_at\` integer, \`failure_reason\` text);`)
-      yield* tx.run(`CREATE INDEX \`task_orchestrator_task_session_idx\` ON \`task_orchestrator_task\` (\`session_id\`);`)
-      yield* tx.run(`CREATE INDEX \`task_orchestrator_step_task_idx\` ON \`task_orchestrator_step\` (\`task_id\`);`)
+      yield* tx.run(
+        `CREATE INDEX \`task_orchestrator_message_task_idx\` ON \`task_orchestrator_message\` (\`task_id\`);`,
+      )
       yield* tx.run(`CREATE INDEX \`task_orchestrator_run_task_idx\` ON \`task_orchestrator_run\` (\`task_id\`);`)
+      yield* tx.run(`CREATE INDEX \`task_orchestrator_step_task_idx\` ON \`task_orchestrator_step\` (\`task_id\`);`)
+      yield* tx.run(
+        `CREATE INDEX \`task_orchestrator_task_session_idx\` ON \`task_orchestrator_task\` (\`session_id\`);`,
+      )
     })
   },
 } satisfies Omit<DatabaseMigration.Migration, "id">

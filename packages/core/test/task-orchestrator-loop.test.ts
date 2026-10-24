@@ -56,7 +56,8 @@ describe("TaskOrchestratorLoop", () => {
               test: () => Effect.sync(() => "tested"),
               changes: () => ["src/a.ts"],
               audit: ({ changes }) => Effect.sync(() => calls.push(`audit:${changes.join(",")}`)),
-              control: () => undefined,
+               control: () => undefined,
+               interrupt: () => Effect.void,
             },
           })),
           Effect.andThen(db.select().from(TaskOrchestratorTaskTable).where(eq(TaskOrchestratorTaskTable.id, "task")).get().pipe(Effect.orDie)),
@@ -86,6 +87,7 @@ describe("TaskOrchestratorLoop", () => {
                 changes: () => [],
                 audit: () => Effect.void,
                 control: () => undefined,
+                interrupt: () => Effect.void,
               },
             }).pipe(Effect.exit),
           ),
@@ -114,6 +116,7 @@ describe("TaskOrchestratorLoop", () => {
                 changes: () => [],
                 audit: () => Effect.void,
                 control: () => control,
+                interrupt: () => Effect.void,
               },
             })),
             Effect.andThen(db.select().from(TaskOrchestratorTaskTable).where(eq(TaskOrchestratorTaskTable.id, "task")).get().pipe(Effect.orDie)),
@@ -139,5 +142,44 @@ describe("TaskOrchestratorLoop", () => {
       Effect.runPromise,
     )
     expect(runs).toEqual([])
+  })
+
+  test("updates current step and persists timed out executions", async () => {
+    let interrupted = 0
+    const result = await makeDb.pipe(
+      Effect.flatMap((db) =>
+        seed(db).pipe(
+          Effect.andThen(db.update(TaskOrchestratorTaskTable).set({ timeout_ms: 1 }).where(eq(TaskOrchestratorTaskTable.id, "task")).run().pipe(Effect.orDie)),
+          Effect.andThen(
+            TaskOrchestratorLoop.run({
+              db,
+              taskID: "task",
+              runner: {
+                output: () => Effect.sleep("20 millis").pipe(Effect.as("late")),
+                schedule: () => Effect.void,
+                test: () => Effect.succeed("ok"),
+                changes: () => [],
+                audit: () => Effect.void,
+                control: () => undefined,
+                interrupt: () => Effect.sync(() => interrupted += 1),
+              },
+            }),
+          ),
+          Effect.andThen(Effect.all({
+            task: db.select().from(TaskOrchestratorTaskTable).where(eq(TaskOrchestratorTaskTable.id, "task")).get().pipe(Effect.orDie),
+            step: db.select().from(TaskOrchestratorStepTable).where(eq(TaskOrchestratorStepTable.id, "planner")).get().pipe(Effect.orDie),
+            run: db.select().from(TaskOrchestratorRunTable).all().pipe(Effect.orDie),
+          })),
+        ),
+      ),
+      Effect.provide(sqlite),
+      Effect.scoped,
+      Effect.runPromise,
+    )
+    expect(result.task?.status).toBe("failed")
+    expect(result.task?.current_step).toBe(0)
+    expect(result.step?.status).toBe("failed")
+    expect(result.run[0]?.status).toBe("timed_out")
+    expect(interrupted).toBe(1)
   })
 })

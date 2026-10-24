@@ -17,6 +17,7 @@ import { LocationHandler } from "./handlers/location"
 import { IntegrationHandler } from "./handlers/integration"
 import { CredentialHandler } from "./handlers/credential"
 import { ProjectCopyHandler } from "./handlers/project-copy"
+import { OrchestratorHandler } from "./handlers/orchestrator"
 import { RelayHandler } from "./handlers/relay"
 import { ScheduledTaskHandler } from "./handlers/scheduled-task"
 
@@ -41,4 +42,5 @@ export const handlers = Layer.mergeAll(
   QuestionHandler,
   ReferenceHandler,
   ProjectCopyHandler,
+  OrchestratorHandler,
 )

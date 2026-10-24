@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test"
+
 import { createStore } from "solid-js/store"
 import { CancelledError, QueryClient } from "@tanstack/solid-query"
 import type { Config, OpencodeClient, Project } from "@opencode-ai/sdk/v2/client"
-import type { AgentApi, CatalogApi, CommandApi, ReferenceApi } from "@opencode-ai/client/promise"
+import type { AgentsListOutput, CommandsListOutput, ReferencesListOutput } from "@opencode-ai/client/promise"
 import type { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import {
   bootstrapDirectory,
@@ -18,7 +19,11 @@ import type { State, VcsCache } from "./types"
 import { ServerScope } from "@/utils/server-scope"
 import type { ServerApi } from "@/utils/server"
 
-type ProjectApi = ServerApi["project"]
+type ProjectApi = { list: () => Promise<{ data: readonly Project[] }> }
+type AgentApi = ServerApi["agents"]
+type CatalogApi = Pick<ServerApi, "providers" | "models">
+type CommandApi = ServerApi["commands"]
+type ReferenceApi = ServerApi["references"]
 
 const provider = { all: new Map(), connected: [], default: {} } satisfies NormalizedProviderListResponse
 const api = {
@@ -395,20 +400,16 @@ describe("query keys", () => {
   test("loads the current provider and model catalog", async () => {
     const calls: unknown[] = []
     const api = {
-      provider: {
+      providers: {
         list: async (input: unknown) => {
           calls.push(["provider", input])
-          return { location: {}, data: [{ id: "openai", name: "OpenAI", package: "@ai-sdk/openai" }] }
+          return { location: {}, data: [{ id: "openai", name: "OpenAI", api: { id: "openai", name: "OpenAI", npm: "@ai-sdk/openai", env: [], settings: {} } }] }
         },
       },
-      model: {
+      models: {
         list: async (input: unknown) => {
           calls.push(["model", input])
           return { location: {}, data: [] }
-        },
-        default: async (input: unknown) => {
-          calls.push(["default", input])
-          return { location: {}, data: null }
         },
       },
     } as unknown as CatalogApi
@@ -418,7 +419,6 @@ describe("query keys", () => {
     expect(calls).toEqual([
       ["provider", { location: { directory: "/repo" } }],
       ["model", { location: { directory: "/repo" } }],
-      ["default", { location: { directory: "/repo" } }],
     ])
     expect(result.connected).toEqual(["openai"])
   })
@@ -458,10 +458,10 @@ describe("query keys", () => {
 
   test("loads projects from the current endpoint", async () => {
     const api = {
-      list: async () => [
-        { id: "b", worktree: "/b", time: { created: 1, updated: 1 }, sandboxes: [] },
-        { id: "a", worktree: "/a", time: { created: 1, updated: 1 }, sandboxes: [] },
-      ],
+        list: async () => ({ data: [
+          { id: "b", worktree: "/b", time: { created: 1, updated: 1 }, sandboxes: [] },
+          { id: "a", worktree: "/a", time: { created: 1, updated: 1 }, sandboxes: [] },
+        ] }),
     } as unknown as ProjectApi
 
     const result = await new QueryClient().fetchQuery(loadProjectsQuery(ServerScope.local, api))

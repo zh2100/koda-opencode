@@ -10,11 +10,10 @@ import { Session } from "@/session/session"
 import type { SessionID } from "@/session/schema"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
-import { TaskOrchestrator } from "@opencode-ai/core/task-orchestrator"
 import { Worktree } from "@/worktree"
-import { Effect, Option, Scope } from "effect"
+import { Effect, Option } from "effect"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
-import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
+import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 import { ConsoleSwitchPayload, SessionListQuery, ToolListQuery, WorktreeApiError } from "../groups/experimental"
 
@@ -23,31 +22,6 @@ function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
     Effect.mapError((error) => new WorktreeApiError({ name: error._tag, data: { message: error.message } })),
   )
 }
-
-export const createAndRun = Effect.fn("ExperimentalHttpApi.orchestratorCreate")(function* (
-  payload: Parameters<TaskOrchestrator.Interface["create"]>[0],
-) {
-  const orchestrator = yield* TaskOrchestrator.Service
-  const scope = yield* Scope.Scope
-  const task = yield* orchestrator.create(payload).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
-  yield* orchestrator.run(task.id).pipe(
-    Effect.catchCause((cause) => Effect.logError("orchestrator run failed", { taskID: task.id, cause })),
-    Effect.forkIn(scope, { startImmediately: true }),
-  )
-  return task
-})
-
-const readTask = Effect.fn("ExperimentalHttpApi.orchestratorGet")(function* (taskID: string) {
-  return yield* (yield* TaskOrchestrator.Service).get(taskID)
-})
-
-const controlTask = Effect.fn("ExperimentalHttpApi.orchestratorControl")(function* (
-  taskID: string,
-  action: "pause" | "abort" | "retry",
-) {
-  yield* (yield* TaskOrchestrator.Service).control({ taskID, action })
-  return HttpApiSchema.NoContent.make()
-})
 
 export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "experimental", (handlers) =>
   Effect.gen(function* () {
@@ -200,16 +174,6 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       return yield* mcp.resources()
     })
 
-    const orchestratorCreate = (ctx: { payload: Parameters<TaskOrchestrator.Interface["create"]>[0] }) =>
-      createAndRun(ctx.payload)
-
-    const orchestratorGet = (ctx: { params: { taskID: string } }) => readTask(ctx.params.taskID)
-
-    const orchestratorControl = (ctx: {
-      params: { taskID: string }
-      payload: { action: "pause" | "abort" | "retry" }
-    }) => controlTask(ctx.params.taskID, ctx.payload.action)
-
     return handlers
       .handle("capabilities", capabilities)
       .handle("console", getConsole)
@@ -224,8 +188,5 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("session", session)
       .handle("sessionBackground", sessionBackground)
       .handle("resource", resource)
-      .handle("orchestratorCreate", orchestratorCreate)
-      .handle("orchestratorGet", orchestratorGet)
-      .handle("orchestratorControl", orchestratorControl)
   }),
 )

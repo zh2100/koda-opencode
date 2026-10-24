@@ -22,7 +22,18 @@ export function readyWslConnections(state?: WslServersState, label = "WSL") {
 
 export function availableStartupServer(defaultServer: string | null | undefined, state?: WslServersState) {
   const key = defaultServer ?? "sidecar"
+  if (isLegacyLocalServerKey(key)) return "sidecar"
   if (!key.startsWith("wsl:")) return key
   if (state?.servers.some((item) => item.config.id === key && item.runtime.kind === "ready")) return key
   return "sidecar"
+}
+
+function isLegacyLocalServerKey(key: string) {
+  try {
+    const url = new URL(key)
+    const hostname = url.hostname.replace(/^\[|\]$/g, "")
+    return url.protocol === "http:" && ["127.0.0.1", "localhost", "::1"].includes(hostname)
+  } catch {
+    return false
+  }
 }

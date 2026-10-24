@@ -12,6 +12,21 @@ import type { ToolOutput } from "@opencode-ai/llm"
 
 export const MAX_LINES = 2_000
 export const MAX_BYTES = 50 * 1024
+export const WORKER_MAX_LINES = 200
+export const WORKER_MAX_BYTES = 8 * 1024
+
+const sessionLimits = new Map<string, { readonly maxLines: number; readonly maxBytes: number }>()
+
+export const limitSession = (
+  sessionID: SessionSchema.ID,
+  limits: { readonly maxLines: number; readonly maxBytes: number },
+) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      sessionLimits.set(sessionID, limits)
+    }),
+    () => Effect.sync(() => sessionLimits.delete(sessionID)),
+  )
 export const RETENTION = Duration.days(7)
 
 export const MANAGED_DIRECTORY = "tool-output"
@@ -136,7 +151,7 @@ const layer = Layer.effect(
     })
 
     const bound = Effect.fn("ToolOutputStore.bound")(function* (input: BoundInput) {
-      const outputLimits = yield* limits()
+      const outputLimits = sessionLimits.get(input.sessionID) ?? (yield* limits())
       const media = input.output.content.filter((item) => item.type === "file")
       const text = input.output.content.filter((item) => item.type === "text")
       const contextual =

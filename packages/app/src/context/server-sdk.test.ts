@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { adaptServerEvent, coalesceServerEvents, enqueueServerEvent, resumeStreamAfterPageShow } from "./server-sdk"
-import type { OpenCodeEvent } from "@opencode-ai/client/promise"
+import type { OpenCodeEvent } from "@opencode-ai/client"
 import type { Event } from "@opencode-ai/sdk/v2/client"
 
 describe("resumeStreamAfterPageShow", () => {
@@ -60,7 +60,7 @@ describe("coalesceServerEvents", () => {
         type: "session.text.delta",
         location: { directory: "/repo" },
         data: { sessionID: "ses", assistantMessageID: "msg", ordinal: 0, delta: value },
-      } as OpenCodeEvent)
+      } as unknown as OpenCodeEvent)
     const result = coalesceServerEvents([
       { directory: "/repo", payload: current("evt_1", "hello ") },
       { directory: "/repo", payload: current("evt_2", "world") },

@@ -136,28 +136,55 @@ const OpenAIChatToolCallDeltaFunction = Schema.Struct({
 })
 
 const OpenAIChatToolCallDelta = Schema.Struct({
-  index: Schema.Number,
+  index: Schema.optional(Schema.Number),
   id: optionalNull(Schema.String),
   function: optionalNull(OpenAIChatToolCallDeltaFunction),
 })
 type OpenAIChatToolCallDelta = Schema.Schema.Type<typeof OpenAIChatToolCallDelta>
 
+const OpenAIChatDeltaTextPart = Schema.Struct({
+  type: Schema.optional(Schema.String),
+  text: Schema.optional(Schema.String),
+})
+
+const OpenAIChatDeltaContent = Schema.Union([Schema.String, Schema.Array(OpenAIChatDeltaTextPart)])
+
 const OpenAIChatDelta = Schema.Struct({
-  content: optionalNull(Schema.String),
+  content: optionalNull(OpenAIChatDeltaContent),
   reasoning_content: optionalNull(Schema.String),
+  reasoning: optionalNull(Schema.String),
   tool_calls: optionalNull(Schema.Array(OpenAIChatToolCallDelta)),
 })
+type OpenAIChatDelta = Schema.Schema.Type<typeof OpenAIChatDelta>
 
 const OpenAIChatChoice = Schema.Struct({
   delta: optionalNull(OpenAIChatDelta),
   finish_reason: optionalNull(Schema.String),
 })
 
+const OpenAIChatStreamError = Schema.Union([
+  Schema.String,
+  Schema.Struct({
+    message: Schema.optional(Schema.String),
+  }),
+])
+
 const OpenAIChatEvent = Schema.Struct({
-  choices: Schema.Array(OpenAIChatChoice),
+  choices: Schema.optional(Schema.Array(OpenAIChatChoice)),
   usage: optionalNull(OpenAIChatUsage),
+  error: optionalNull(OpenAIChatStreamError),
 })
 type OpenAIChatEvent = Schema.Schema.Type<typeof OpenAIChatEvent>
+
+const deltaText = (content: OpenAIChatDelta["content"]) => {
+  if (content == null) return
+  if (typeof content === "string") return content
+  const text = content.map((part) => part.text ?? "").join("")
+  return text || undefined
+}
+
+const streamErrorMessage = (error: NonNullable<OpenAIChatEvent["error"]>) =>
+  typeof error === "string" ? error : error.message || "Provider stream error"
 type OpenAIChatRequestMessage = LLMRequest["messages"][number]
 
 interface ParserState {
@@ -407,21 +434,26 @@ const mapUsage = (usage: OpenAIChatEvent["usage"]): Usage | undefined => {
 const step = (state: ParserState, event: OpenAIChatEvent) =>
   Effect.gen(function* () {
     const events: LLMEvent[] = []
+    if (event.error) {
+      events.push(LLMEvent.providerError({ message: streamErrorMessage(event.error) }))
+      return [state, events] as const
+    }
     const usage = mapUsage(event.usage) ?? state.usage
-    const choice = event.choices[0]
+    const choice = event.choices?.[0]
     const finishReason = choice?.finish_reason ? mapFinishReason(choice.finish_reason) : state.finishReason
     const delta = choice?.delta
     const toolDeltas = delta?.tool_calls ?? []
+    const content = deltaText(delta?.content)
+    const reasoning = delta?.reasoning_content ?? delta?.reasoning
     let tools = state.tools
 
     let lifecycle = state.lifecycle
 
-    if (delta?.reasoning_content)
-      lifecycle = Lifecycle.reasoningDelta(lifecycle, events, "reasoning-0", delta.reasoning_content)
+    if (reasoning) lifecycle = Lifecycle.reasoningDelta(lifecycle, events, "reasoning-0", reasoning)
 
-    if (delta?.content) {
+    if (content) {
       lifecycle = Lifecycle.reasoningEnd(lifecycle, events, "reasoning-0")
-      lifecycle = Lifecycle.textDelta(lifecycle, events, "text-0", delta.content)
+      lifecycle = Lifecycle.textDelta(lifecycle, events, "text-0", content)
     }
 
     if (toolDeltas.length) lifecycle = Lifecycle.reasoningEnd(lifecycle, events, "reasoning-0")
@@ -430,7 +462,7 @@ const step = (state: ParserState, event: OpenAIChatEvent) =>
       const result = ToolStream.appendOrStart(
         ADAPTER,
         tools,
-        tool.index,
+        tool.index ?? 0,
         { id: tool.id ?? undefined, name: tool.function?.name ?? undefined, text: tool.function?.arguments ?? "" },
         "OpenAI Chat tool call delta is missing id or name",
       )

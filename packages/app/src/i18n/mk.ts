@@ -1289,4 +1289,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} сесиите ќе бидат архивирани.",
   "workspace.reset.note": "Ова ќе го ресетира работниот простор за да одговара на стандардната гранка.",
   "dialog.usageExceeded.dontShowAgain": "Не прикажувај повторно",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

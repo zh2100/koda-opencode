@@ -122,13 +122,14 @@ export const layer = Layer.effect(
           spawn(process.execPath, [...(entrypoint ? [entrypoint] : []), "serve", "--register"], {
             detached: true,
             stdio: "ignore",
+            windowsHide: true,
           }).unref()
         },
         catch: (cause) => new Error("Failed to start server", { cause }),
       })
 
       return yield* compatible().pipe(
-        Effect.retry(Schedule.spaced("50 millis").pipe(Schedule.both(Schedule.recurs(100)))),
+        Effect.retry(Schedule.spaced("50 millis").pipe(Schedule.both(Schedule.recurs(300)))),
         Effect.map((info) => info.url),
         Effect.mapError(() => new Error("Failed to start server")),
       )

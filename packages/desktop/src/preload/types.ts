@@ -44,6 +44,7 @@ export type FatalRendererError = {
 
 export type ElectronAPI = {
   killSidecar: () => Promise<void>
+  restartSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: () => Promise<ServerReadyData>
   wslServers: WslServersAPI

@@ -11,6 +11,10 @@ import type {
   SessionsActiveOutput,
   SessionsGetInput,
   SessionsGetOutput,
+  SessionsRemoveInput,
+  SessionsRemoveOutput,
+  SessionsUpdateInput,
+  SessionsUpdateOutput,
   SessionsSwitchAgentInput,
   SessionsSwitchAgentOutput,
   SessionsSwitchModelInput,
@@ -27,6 +31,8 @@ import type {
   SessionsClearOutput,
   SessionsCommitInput,
   SessionsCommitOutput,
+  SessionsTodoInput,
+  SessionsTodoOutput,
   SessionsContextInput,
   SessionsContextOutput,
   SessionsHistoryInput,
@@ -151,6 +157,12 @@ import type {
   ProjectCopiesRemoveOutput,
   ProjectCopiesRefreshInput,
   ProjectCopiesRefreshOutput,
+  ServerOrchestratorCreateInput,
+  ServerOrchestratorCreateOutput,
+  ServerOrchestratorGetInput,
+  ServerOrchestratorGetOutput,
+  ServerOrchestratorControlInput,
+  ServerOrchestratorControlOutput,
 } from "./types"
 import { ClientError } from "./client-error"
 
@@ -377,7 +389,30 @@ export function make(options: ClientOptions) {
             method: "GET",
             path: `/api/session/${encodeURIComponent(input.sessionID)}`,
             successStatus: 200,
-            declaredStatuses: [404, 400, 401],
+            declaredStatuses: [404, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
+      remove: (input: SessionsRemoveInput, requestOptions?: RequestOptions) =>
+        request<SessionsRemoveOutput>(
+          {
+            method: "DELETE",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}`,
+            successStatus: 204,
+            declaredStatuses: [404, 401, 400],
+            empty: true,
+          },
+          requestOptions,
+        ),
+      update: (input: SessionsUpdateInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionsUpdateOutput }>(
+          {
+            method: "PATCH",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}`,
+            body: { title: input["title"] },
+            successStatus: 200,
+            declaredStatuses: [404, 401, 400],
             empty: false,
           },
           requestOptions,
@@ -474,6 +509,17 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
+      todo: (input: SessionsTodoInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionsTodoOutput }>(
+          {
+            method: "GET",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/todo`,
+            successStatus: 200,
+            declaredStatuses: [404, 400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
       context: (input: SessionsContextInput, requestOptions?: RequestOptions) =>
         request<{ readonly data: SessionsContextOutput }>(
           {
@@ -1294,6 +1340,52 @@ export function make(options: ClientOptions) {
             query: { location: input["location"] },
             successStatus: 204,
             declaredStatuses: [400, 401],
+            empty: true,
+          },
+          requestOptions,
+        ),
+    },
+    "server.orchestrator": {
+      create: (input: ServerOrchestratorCreateInput, requestOptions?: RequestOptions) =>
+        request<ServerOrchestratorCreateOutput>(
+          {
+            method: "POST",
+            path: `/experimental/orchestrator`,
+            query: { location: input["location"] },
+            body: {
+              sessionID: input["sessionID"],
+              projectID: input["projectID"],
+              workspaceKey: input["workspaceKey"],
+              prompt: input["prompt"],
+              models: input["models"],
+            },
+            successStatus: 200,
+            declaredStatuses: [400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      get: (input: ServerOrchestratorGetInput, requestOptions?: RequestOptions) =>
+        request<ServerOrchestratorGetOutput>(
+          {
+            method: "GET",
+            path: `/experimental/orchestrator/${encodeURIComponent(input.taskID)}`,
+            query: { location: input["location"] },
+            successStatus: 200,
+            declaredStatuses: [404, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      control: (input: ServerOrchestratorControlInput, requestOptions?: RequestOptions) =>
+        request<ServerOrchestratorControlOutput>(
+          {
+            method: "POST",
+            path: `/experimental/orchestrator/${encodeURIComponent(input.taskID)}/control`,
+            query: { location: input["location"] },
+            body: { action: input["action"] },
+            successStatus: 204,
+            declaredStatuses: [404, 401, 400],
             empty: true,
           },
           requestOptions,

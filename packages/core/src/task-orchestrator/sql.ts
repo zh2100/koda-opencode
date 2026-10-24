@@ -11,11 +11,14 @@ export const TaskOrchestratorTaskTable = sqliteTable(
     workspace_key: text().notNull(),
     prompt: text().notNull(),
     status: text({ enum: ["pending", "running", "completed", "failed", "paused", "aborted"] }).notNull(),
+    mode: text({ enum: ["sequential", "parallel"] })
+      .notNull()
+      .default("sequential"),
     current_step: integer().notNull().default(0),
     created_at: integer().notNull(),
     updated_at: integer().notNull(),
     failure_reason: text(),
-    timeout_ms: integer().notNull().default(300000),
+    timeout_ms: integer().notNull().default(900000),
     max_retries: integer().notNull().default(1),
     fallback_model: text(),
   },
@@ -40,6 +43,21 @@ export const TaskOrchestratorStepTable = sqliteTable(
   (table) => [index("task_orchestrator_step_task_idx").on(table.task_id)],
 )
 
+export const TaskOrchestratorMessageTable = sqliteTable(
+  "task_orchestrator_message",
+  {
+    id: text().primaryKey(),
+    task_id: text().notNull(),
+    role: text({ enum: ["planner", "worker", "reviewer", "tester", "finalizer"] }).notNull(),
+    kind: text({
+      enum: ["plan", "critique", "submission", "review", "revision", "merge", "test", "final"],
+    }).notNull(),
+    content: text().notNull(),
+    created_at: integer().notNull(),
+  },
+  (table) => [index("task_orchestrator_message_task_idx").on(table.task_id)],
+)
+
 export const TaskOrchestratorRunTable = sqliteTable(
   "task_orchestrator_run",
   {
@@ -50,7 +68,7 @@ export const TaskOrchestratorRunTable = sqliteTable(
     role: text().notNull(),
     input_snapshot: text().notNull(),
     output: text(),
-    status: text({ enum: ["running", "completed", "failed", "timed_out", "needs_revision"] }).notNull(),
+    status: text({ enum: ["pending", "running", "completed", "failed", "timed_out", "needs_revision"] }).notNull(),
     retry_count: integer().notNull().default(0),
     started_at: integer().notNull(),
     finished_at: integer(),

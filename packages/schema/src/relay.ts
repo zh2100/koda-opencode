@@ -7,7 +7,10 @@ export const VendorID = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-_
   Schema.brand("Relay.VendorID"),
   statics((schema) => ({
     chatgpt: schema.make("chatgpt"),
+    claude: schema.make("claude"),
+    gemini: schema.make("gemini"),
     grok: schema.make("grok"),
+    kimi: schema.make("kimi"),
   })),
 )
 export type VendorID = typeof VendorID.Type

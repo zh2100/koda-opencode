@@ -29,6 +29,7 @@ import { SessionCompaction } from "../compaction"
 import { SessionEvent } from "../event"
 import { SessionHistory } from "../history"
 import { SessionInput } from "../input"
+import { SessionMessage } from "../message"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
@@ -165,7 +166,34 @@ const layer = Layer.effect(
     const continueAfterOverflowCompaction = (step: number) =>
       new TurnTransitionError({ _tag: "ContinueAfterOverflowCompaction", step })
 
-    const loadSystemContext = (agent: AgentV2.Selection) =>
+    const languageInstruction = (messages: readonly SessionMessage.Message[]) => {
+  const text = [...messages].reverse().find((message) => message.type === "user" && message.text.trim())
+  if (!text || text.type !== "user") {
+    return "Reply in the same natural language as the user's latest message. Do not change languages unless the user asks you to."
+  }
+  const value = text.text
+  if (/\p{Script=Han}/u.test(value)) {
+    return "Reply entirely in the same Chinese variety used by the user, preserving code, identifiers, paths, and quoted text exactly. Do not switch to another language unless the user asks you to."
+  }
+  if (/\p{Script=Hiragana}|\p{Script=Katakana}/u.test(value)) {
+    return "Reply entirely in Japanese, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+  }
+  if (/\p{Script=Hangul}/u.test(value)) {
+    return "Reply entirely in Korean, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+  }
+  if (/\p{Script=Cyrillic}/u.test(value)) {
+    return "Reply entirely in the same Cyrillic-based language used by the user, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+  }
+  if (/\p{Script=Arabic}/u.test(value)) {
+    return "Reply entirely in the same Arabic-script language used by the user, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+  }
+  if (/\p{Script=Hebrew}/u.test(value)) {
+    return "Reply entirely in Hebrew, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+  }
+  return "Reply entirely in the same language as the user's latest message, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+}
+
+const loadSystemContext = (agent: AgentV2.Selection) =>
       Effect.all([systemContext.load(), skillGuidance.load(agent), referenceGuidance.load()], {
         concurrency: "unbounded",
       }).pipe(Effect.map(SystemContext.combine))
@@ -212,7 +240,7 @@ const layer = Layer.effect(
           },
         },
         providerOptions: { openai: { promptCacheKey } },
-        system: [agent.info?.system, system.baseline]
+        system: [agent.info?.system, system.baseline, languageInstruction(context)]
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
         messages: [...toLLMMessages(context, model), ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],

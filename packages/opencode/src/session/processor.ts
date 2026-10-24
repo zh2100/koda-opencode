@@ -11,6 +11,7 @@ import { Plugin } from "@/plugin"
 import { Snapshot } from "@/snapshot"
 import { Session } from "./session"
 import { LLM } from "./llm"
+import { normalizeReasoningDelta } from "./llm/reasoning"
 import { MessageV2 } from "./message-v2"
 import { isOverflow } from "./overflow"
 import { PartID } from "./schema"
@@ -72,9 +73,16 @@ interface ProcessorContext extends Input {
   needsCompaction: boolean
   currentText: SessionV1.TextPart | undefined
   reasoningMap: Record<string, SessionV1.ReasoningPart>
+  reasoningText: Record<string, string>
+  reasoningDelta: Record<string, string>
 }
 
 type StreamEvent = LLMEvent
+
+const reasoningTrace = (data: Record<string, unknown>) => {
+  if (process.env.OPENCODE_REASONING_TRACE !== "1") return
+  console.debug("[reasoning-trace]", { stage: "processor", ...data })
+}
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionProcessor") {}
 
@@ -111,6 +119,8 @@ const layer = Layer.effect(
         needsCompaction: false,
         currentText: undefined,
         reasoningMap: {},
+        reasoningText: {},
+        reasoningDelta: {},
       }
       let aborted = false
 
@@ -211,6 +221,8 @@ const layer = Layer.effect(
         ctx.reasoningMap[reasoningID].time = { ...ctx.reasoningMap[reasoningID].time, end: Date.now() }
         yield* session.updatePart(ctx.reasoningMap[reasoningID])
         delete ctx.reasoningMap[reasoningID]
+        delete ctx.reasoningText[reasoningID]
+        delete ctx.reasoningDelta[reasoningID]
       })
 
       const ensureToolCall = Effect.fn("SessionProcessor.ensureToolCall")(function* (input: {
@@ -294,14 +306,17 @@ const layer = Layer.effect(
           case "reasoning-delta":
             // Match dev: silently drop orphan deltas (no preceding reasoning-start).
             if (!(value.id in ctx.reasoningMap)) return
-            ctx.reasoningMap[value.id].text += value.text
+            const delta = normalizeReasoningDelta(ctx.reasoningText, value.id, value.text, ctx.reasoningDelta)
+            reasoningTrace({ id: value.id, rawDelta: value.text, normalizedDelta: delta })
+            if (!delta) return
+            ctx.reasoningMap[value.id].text += delta
             if (value.providerMetadata) ctx.reasoningMap[value.id].metadata = value.providerMetadata
             yield* session.updatePartDelta({
               sessionID: ctx.reasoningMap[value.id].sessionID,
               messageID: ctx.reasoningMap[value.id].messageID,
               partID: ctx.reasoningMap[value.id].id,
               field: "text",
-              delta: value.text,
+              delta,
             })
             return
 
@@ -650,6 +665,8 @@ const layer = Layer.effect(
           yield* Effect.gen(function* () {
             ctx.currentText = undefined
             ctx.reasoningMap = {}
+            ctx.reasoningText = {}
+            ctx.reasoningDelta = {}
             yield* status.set(ctx.sessionID, { type: "busy" })
             const stream = llm.stream(streamInput)
 

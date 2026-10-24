@@ -132,6 +132,7 @@
 
   [data-slot="toast-description"] {
     color: var(--text-invert-base);
+    white-space: pre-line;
     text-wrap-style: pretty;
     overflow-wrap: anywhere;
     word-break: break-word;

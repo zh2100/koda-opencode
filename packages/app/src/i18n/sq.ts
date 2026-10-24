@@ -1287,4 +1287,7 @@ export const dict = {
   "workspace.reset.archived.many": "Seancat {{count}} do të arkivohen.",
   "workspace.reset.note": "Kjo do të rivendosë hapësirën e punës që të përputhet me degën e paracaktuar.",
   "dialog.usageExceeded.dontShowAgain": "Mos e shfaq përsëri",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

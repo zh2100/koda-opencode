@@ -18,6 +18,7 @@ import {
   type usePrompt,
 } from "@/context/prompt"
 import { useSDK, type DirectorySDK } from "@/context/sdk"
+import type { GeneratedApi } from "@/utils/server"
 import { useSync, type DirectorySync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { pathKey } from "@/utils/path-key"
@@ -34,7 +35,7 @@ import { createStore } from "solid-js/store"
 import { useSettings } from "@/context/settings"
 import { useServerSDK } from "@/context/server-sdk"
 import { usePlatform } from "@/context/platform"
-import { collaborationModels, collaborationUnsupported, startCollaboration } from "@/utils/collaboration"
+import { collaborationModels, collaborationRoute, collaborationUnsupported, startCollaboration } from "@/utils/collaboration"
 
 type PendingPrompt = {
   abort: AbortController
@@ -42,6 +43,8 @@ type PendingPrompt = {
 }
 
 const pending = new Map<string, PendingPrompt>()
+
+export function resetCollaborationState() {}
 
 export type FollowupDraft = {
   sessionID: string
@@ -54,13 +57,48 @@ export type FollowupDraft = {
 }
 
 type FollowupSendInput = {
-  api: DirectorySDK["api"]["session"]
+  protocol?: Promise<"v1" | "v2"> | "v1" | "v2"
+  api: DirectorySDK["client"]["session"]
+  sessions: GeneratedApi["sessions"]
   serverSync: ServerSync
   sync: DirectorySync
   draft: FollowupDraft
   messageID?: string
   optimisticBusy?: boolean
   before?: () => Promise<boolean> | boolean
+}
+
+const protocolKind = async (protocol: FollowupSendInput["protocol"]) => (await protocol) ?? "v2"
+
+const toPromptInput = (
+  parts: ReturnType<typeof buildRequestParts>["requestParts"],
+  text: string,
+): Parameters<GeneratedApi["sessions"]["prompt"]>[0]["prompt"] => {
+  const files = parts.flatMap((part) => {
+    if (part.type !== "file") return []
+    const source = part.source && "text" in part.source && part.source.text
+      ? { start: part.source.text.start, end: part.source.text.end, text: part.source.text.value }
+      : undefined
+    return [{ uri: part.url, name: part.filename, source }]
+  })
+  const agents = parts.flatMap((part) => {
+    if (part.type !== "agent") return []
+    return [
+      {
+        name: part.name,
+        source: part.source ? { start: part.source.start, end: part.source.end, text: part.source.value } : undefined,
+      },
+    ]
+  })
+  const extra = parts
+    .filter((part): part is Extract<(typeof parts)[number], { type: "text" }> => part.type === "text" && part.text !== text)
+    .map((part) => part.text)
+    .join("\n")
+  return {
+    text: extra ? [text, extra].filter(Boolean).join("\n") : text,
+    ...(files.length ? { files } : {}),
+    ...(agents.length ? { agents } : {}),
+  }
 }
 
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
@@ -97,23 +135,32 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       }
 
       const messageID = Identifier.ascending("message")
+      if ((await protocolKind(input.protocol)) !== "v1") {
+        await input.sessions.switchAgent({ sessionID: input.draft.sessionID, agent: input.draft.agent })
+        await input.sessions.switchModel({
+          sessionID: input.draft.sessionID,
+          model: {
+            id: input.draft.model.modelID,
+            providerID: input.draft.model.providerID,
+            variant: input.draft.variant,
+          },
+        })
+        await input.sessions.prompt({
+          sessionID: input.draft.sessionID,
+          id: messageID,
+          prompt: { text: `/${cmd}${tail.length ? ` ${tail.join(" ")}` : ""}` },
+        })
+        return true
+      }
       await input.api.command({
         sessionID: input.draft.sessionID,
-        id: messageID,
+        messageID,
         command: cmd,
         arguments: tail.join(" "),
         agent: input.draft.agent,
-        model: {
-          id: input.draft.model.modelID,
-          providerID: input.draft.model.providerID,
-          variant: input.draft.variant,
-        },
-        files: await Promise.all(
-          images.map(async (attachment) => ({
-            uri: await blobDataUrl(attachment.blob, attachment.mime),
-            name: attachment.filename,
-          })),
-        ),
+        model: input.draft.model.modelID,
+        variant: input.draft.variant,
+        parts: [],
       })
       return true
     } catch (err) {
@@ -177,37 +224,30 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       return false
     }
 
+    if ((await protocolKind(input.protocol)) !== "v1") {
+      await input.sessions.switchAgent({ sessionID: input.draft.sessionID, agent: input.draft.agent })
+      await input.sessions.switchModel({
+        sessionID: input.draft.sessionID,
+        model: {
+          id: input.draft.model.modelID,
+          providerID: input.draft.model.providerID,
+          variant: input.draft.variant,
+        },
+      })
+      await input.sessions.prompt({
+        sessionID: input.draft.sessionID,
+        id: messageID,
+        prompt: toPromptInput(requestParts, text),
+      })
+      return true
+    }
     await input.api.prompt({
       sessionID: input.draft.sessionID,
-      id: messageID,
+      messageID,
       agent: input.draft.agent,
       model: input.draft.model,
       variant: input.draft.variant,
-      legacyParts: requestParts,
-      text: requestParts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
-      files: requestParts.flatMap((part) => {
-        if (part.type !== "file") return []
-        const text = part.source?.text
-        return [
-          {
-            uri: part.url,
-            name: part.filename,
-            mention: text ? { start: text.start, end: text.end, text: text.value } : undefined,
-          },
-        ]
-      }),
-      agents: requestParts.flatMap((part) =>
-        part.type === "agent"
-          ? [
-              {
-                name: part.name,
-                mention: part.source
-                  ? { start: part.source.start, end: part.source.end, text: part.source.value }
-                  : undefined,
-              },
-            ]
-          : [],
-      ),
+      parts: requestParts,
     })
     return true
   } catch (err) {
@@ -259,7 +299,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const settings = useSettings()
   const serverSDK = useServerSDK()
   const platform = usePlatform()
-  const [collaboration, setCollaboration] = createStore({ enabled: false, busy: false })
+  const sessionID = () => input.info()?.id ?? params.id
+  const [collaboration, setCollaboration] = createStore({ busy: false })
+  let promotedSession: Session | undefined
   const reason = () => {
     if (collaborationUnsupported(prompt.current(), prompt.context.items()))
       return language.t("prompt.collaboration.attachments")
@@ -285,8 +327,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const sessionID = params.id
     if (!sessionID) return Promise.resolve()
 
-    serverSync().session.set("todo", sessionID, [])
-
     input.onAbort?.()
 
     const key = pendingKey(sessionID)
@@ -298,7 +338,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return Promise.resolve()
     }
     return sdk()
-      .api.session.interrupt({ sessionID })
+      .client.v2.session.interrupt({ sessionID })
       .catch(() => {})
   }
 
@@ -397,7 +437,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     const projectDirectory = sdk().directory
     const permissionState = permission.currentServerState()
-    const isNewSession = !params.id
+    const isNewSession = !params.id && (!promotedSession || !models)
     const shouldAutoAccept = isNewSession && input.autoAccept()
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
@@ -443,15 +483,15 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       input.onNewSessionWorktreeReset?.()
     }
 
-    let session = input.info()
+    let session = input.info() ?? (models ? promotedSession : undefined)
     if (!session && isNewSession) {
       const created = await sdk()
-        .api.session.create({
+        .client.v2.session.create({
           agent: currentAgent.name,
           model: { id: currentModel.id, providerID: currentModel.provider.id, variant },
           location: { directory: sessionDirectory },
         })
-        .then(normalizeSessionInfo)
+        .then((result) => (result.data?.data ? normalizeSessionInfo(result.data.data) : undefined))
         .catch((err) => {
           showToast({
             title: language.t("prompt.toast.sessionCreateFailed.title"),
@@ -462,6 +502,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       if (created) {
         seed(sessionDirectory, created)
         session = created
+        promotedSession = created
+
         await startTransition(() => {
           if (!session) return
           if (shouldAutoAccept) permissionState.enableAutoAccept(session.id, sessionDirectory)
@@ -486,6 +528,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
       return
     }
+    if (models && promotedSession?.id === session.id) sessionDirectory = promotedSession.directory
 
     const model = {
       modelID: currentModel.id,
@@ -526,7 +569,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     if (models) {
-      const current = serverSync().session.get(session.id)
+      const current =
+        serverSync().session.get(session.id) ?? (promotedSession?.id === session.id ? promotedSession : undefined)
       if (!current) throw new Error(language.t("settings.collaboration.failed"))
       const worktree = WorktreeState.get(sdk().scope, current.directory)
       if (worktree?.status === "pending") {
@@ -547,6 +591,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         session: current,
         prompt: text,
         models,
+        mode: "parallel",
         failure: language.t("settings.collaboration.failed"),
       })
       // Do not erase edits made while the launch request was in flight.
@@ -558,7 +603,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       )
         clearInput()
       input.onSubmit?.()
-      showToast({ title: language.t("settings.collaboration.started") })
       return
     }
 
@@ -575,9 +619,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       clearInput()
       const eventID = Event.ID.create()
       sdk()
-        .api.session.shell({
+        .client.session.shell({
           sessionID: session.id,
-          id: eventID,
+          messageID: eventID,
           command: text,
           agent,
           model,
@@ -592,7 +636,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    if (text.startsWith("/")) {
+    if (text.startsWith("/") && (await sdk().protocol) === "v1") {
       const [cmdName, ...args] = text.split(" ")
       const commandName = cmdName.slice(1)
       const customCommand = sync().data.command.find((c) => c.name === commandName)
@@ -601,19 +645,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         const messageID = Identifier.ascending("message")
         serverSync().session.set("session_status", session.id, { type: "busy" })
         sdk()
-          .api.session.command({
+          .client.session.command({
             sessionID: session.id,
-            id: messageID,
+            messageID,
             command: commandName,
             arguments: args.join(" "),
             agent,
-            model: { id: model.modelID, providerID: model.providerID, variant },
-            files: await Promise.all(
-              images.map(async (attachment) => ({
-                uri: await blobDataUrl(attachment.blob, attachment.mime),
-                name: attachment.filename,
-              })),
-            ),
+            model: model.modelID,
+            parts: [],
           })
           .catch((err) => {
             serverSync().session.set("session_status", session.id, { type: "idle" })
@@ -700,7 +739,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     void sendFollowupDraft({
-      api: sdk().api.session,
+      protocol: sdk().protocol,
+      api: sdk().client.session,
+      sessions: sdk().api.sessions,
       sync: sync(),
       serverSync: serverSync(),
       draft,
@@ -726,9 +767,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     collaboration: {
       state: collaboration,
       reason,
-      blocked: () => collaboration.busy || (collaboration.enabled && !!reason()),
-      toggle: () => {
-        if (!collaboration.busy) setCollaboration("enabled", !collaboration.enabled)
+      enabled: () => settings.collaboration.enabled(),
+      blocked: () => collaboration.busy || (settings.collaboration.enabled() && !!reason()),
+      toggle() {
+        if (collaboration.busy) return
+        settings.collaboration.setEnabled(!settings.collaboration.enabled())
       },
     },
     handleSubmit: async (event: Event) => {
@@ -741,7 +784,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       )
         return abort()
       if (collaboration.busy) return
-      if (!collaboration.enabled) return handleSubmit(event)
+      if (!settings.collaboration.enabled()) return handleSubmit(event)
+      if (collaborationRoute(prompt.current().map((part) => ("content" in part ? part.content : "")).join("\n")) === "single")
+        return handleSubmit(event)
       if (reason()) {
         showToast({ title: language.t("settings.collaboration.failed"), description: reason() })
         return

@@ -109,6 +109,14 @@ export type ProjectCopyError = {
 export const isProjectCopyError = (value: unknown): value is ProjectCopyError =>
   typeof value === "object" && value !== null && "name" in value && value["name"] === "ProjectCopyError"
 
+export type OrchestratorTaskNotFoundError = {
+  readonly _tag: "OrchestratorTaskNotFoundError"
+  readonly taskID: string
+  readonly message: string
+}
+export const isOrchestratorTaskNotFoundError = (value: unknown): value is OrchestratorTaskNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "OrchestratorTaskNotFoundError"
+
 export type HealthGetOutput = {
   readonly healthy: true
   readonly gates?:
@@ -384,6 +392,49 @@ export type SessionsGetOutput = {
   }
 }["data"]
 
+export type SessionsRemoveInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type SessionsRemoveOutput = void
+
+export type SessionsUpdateInput = {
+  readonly sessionID: { readonly sessionID: string }["sessionID"]
+  readonly title: { readonly title: string }["title"]
+}
+
+export type SessionsUpdateOutput = {
+  readonly data: {
+    readonly id: string
+    readonly parentID?: string
+    readonly projectID: string
+    readonly agent?: string
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
+    readonly cost: number
+    readonly tokens: {
+      readonly input: number
+      readonly output: number
+      readonly reasoning: number
+      readonly cache: { readonly read: number; readonly write: number }
+    }
+    readonly time: { readonly created: number; readonly updated: number; readonly archived?: number }
+    readonly title: string
+    readonly location: { readonly directory: string; readonly workspaceID?: string }
+    readonly subpath?: string
+    readonly revert?: {
+      readonly messageID: string
+      readonly partID?: string
+      readonly snapshot?: string
+      readonly diff?: string
+      readonly files?: ReadonlyArray<{
+        readonly path: string
+        readonly status: "added" | "modified" | "deleted"
+        readonly additions: number
+        readonly deletions: number
+        readonly patch: string
+      }>
+    }
+  }
+}["data"]
+
 export type SessionsSwitchAgentInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
   readonly agent: { readonly agent: string }["agent"]
@@ -538,6 +589,12 @@ export type SessionsClearOutput = void
 export type SessionsCommitInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
 
 export type SessionsCommitOutput = void
+
+export type SessionsTodoInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type SessionsTodoOutput = {
+  readonly data: ReadonlyArray<{ readonly content: string; readonly status: string; readonly priority: string }>
+}["data"]
 
 export type SessionsContextInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
 
@@ -3647,3 +3704,163 @@ export type ProjectCopiesRefreshInput = {
 }
 
 export type ProjectCopiesRefreshOutput = void
+
+export type ServerOrchestratorCreateInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly sessionID: {
+    readonly sessionID: string
+    readonly projectID: string
+    readonly workspaceKey: string
+    readonly prompt: string
+    readonly models: {
+      readonly mode?: "sequential" | "parallel" | undefined
+      readonly planner?: string | undefined
+      readonly worker: string
+      readonly reviewer?: string | undefined
+      readonly tester?: string | undefined
+      readonly finalizer?: string | undefined
+      readonly fallback?: string | undefined
+      readonly timeoutMs?: number | undefined
+      readonly maxRetries?: number | undefined
+    }
+  }["sessionID"]
+  readonly projectID: {
+    readonly sessionID: string
+    readonly projectID: string
+    readonly workspaceKey: string
+    readonly prompt: string
+    readonly models: {
+      readonly mode?: "sequential" | "parallel" | undefined
+      readonly planner?: string | undefined
+      readonly worker: string
+      readonly reviewer?: string | undefined
+      readonly tester?: string | undefined
+      readonly finalizer?: string | undefined
+      readonly fallback?: string | undefined
+      readonly timeoutMs?: number | undefined
+      readonly maxRetries?: number | undefined
+    }
+  }["projectID"]
+  readonly workspaceKey: {
+    readonly sessionID: string
+    readonly projectID: string
+    readonly workspaceKey: string
+    readonly prompt: string
+    readonly models: {
+      readonly mode?: "sequential" | "parallel" | undefined
+      readonly planner?: string | undefined
+      readonly worker: string
+      readonly reviewer?: string | undefined
+      readonly tester?: string | undefined
+      readonly finalizer?: string | undefined
+      readonly fallback?: string | undefined
+      readonly timeoutMs?: number | undefined
+      readonly maxRetries?: number | undefined
+    }
+  }["workspaceKey"]
+  readonly prompt: {
+    readonly sessionID: string
+    readonly projectID: string
+    readonly workspaceKey: string
+    readonly prompt: string
+    readonly models: {
+      readonly mode?: "sequential" | "parallel" | undefined
+      readonly planner?: string | undefined
+      readonly worker: string
+      readonly reviewer?: string | undefined
+      readonly tester?: string | undefined
+      readonly finalizer?: string | undefined
+      readonly fallback?: string | undefined
+      readonly timeoutMs?: number | undefined
+      readonly maxRetries?: number | undefined
+    }
+  }["prompt"]
+  readonly models: {
+    readonly sessionID: string
+    readonly projectID: string
+    readonly workspaceKey: string
+    readonly prompt: string
+    readonly models: {
+      readonly mode?: "sequential" | "parallel" | undefined
+      readonly planner?: string | undefined
+      readonly worker: string
+      readonly reviewer?: string | undefined
+      readonly tester?: string | undefined
+      readonly finalizer?: string | undefined
+      readonly fallback?: string | undefined
+      readonly timeoutMs?: number | undefined
+      readonly maxRetries?: number | undefined
+    }
+  }["models"]
+}
+
+export type ServerOrchestratorCreateOutput = {
+  readonly id: string
+  readonly sessionID: string
+  readonly status: "pending" | "running" | "completed" | "failed" | "paused" | "aborted"
+  readonly currentStep: number
+  readonly failureReason?: string | undefined
+  readonly steps?:
+    | ReadonlyArray<{
+        readonly role: "planner" | "worker" | "reviewer" | "tester" | "finalizer"
+        readonly status: "pending" | "running" | "needs_revision" | "failed" | "completed"
+        readonly startedAt?: number | undefined
+        readonly finishedAt?: number | undefined
+      }>
+    | undefined
+  readonly workers?:
+    | ReadonlyArray<{
+        readonly id: string
+        readonly title: string
+        readonly status: "pending" | "running" | "completed" | "failed"
+        readonly startedAt?: number | undefined
+        readonly finishedAt?: number | undefined
+        readonly failureReason?: string | undefined
+      }>
+    | undefined
+}
+
+export type ServerOrchestratorGetInput = {
+  readonly taskID: { readonly taskID: string }["taskID"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type ServerOrchestratorGetOutput = {
+  readonly id: string
+  readonly sessionID: string
+  readonly status: "pending" | "running" | "completed" | "failed" | "paused" | "aborted"
+  readonly currentStep: number
+  readonly failureReason?: string | undefined
+  readonly steps?:
+    | ReadonlyArray<{
+        readonly role: "planner" | "worker" | "reviewer" | "tester" | "finalizer"
+        readonly status: "pending" | "running" | "needs_revision" | "failed" | "completed"
+        readonly startedAt?: number | undefined
+        readonly finishedAt?: number | undefined
+      }>
+    | undefined
+  readonly workers?:
+    | ReadonlyArray<{
+        readonly id: string
+        readonly title: string
+        readonly status: "pending" | "running" | "completed" | "failed"
+        readonly startedAt?: number | undefined
+        readonly finishedAt?: number | undefined
+        readonly failureReason?: string | undefined
+      }>
+    | undefined
+}
+
+export type ServerOrchestratorControlInput = {
+  readonly taskID: { readonly taskID: string }["taskID"]
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly action: { readonly action: "pause" | "abort" | "retry" }["action"]
+}
+
+export type ServerOrchestratorControlOutput = void

@@ -14,6 +14,7 @@ import { ServerConnection } from "@/context/server"
 import { useTabs } from "@/context/tabs"
 import { SessionTabAvatar } from "@/pages/layout/session-tab-avatar"
 import { getRelativeTime } from "@/utils/time"
+import type { SessionInfo } from "@/utils/protocol-types"
 import {
   createCommandPaletteCommandEntry,
   createCommandPaletteFileEntry,
@@ -79,7 +80,7 @@ export function DialogHomeCommandPaletteV2(props: {
     server: ServerConnection.key(props.server),
     opened: serverCtx.projects.list,
     stored: () => serverCtx.sync.data.project,
-    load: (search, signal) => serverCtx.sdk.api.session.list({ parentID: null, search, limit: 50 }, { signal }),
+    load: (search, signal) => serverCtx.sdk.api.sessions.list({ search, limit: 50 }, { signal }).then((result) => ({ data: result.data as SessionInfo[] })),
     untitled: () => language.t("command.session.new"),
     category: () => language.t("command.category.session"),
   })

@@ -724,7 +724,7 @@ export default function Page() {
       queryFn: mode
         ? () =>
             sdk()
-              .api.vcs.diff({ location: { directory: sdk().directory }, mode: mode === "git" ? "working" : mode })
+              .client.vcs.diff({ directory: sdk().directory, mode: mode === "git" ? "git" : "branch" })
               .then((result) => result.data)
               .catch((error) => {
                 console.debug("[session-review] failed to load vcs diff", { mode, error })
@@ -785,14 +785,14 @@ export default function Page() {
           retry: 2,
           queryFn: () =>
             sdk()
-              .api.vcs.diff({
-                location: { directory: scope },
-                mode: mode === "git" ? "working" : mode,
+              .client.vcs.diff({
+                directory: scope,
+                mode: mode === "git" ? "git" : "branch",
                 context,
               })
               .then((result) => result.data),
         })
-        .then((diffs) => diffs.find((diff) => diff.file === file))
+        .then((diffs) => diffs?.find((diff) => diff.file === file))
 
     if (directory !== root) {
       try {
@@ -942,20 +942,14 @@ export default function Page() {
     on(
       () => {
         const id = params.id
-        return [
-          sdk().directory,
-          id,
-          id ? (sync().data.session_status[id]?.type ?? "idle") : "idle",
-          id ? composer.blocked() : false,
-        ] as const
+        return [sdk().directory, id] as const
       },
-      ([dir, id, status, blocked]) => {
+      ([dir, id]) => {
         if (todoFrame !== undefined) cancelAnimationFrame(todoFrame)
         if (todoTimer !== undefined) window.clearTimeout(todoTimer)
         todoFrame = undefined
         todoTimer = undefined
         if (!id) return
-        if (status === "idle" && !blocked) return
         const cached = untrack(() => sync().data.todo[id] !== undefined)
 
         todoFrame = requestAnimationFrame(() => {
@@ -969,7 +963,6 @@ export default function Page() {
           }, 0)
         })
       },
-      { defer: true },
     ),
   )
 
@@ -1771,7 +1764,9 @@ export default function Page() {
       setFollowup("failed", input.sessionID, undefined)
 
       const ok = await sendFollowupDraft({
-        api: sdk().api.session,
+        protocol: sdk().protocol,
+        api: sdk().client.session,
+        sessions: sdk().api.sessions,
         sync: sync(),
         serverSync: serverSync(),
         draft: item,
@@ -1867,13 +1862,15 @@ export default function Page() {
   const halt = (sessionID: string) =>
     busy(sessionID)
       ? sdk()
-          .api.session.interrupt({ sessionID })
+          .client.session.abort({ sessionID })
           .catch(() => {})
       : Promise.resolve()
 
   const revertMutation = useMutation(() => ({
     mutationFn: async (input: { sessionID: string; messageID: string }) => {
-      const session = sdk().api.session
+      const session = sdk().client.session
+      const v2 = sdk().client.v2
+      const revert = v2.session.revert
       const target = sync()
       const last = target.session.get(input.sessionID)?.revert
       const value = draft(input.messageID)
@@ -1883,7 +1880,7 @@ export default function Page() {
           roll(input.sessionID, { messageID: input.messageID }, target)
           prompt.set(value)
         },
-        request: () => halt(input.sessionID).then(() => session.revert.stage(input)),
+         request: () => halt(input.sessionID).then(() => revert.stage(input)),
         complete: () => undefined,
         rollback: () => roll(input.sessionID, last, target),
         fail,
@@ -1896,7 +1893,9 @@ export default function Page() {
       const sessionID = params.id
       if (!sessionID) return
 
-      const session = sdk().api.session
+       const session = sdk().client.session
+       const v2 = sdk().client.v2
+       const revert = v2.session.revert
       const target = sync()
       const index = userMessages().findIndex((item) => item.id === id)
       if (index < 0) return
@@ -1915,8 +1914,8 @@ export default function Page() {
         },
         request: () =>
           !next
-            ? halt(sessionID).then(() => session.revert.clear({ sessionID }))
-            : halt(sessionID).then(() => session.revert.stage({ sessionID, messageID: next.id }).then(() => undefined)),
+             ? halt(sessionID).then(() => revert.clear({ sessionID }))
+             : halt(sessionID).then(() => revert.stage({ sessionID, messageID: next.id }).then(() => undefined)),
         complete: () => undefined,
         rollback: () => roll(sessionID, last, target),
         fail,

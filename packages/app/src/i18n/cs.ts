@@ -1289,4 +1289,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} relací bude archivováno.",
   "workspace.reset.note": "Tím se pracovní prostor resetuje tak, aby odpovídal výchozí větvi.",
   "dialog.usageExceeded.dontShowAgain": "Znovu nezobrazovat",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

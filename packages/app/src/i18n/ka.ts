@@ -1281,4 +1281,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} სესია დაარქივდება.",
   "workspace.reset.note": "ეს აღადგენს სამუშაო სივრცეს ნაგულისხმევი ფილიალის შესატყვისად.",
   "dialog.usageExceeded.dontShowAgain": "აღარ მაჩვენო",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

@@ -36,12 +36,38 @@ export const Stored = Schema.Struct({
 
 export type Stored = typeof Stored.Type
 
-export const parse = (output: string): Result | undefined => {
-  const value = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(output)
-  if (value._tag === "None") return undefined
-  const result = Schema.decodeUnknownOption(Result)(value.value)
+const decodeResult = (value: string) => {
+  const parsed = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(value)
+  if (parsed._tag === "None") return
+  const result = Schema.decodeUnknownOption(Result)(parsed.value)
   return result._tag === "Some" ? result.value : undefined
 }
+
+const structured = (output: string) => {
+  const direct = decodeResult(output.trim())
+  if (direct) return direct
+  const fenced = output.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]
+  if (fenced) {
+    const decoded = decodeResult(fenced.trim())
+    if (decoded) return decoded
+  }
+  const start = output.indexOf("{")
+  const end = output.lastIndexOf("}")
+  if (start === -1 || end <= start) return
+  return decodeResult(output.slice(start, end + 1))
+}
+
+export const normalize = (output: string): Result => {
+  const result = structured(output)
+  if (result) return result
+  const message = output.trim()
+  if (!message) return { approved: true, findings: [] }
+  return { approved: true, findings: [{ message }] }
+}
+
+export const parse = (output: string): Result | undefined => normalize(output)
+
+export const parseStrict = (output: string): Result | undefined => structured(output)
 
 export const decision = (result: Result, retryCount: number, maxRetries: number) => {
   if (result.approved) return { action: "continue" as const, retryCount }

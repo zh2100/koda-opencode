@@ -1,11 +1,12 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
-import { OpenCode, type OpenCodeClient } from "@opencode-ai/client/promise"
 import { make } from "../../../client/src/generated/client"
 import type { ServerConnection } from "@/context/server"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 
 export function authTokenFromCredentials(input: { username?: string; password: string }) {
-  return btoa(`${input.username ?? "opencode"}:${input.password}`)
+  const encoded = base64Encode(`${input.username ?? "opencode"}:${input.password}`)
+  return encoded.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(encoded.length / 4) * 4, "=")
 }
 
 export function authFromToken(token: string | null) {
@@ -55,8 +56,8 @@ function serverHeaders(server: ServerConnection.HttpBase) {
 export function createApiForServer(input: {
   server: ServerConnection.HttpBase
   fetch?: typeof globalThis.fetch
-}): OpenCodeClient {
-  return OpenCode.make({
+}) {
+  return make({
     baseUrl: input.server.url,
     fetch: input.fetch,
     headers: serverHeaders(input.server),
@@ -66,13 +67,17 @@ export function createApiForServer(input: {
 export function createGeneratedApiForServer(input: {
   server: ServerConnection.HttpBase
   fetch?: typeof globalThis.fetch
+  directory?: string
 }) {
   return make({
     baseUrl: input.server.url,
     fetch: input.fetch,
-    headers: serverHeaders(input.server),
+    headers: {
+      ...serverHeaders(input.server),
+      ...(input.directory ? { "x-opencode-directory": encodeURIComponent(input.directory) } : {}),
+    },
   })
 }
 
-export type ServerApi = OpenCodeClient
+export type ServerApi = ReturnType<typeof make>
 export type GeneratedApi = ReturnType<typeof make>

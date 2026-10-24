@@ -252,7 +252,7 @@ export const Terminal = (props: TerminalProps) => {
         })
     }
     return sdk()
-      .api.pty.update({
+      .api.ptys.update({
         ptyID: id,
         location: { directory },
         size: { cols, rows },
@@ -547,7 +547,7 @@ export const Terminal = (props: TerminalProps) => {
             })
         }
         return sdk()
-          .api.pty.get({ ptyID: id, location: { directory } })
+          .api.ptys.get({ ptyID: id, location: { directory } })
           .then((result) => result.data.status === "exited")
           .catch((err) => {
             if (err && typeof err === "object" && "_tag" in err && err._tag === "PtyNotFoundError") return true

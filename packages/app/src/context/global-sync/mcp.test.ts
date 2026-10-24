@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import { toggleMcp } from "./mcp"
+import type { McpServer } from "./types"
 
 describe("toggleMcp", () => {
   test("runs the status action before refreshing the owning query", async () => {
     const calls: string[] = []
     const input = (status: "connected" | "needs_auth" | "disabled") => ({
-      status,
+      status: { status } as McpServer,
       connect: async () => {
         calls.push("connect")
       },
@@ -35,7 +36,7 @@ describe("toggleMcp", () => {
   test("does not toggle a server while its connection is pending", async () => {
     const calls: string[] = []
     await toggleMcp({
-      status: "pending",
+      status: { status: "pending" } as McpServer,
       connect: async () => {
         calls.push("connect")
       },

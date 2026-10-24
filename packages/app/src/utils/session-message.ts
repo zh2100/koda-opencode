@@ -4,7 +4,7 @@ import type {
   SessionMessageInfo,
   SessionMessageShell,
   SessionMessageUser,
-} from "@opencode-ai/client/promise"
+} from "@/utils/protocol-types"
 import type { AssistantMessage, FilePart, Message, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/v2"
 import { Option, Schema } from "effect"
 
@@ -162,12 +162,12 @@ function shellPart(sessionID: string, message: SessionMessageShell): ToolPart {
       : {
           status: "completed",
           input,
-          output: message.output?.output ?? "",
+           output: typeof message.output === "string" ? message.output : message.output?.output ?? "",
           title: "Shell",
           metadata: {
             status: message.status,
             exit: message.exit,
-            truncated: message.output?.truncated,
+             truncated: typeof message.output === "string" ? undefined : message.output?.truncated,
           },
           time: { start, end: message.time.completed ?? start },
         }
@@ -213,7 +213,7 @@ function userParts(sessionID: string, message: SessionMessageUser): Part[] {
         type: "file",
         mime: file.mime,
         filename: file.name,
-        url: file.source.type === "uri" ? file.source.uri : `data:${file.mime};base64,${file.data}`,
+         url: file.data.startsWith("data:") ? file.data : `data:${file.mime};base64,${file.data}`,
         source: file.mention
           ? {
               type: "file",
@@ -335,9 +335,9 @@ function toolPart(sessionID: string, messageID: string, tool: SessionMessageAssi
               sessionID,
               messageID,
               type: "file",
-              mime: item.mime,
-              filename: item.name,
-              url: item.uri,
+               mime: item.mime ?? "application/octet-stream",
+               filename: item.name ?? "attachment",
+               url: item.uri ?? "",
             },
           ]
         : [],

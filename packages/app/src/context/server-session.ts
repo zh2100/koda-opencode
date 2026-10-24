@@ -1,6 +1,6 @@
 import { Binary } from "@opencode-ai/core/util/binary"
 import { retry } from "@opencode-ai/core/util/retry"
-import type { OpenCodeEvent, SessionApi, SessionMessageInfo } from "@opencode-ai/client/promise"
+import type { OpenCodeEvent } from "@opencode-ai/client"
 import type {
   Message,
   OpencodeClient,
@@ -11,7 +11,7 @@ import type {
   SessionStatus,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
-import type { FileDiffInfo } from "@opencode-ai/client/promise"
+import type { FileDiffInfo, SessionMessageAssistant, SessionMessageInfo } from "@/utils/protocol-types"
 import { batch } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { message as cleanMessage } from "@/utils/diffs"
@@ -20,10 +20,12 @@ import { rootSession } from "@/utils/session-route"
 import { normalizeSessionInfo } from "@/utils/session"
 import { compareMessages, messageKey, normalizeSessionMessages } from "@/utils/session-message"
 import { dropSessionCaches, pickSessionCacheEvictions, SESSION_CACHE_LIMIT } from "./global-sync/session-cache"
-import { createV2SessionReducer, type V2SessionReduction } from "./server-session-v2-reducer"
+import { adaptV2SessionEvent, createV2SessionReducer, type V2SessionReduction } from "./server-session-v2-reducer"
 import type { ServerApi } from "@/utils/server"
 
-type MessageApi = ServerApi["message"]
+type MessageApi = ServerApi["messages"]
+type SessionApi = ServerApi["sessions"]
+type ContextMessage = Awaited<ReturnType<SessionApi["context"]>>[number]
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
@@ -41,6 +43,59 @@ function needsOlderTurnRoot(source: readonly SessionMessageInfo[]) {
       (message.type === "synthetic" && message.description?.trim()),
   )
   return boundary?.type === "assistant"
+}
+
+function normalizeContextMessages(source: readonly ContextMessage[]): SessionMessageInfo[] {
+  return source.flatMap((message): SessionMessageInfo[] => {
+    if (message.type === "user")
+      return [{
+        id: message.id,
+        type: "user",
+        text: message.text,
+        time: message.time,
+        files: message.files?.map((file) => ({
+          data: file.uri.startsWith("data:") ? (file.uri.split(",", 2)[1] ?? "") : file.uri,
+          mime: file.mime,
+          name: file.name ?? "",
+           source: file.source ? { type: "uri" as const, uri: file.source.text } : undefined,
+        })),
+         agents: message.agents?.map((agent) => ({ name: agent.name, mention: agent.source })),
+      }]
+    if (message.type === "assistant") {
+      const content = message.content.flatMap((part): SessionMessageAssistant["content"] => {
+        if (part.type === "text") return [{ type: "text", id: part.id, text: part.text }]
+        if (part.type === "reasoning") return [{ type: "reasoning", id: part.id, text: part.text, time: part.time }]
+        return [] as SessionMessageAssistant["content"]
+      })
+      return [{
+        id: message.id,
+        type: "assistant",
+        agent: message.agent,
+        model: message.model,
+        time: message.time,
+        content,
+        snapshot: message.snapshot && { ...message.snapshot, files: message.snapshot.files ? [...message.snapshot.files] : undefined },
+        finish: message.finish,
+        cost: message.cost,
+        tokens: message.tokens,
+        error: message.error,
+      }]
+    }
+    if (message.type === "shell")
+      return [{
+        id: message.id,
+        type: "shell",
+        shellID: message.callID,
+        command: message.command,
+        status: message.output ? "completed" : "running",
+        output: message.output,
+        time: message.time,
+      }]
+    if (message.type === "compaction") return [{ ...message, status: "completed" }]
+    if (message.type === "agent-switched" || message.type === "model-switched") return [message]
+    if (message.type === "synthetic") return [{ ...message, description: message.text }]
+    return []
+  })
 }
 
 type OptimisticItem = {
@@ -543,13 +598,13 @@ export function createServerSession(
         })
       const first = await request(before)
       const pages = [first]
-      while (pages.at(-1)?.cursor.next && needsOlderTurnRoot(pages.flatMap((page) => page.data).toReversed())) {
+      while (pages.at(-1)?.cursor.next && needsOlderTurnRoot(normalizeContextMessages(pages.flatMap((page) => page.data).toReversed()))) {
         const response = await request(pages.at(-1)!.cursor.next ?? undefined)
         pages.push(response)
         if (!response.data.length) break
       }
       const response = pages.at(-1)!
-      const source = pages.flatMap((page) => page.data).toReversed()
+       const source = normalizeContextMessages(pages.flatMap((page) => page.data).toReversed())
       const normalized = normalizeSessionMessages(sessionID, source)
       return {
         session: normalized.messages.sort(compareMessages),
@@ -587,7 +642,7 @@ export function createServerSession(
         onAttempt?.()
         return sessionApi.message({ sessionID, messageID })
       })
-      const normalized = normalizeSessionMessages(sessionID, [response])
+       const normalized = normalizeSessionMessages(sessionID, normalizeContextMessages([response]))
       const message = normalized.messages[0]
       if (!message) throw new Error(`Message not found: ${messageID}`)
       return { message, parts: normalized.parts.get(messageID) ?? [] }
@@ -927,58 +982,54 @@ export function createServerSession(
       .message({ sessionID, messageID })
       .then((message) => {
         const current = data.session_message[sessionID] ?? []
-        const messages = [...current.filter((item) => item.id !== message.id), message].sort(compareMessages)
+        const messages = [...current.filter((item) => item.id !== message.id), ...normalizeContextMessages([message])].sort(compareMessages)
         projectV2({ sessionID, messages, touched: [message.id] })
       })
       .catch(() => {})
   }
 
   const applyV2 = (event: OpenCodeEvent) => {
-    if (!("data" in event) || !("sessionID" in event.data) || typeof event.data.sessionID !== "string") return
-    const sessionID = event.data.sessionID
-    const reduction = v2.reduce(data.session_message[sessionID] ?? [], event)
+    const current = adaptV2SessionEvent(event)
+    if (!current) return
+    const sessionID = current.data.sessionID
+    const reduction = v2.reduce(data.session_message[sessionID] ?? [], current)
     if (reduction) {
       projectV2(reduction)
       if (reduction.missing) hydrateV2Message(sessionID, reduction.missing)
     }
 
     const info = data.info[sessionID]
-    if (event.type === "session.renamed" && info)
-      remember({ ...info, title: event.data.title, time: { ...info.time, updated: event.created } })
-    if (event.type === "session.moved" && info)
+    if (current.type === "session.next.moved" && info)
       remember({
         ...info,
-        projectID: event.data.projectID ?? info.projectID,
-        workspaceID: event.data.location.workspaceID,
-        directory: event.data.location.directory,
-        path: event.data.subpath,
-        time: { ...info.time, updated: event.created },
+        projectID: info.projectID,
+        workspaceID: current.data.location.workspaceID,
+        directory: current.data.location.directory,
+        path: current.data.subdirectory,
+        time: { ...info.time, updated: current.data.timestamp },
       })
-    if (event.type === "session.usage.updated" && info)
-      remember({ ...info, cost: event.data.cost, tokens: event.data.tokens })
     // if (event.type === "session.archived") {
     //   if (info) remember({ ...info, time: { ...info.time, archived: event.created, updated: event.created } })
     //   evict([sessionID])
     // }
-    if (event.type === "session.execution.started") setData("session_status", sessionID, { type: "busy" })
+    if (current.type === "session.next.step.started") setData("session_status", sessionID, { type: "busy" })
     if (
-      event.type === "session.execution.succeeded" ||
-      event.type === "session.execution.failed" ||
-      event.type === "session.execution.interrupted"
+      current.type === "session.next.step.ended" ||
+      current.type === "session.next.step.failed"
     )
       setData("session_status", sessionID, { type: "idle" })
-    if (event.type === "session.retry.scheduled")
+    if (current.type === "session.next.retried")
       setData("session_status", sessionID, {
         type: "retry",
-        attempt: event.data.attempt,
-        message: event.data.error.message,
-        next: event.data.at,
+        attempt: current.data.attempt,
+        message: current.data.error.message,
+        next: current.data.timestamp,
       })
-    if (event.type === "session.forked") void resolve(sessionID, { force: true }).catch(() => {})
+    if (current.type === "session.next.moved") void resolve(sessionID, { force: true }).catch(() => {})
     if (
-      event.type === "session.revert.staged" ||
-      event.type === "session.revert.cleared" ||
-      event.type === "session.revert.committed"
+      current.type === "session.next.revert.staged" ||
+      current.type === "session.next.revert.cleared" ||
+      current.type === "session.next.revert.committed"
     )
       void resolve(sessionID, { force: true }).catch(() => {})
   }
@@ -1019,7 +1070,7 @@ export function createServerSession(
       }
       case "todo.updated": {
         const props = event.properties as { sessionID: string; todos: Todo[] }
-        setData("todo", props.sessionID, reconcile(props.todos, { key: "id" }))
+        setData("todo", props.sessionID, [...props.todos])
         return
       }
       case "session.status": {
@@ -1211,6 +1262,18 @@ export function createServerSession(
         }
         const field = props.field as keyof (typeof parts)[number]
         const current = parts[result.index]?.[field]
+        if (import.meta.env.DEV || import.meta.env.VITE_REASONING_TRACE === "1") {
+          console.debug("[reasoning-trace]", {
+            stage: "client-accumulate",
+            eventType: event.type,
+            sessionID: props.sessionID,
+            messageID: props.messageID,
+            partID: props.partID,
+            field: props.field,
+            delta: props.delta,
+            current,
+          })
+        }
         if (!deltaBases.has(props.partID) && typeof current === "string")
           deltaBases.set(props.partID, { base: current, sessionID: props.sessionID })
         setData(
@@ -1380,15 +1443,16 @@ export function createServerSession(
     async todo(sessionID: string, request?: { force?: boolean }) {
       touch(sessionID)
       if (data.todo[sessionID] !== undefined && !request?.force) return
-      if ((await options?.protocol) === "v2") {
-        setData("todo", sessionID, [])
-        return
-      }
       return runInflight(inflightTodo, sessionID, () => {
         const active = generation(sessionID)
-        return (options?.retry ?? retry)(() => client.session.todo({ sessionID })).then((result) => {
+        const load = (options?.protocol ?? Promise.resolve("v1")).then((protocol) =>
+          protocol === "v2" && sessionApi
+            ? sessionApi.todo({ sessionID })
+            : (options?.retry ?? retry)(() => client.session.todo({ sessionID })).then((result) => result.data ?? []),
+        )
+        return load.then((todos) => {
           if (generations.get(sessionID) !== active) return
-          setData("todo", sessionID, reconcile(result.data ?? [], { key: "id" }))
+          setData("todo", sessionID, [...(todos ?? [])])
         })
       })
     },

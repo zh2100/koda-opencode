@@ -1,27 +1,20 @@
-import type {
-  AgentListOutput,
-  ModelDefaultOutput,
-  ModelListOutput,
-  PermissionV2Request,
-  ProviderListOutput,
-} from "@opencode-ai/client/promise"
+import type { AgentsListOutput, ModelsListOutput, ProvidersListOutput } from "@opencode-ai/client"
+import type { PermissionV2Request } from "@opencode-ai/sdk/v2/client"
 import type { Agent, PermissionRequest, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
-import type { Project as CurrentProject } from "@opencode-ai/client/promise"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 export { pathKey as directoryKey, type PathKey as DirectoryKey } from "@/utils/path-key"
 
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
-export function normalizeAgentList(input: AgentListOutput["data"] | Agent[]): Agent[] {
+export function normalizeAgentList(input: AgentsListOutput["data"] | Agent[]): Agent[] {
   if (input.every((agent) => !("request" in agent))) return input as Agent[]
-  return (input as AgentListOutput["data"]).map((agent) => ({
+  return (input as AgentsListOutput["data"]).map((agent) => ({
     name: agent.id,
     description: agent.description,
     mode: agent.mode,
     hidden: agent.hidden,
-    temperature:
-      typeof agent.request.settings.temperature === "number" ? agent.request.settings.temperature : undefined,
-    topP: typeof agent.request.settings.topP === "number" ? agent.request.settings.topP : undefined,
+    temperature: undefined,
+    topP: undefined,
     color: agent.color,
     permission: agent.permissions.map((rule) => ({
       permission: rule.action,
@@ -31,7 +24,7 @@ export function normalizeAgentList(input: AgentListOutput["data"] | Agent[]): Ag
     model: agent.model && { providerID: agent.model.providerID, modelID: agent.model.id },
     variant: agent.model?.variant,
     prompt: agent.system,
-    options: agent.request.settings,
+    options: { headers: agent.request.headers, body: agent.request.body },
     steps: agent.steps,
   }))
 }
@@ -51,11 +44,11 @@ export function normalizePermissionRequest(input: PermissionV2Request | Permissi
 }
 
 export function normalizeProviderList(
-  providers: ProviderListOutput["data"] | ProviderListResponse,
-  models?: ModelListOutput["data"],
-  defaultModel?: ModelDefaultOutput["data"],
+  providers: ProvidersListOutput["data"] | ProviderListResponse,
+  models?: ModelsListOutput["data"],
+  defaultModel?: ModelsListOutput["data"][number],
 ): NormalizedProviderListResponse {
-  if (!Array.isArray(providers)) {
+  if ("all" in providers) {
     return {
       ...providers,
       all: new Map(
@@ -79,7 +72,7 @@ export function normalizeProviderList(
       name: provider.name,
       source: "custom",
       env: [],
-      options: provider.settings ?? {},
+       options: provider.api.settings ?? {},
       models: {},
     })
   }
@@ -92,9 +85,9 @@ export function normalizeProviderList(
       id: model.id,
       providerID: model.providerID,
       api: {
-        id: model.modelID,
+        id: model.api.id,
         url: "",
-        npm: model.package ?? provider.id,
+        npm: model.api.type === "aisdk" ? model.api.package : provider.id,
       },
       name: model.name,
       family: model.family,
@@ -129,10 +122,10 @@ export function normalizeProviderList(
       },
       limit: model.limit,
       status: model.status,
-      options: model.settings ?? {},
-      headers: model.headers ?? {},
+      options: model.request.body,
+      headers: model.request.headers,
       release_date: new Date(model.time.released).toISOString().slice(0, 10),
-      variants: Object.fromEntries(model.variants.map((variant) => [variant.id, variant.settings ?? {}])),
+       variants: Object.fromEntries(model.variants.map((variant) => [variant.id, variant.body])),
     }
   }
 
@@ -164,7 +157,7 @@ export function sanitizeProject(project: Project) {
   }
 }
 
-export function normalizeProjectInfo(project: Project | CurrentProject): Project {
+export function normalizeProjectInfo(project: Project): Project {
   return {
     ...project,
     vcs: project.vcs === "git" ? "git" : undefined,

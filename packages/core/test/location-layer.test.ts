@@ -36,6 +36,25 @@ const it = testEffect(
 )
 
 describe("LocationServiceMap", () => {
+  it.live("boots location services when the project directory is missing", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((dir) => {
+        const missing = path.join(dir.path, "gone")
+        return Effect.scoped(
+          Effect.gen(function* () {
+            expect((yield* Location.Service).directory).toBe(AbsolutePath.make(missing))
+            expect(Array.isArray(yield* (yield* AgentV2.Service).all())).toBe(true)
+          }).pipe(
+            Effect.provide(LocationServiceMap.Service.get(Location.Ref.make({ directory: AbsolutePath.make(missing) }))),
+          ),
+        )
+      }),
+    ),
+  )
+
   it.live("reuses cached services for constructed and decoded location refs", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

@@ -1295,4 +1295,7 @@ export const dict = {
   "workspace.reset.archived.many": "A {{count}} munkamenetek archiválva lesznek.",
   "workspace.reset.note": "Ezzel visszaállítja a munkaterületet, hogy megfeleljen az alapértelmezett ágnak.",
   "dialog.usageExceeded.dontShowAgain": "Ne jelenjen meg újra",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

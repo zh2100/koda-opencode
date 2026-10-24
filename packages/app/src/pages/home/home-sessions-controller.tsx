@@ -264,7 +264,11 @@ export function createHomeSessionsController(home: HomeController) {
         const ctx = home.server.focusedContext()
         if (!ctx) return
         try {
-          await ctx.sdk.api.session.rename({ sessionID: session.id, directory: session.directory, title })
+          if ((await ctx.sdk.protocol) === "v2") {
+            await ctx.sdk.currentApi.sessions.update({ sessionID: session.id, title })
+          } else {
+            await ctx.sdk.client.session.update({ sessionID: session.id, directory: session.directory, title })
+          }
           homeSessions().update(session.id, { title })
           const [, setStore] = ctx.sync.child(session.directory)
           setStore(
@@ -287,7 +291,11 @@ export function createHomeSessionsController(home: HomeController) {
         if (!conn || !ctx) return
         const [, setStore] = ctx.sync.child(session.directory)
         try {
-          await ctx.sdk.api.session.remove({ sessionID: session.id, directory: session.directory })
+          if ((await ctx.sdk.protocol) === "v2") {
+            await ctx.sdk.api.sessions.remove({ sessionID: session.id })
+          } else {
+            await ctx.sdk.client.session.delete({ sessionID: session.id, directory: session.directory })
+          }
           setStore(
             produce((draft) => {
               const match = Binary.search(draft.session, session.id, (item) => item.id)

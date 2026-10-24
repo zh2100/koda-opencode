@@ -29,6 +29,19 @@ function withTmp<A, E, R>(f: (directory: string) => Effect.Effect<A, E, R>) {
 }
 
 describe("LocationMutation", () => {
+  it.live("boots when the location directory is missing", () =>
+    withTmp((directory) => {
+      const missing = path.join(directory, "gone")
+      return Effect.gen(function* () {
+        const target = yield* (yield* LocationMutation.Service).resolve({ path: "hello.txt" })
+        expect(target).toMatchObject({
+          canonical: path.join(yield* Effect.promise(() => fs.realpath(directory)), "gone", "hello.txt"),
+          resource: "hello.txt",
+        })
+      }).pipe(provide(missing))
+    }),
+  )
+
   it.live("resolves an active relative existing file target", () =>
     withTmp((directory) =>
       Effect.gen(function* () {

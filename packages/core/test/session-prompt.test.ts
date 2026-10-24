@@ -10,6 +10,8 @@ import { SessionEvent } from "@opencode-ai/core/session/event"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
+import { ModelV2 } from "@opencode-ai/core/model"
+import { ProviderV2 } from "@opencode-ai/core/provider"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { Prompt } from "@opencode-ai/core/session/prompt"
 import { SessionMessage } from "@opencode-ai/core/session/message"
@@ -577,6 +579,41 @@ describe("SessionV2.prompt", () => {
 
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Do not run" }), resume: false })
 
+      expect(executionCalls).toEqual([])
+      expect(wakeCalls).toEqual([])
+    }),
+  )
+
+  it.effect("records a collaboration prompt and notices without scheduling execution", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      executionCalls.length = 0
+      wakeCalls.length = 0
+
+      const messageID = yield* session.recordPrompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Collaborate on the failing tests" }),
+      })
+      expect(yield* admitted(messageID)).toMatchObject({
+        id: messageID,
+        sessionID,
+        prompt: { text: "Collaborate on the failing tests" },
+        delivery: "queue",
+      })
+      expect(yield* admitted(messageID)).toHaveProperty("promotedSeq")
+
+      yield* session.notice({
+        sessionID,
+        text: "Planner started.",
+        agent: "build",
+        model: { providerID: ProviderV2.ID.make("provider"), id: ModelV2.ID.make("model") },
+      })
+
+      expect(yield* session.messages({ sessionID, order: "asc" })).toMatchObject([
+        { id: messageID, type: "user", text: "Collaborate on the failing tests" },
+        { type: "assistant", content: [{ type: "text", text: "Planner started." }] },
+      ])
       expect(executionCalls).toEqual([])
       expect(wakeCalls).toEqual([])
     }),

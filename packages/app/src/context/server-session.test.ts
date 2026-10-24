@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { retry } from "@opencode-ai/core/util/retry"
-import type { OpenCodeEvent, SessionApi } from "@opencode-ai/client/promise"
+import type { OpenCodeEvent } from "@opencode-ai/client/promise"
 import type { Message, OpencodeClient, Part, Session } from "@opencode-ai/sdk/v2/client"
 import { createServerSession } from "./server-session"
 import type { ServerApi } from "@/utils/server"
 
-type MessageApi = ServerApi["message"]
+type MessageApi = ServerApi["messages"]
+type SessionApi = ServerApi["sessions"]
 
 const session = (id: string, parentID?: string): Session => ({
   id,
@@ -1638,5 +1639,31 @@ describe("server session", () => {
 
     expect(ctx.store.data.message.active?.map((message) => message.id)).toEqual(["message"])
     expect(ctx.store.data.session_status["session-0"]).toBeUndefined()
+  })
+
+  test("loads persisted V2 todos without requiring an item id", async () => {
+    const todos = [
+      { content: "plan", status: "pending", priority: "high" },
+      { content: "doing", status: "in_progress", priority: "medium" },
+      { content: "done", status: "completed", priority: "low" },
+    ]
+    const sessionApi = {
+      todo: async () => todos,
+    } as unknown as SessionApi
+    const store = createServerSession({} as OpencodeClient, sessionApi, {} as MessageApi, {
+      protocol: Promise.resolve("v2"),
+    })
+
+    await store.todo("root")
+    expect(store.data.todo.root).toEqual(todos)
+
+    store.apply({
+      type: "todo.updated",
+      properties: {
+        sessionID: "root",
+        todos: [{ content: "next", status: "pending", priority: "high" }],
+      },
+    })
+    expect(store.data.todo.root).toEqual([{ content: "next", status: "pending", priority: "high" }])
   })
 })

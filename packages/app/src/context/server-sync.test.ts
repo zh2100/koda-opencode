@@ -1,12 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
-import type {
-  McpListInput,
-  McpResourceCatalogInput,
-  SessionApi,
-  SessionInfo,
-  SessionListInput,
-} from "@opencode-ai/client/promise"
+type McpListInput = Parameters<OpencodeClient["mcp"]["status"]>[0]
+type McpResourceCatalogInput = Parameters<OpencodeClient["experimental"]["resource"]["list"]>[0]
 import { QueryClient } from "@tanstack/solid-query"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
 import { estimateRootSessionTotal, loadRootSessions } from "./global-sync/session-load"
@@ -14,8 +9,12 @@ import { loadActiveSessionsQuery, loadMcpQuery, loadMcpResourcesQuery, seedActiv
 import { ServerScope } from "@/utils/server-scope"
 import { createServerSession } from "./server-session"
 import type { ServerApi } from "@/utils/server"
+import type { SessionInfo as AppSessionInfo } from "@/utils/protocol-types"
 
-type McpApi = ServerApi["mcp"]
+type McpApi = Pick<OpencodeClient, "mcp" | "experimental">
+type SessionApi = ServerApi["sessions"]
+type SessionListInput = Parameters<SessionApi["list"]>[0]
+type SessionInfo = AppSessionInfo
 
 describe("MCP queries", () => {
   test("loads current servers for the requested location", async () => {
@@ -133,7 +132,7 @@ describe("loadRootSessions", () => {
           calls.push(query)
           return { data: [sessionInfo("session-1")], cursor: {} }
         },
-      } satisfies Pick<SessionApi, "list">,
+      } as unknown as Pick<SessionApi, "list">,
       directory: "dir",
       limit: 10,
     })
@@ -142,7 +141,7 @@ describe("loadRootSessions", () => {
       expect.objectContaining({ id: "session-1", directory: "dir", slug: "session-1", version: "" }),
     ])
     expect(result.limited).toBe(true)
-    expect(calls).toEqual([{ directory: "dir", parentID: null, limit: 10, order: "desc" }])
+    expect(calls).toEqual([{ directory: "dir", limit: 10, order: "desc" }])
   })
 
   test("propagates list failures", () => {
@@ -152,7 +151,7 @@ describe("loadRootSessions", () => {
           list: async () => {
             throw new Error("failed")
           },
-        } satisfies Pick<SessionApi, "list">,
+        } as unknown as Pick<SessionApi, "list">,
         directory: "dir",
         limit: 25,
       }),

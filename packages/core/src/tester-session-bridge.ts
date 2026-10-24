@@ -7,11 +7,15 @@ import { SessionSchema } from "./session/schema"
 import { TesterIsolation } from "./tester-isolation"
 import { makeGlobalNode } from "./effect/app-node"
 import { AgentV2 } from "./agent"
+import { ModelV2 } from "./model"
 
 export interface Interface {
   readonly use: <A, E, R>(input: {
     readonly source: Parameters<SessionV2.Interface["create"]>[0]
+    readonly title?: string
     readonly name: string
+    readonly agent?: string
+    readonly model?: ModelV2.Ref
     readonly run: (sessionID: SessionSchema.ID) => Effect.Effect<A, E, R>
   }) => Effect.Effect<A, E | TesterIsolation.AcquireError | TesterIsolation.ReleaseError, R>
 }
@@ -33,8 +37,10 @@ export const layer = Layer.effect(
         (lease) => Effect.gen(function* () {
           const created = yield* session.create({
             location: lease.location,
-            model: input.source.model,
-            agent: AgentV2.ID.make("orchestrator-tester"),
+            parentID: input.source.id,
+            title: input.title,
+            model: input.model ?? input.source.model,
+            agent: AgentV2.ID.make(input.agent ?? "orchestrator-tester"),
           })
           return yield* input.run(created.id).pipe(
             Effect.ensuring(session.interrupt(created.id)),

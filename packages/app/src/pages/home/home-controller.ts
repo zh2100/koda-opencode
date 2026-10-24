@@ -93,15 +93,15 @@ export function createHomeController() {
         directories.forEach((item) => {
           if (ctx.projects.list().some((project) => project.worktree === item)) return
           const location = { directory: item }
-          void ctx.sdk.api.file
+          void ctx.sdk.api.files
             .list({ path: ".", location })
             .catch(() => ({ data: [] }))
             .then(async (files) => {
-              if (files.data.length > 0) return ctx.sdk.api.project.current({ location })
+              if (files.data.length > 0) return ctx.sdk.client.project.current({ directory: item })
               const result = await ctx.sdk.client.project.initGit({ directory: item })
-              return result.data ?? ctx.sdk.api.project.current({ location })
+              return result.data ?? ctx.sdk.client.project.current({ directory: item })
             })
-            .then((project) => ctx.sync.child(item, { bootstrap: false })[1]("project", project.id))
+            .then((project) => ctx.sync.child(item, { bootstrap: false })[1]("project", "id" in project ? project.id : project.data?.id ?? ""))
             .catch(() => undefined)
           ctx.projects.open(item)
         })

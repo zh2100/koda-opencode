@@ -1297,4 +1297,7 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} sessies worden gearchiveerd.",
   "workspace.reset.note":
     "Hierdoor wordt de werkruimte opnieuw ingesteld zodat deze overeenkomt met de standaardbranch.",
+  "prompt.computerUse.description": "Allow the agent to control this computer. Restart Koda after changing it.",
+  "prompt.computerUse.on": "Computer use on",
+  "prompt.computerUse.off": "Computer use off",
 }

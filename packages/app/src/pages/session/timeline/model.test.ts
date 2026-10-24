@@ -19,6 +19,8 @@ describe("timeline model", () => {
     expect(isTimelineReady([assistant("msg_2")], true)).toBe(false)
     expect(isTimelineReady([user("msg_1"), assistant("msg_2")], true)).toBe(true)
     expect(isTimelineReady([], false)).toBe(true)
+    expect(isTimelineReady([], true)).toBe(true)
+    expect(isTimelineReady(undefined, false)).toBe(false)
   })
 
   test("loads exactly one opaque cursor page", async () => {

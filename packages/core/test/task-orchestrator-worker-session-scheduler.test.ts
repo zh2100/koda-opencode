@@ -5,8 +5,9 @@ import { TaskOrchestratorWorkerSessionScheduler } from "@opencode-ai/core/task-o
 import { TaskOrchestratorWorkerScheduler } from "@opencode-ai/core/task-orchestrator/worker-scheduler"
 
 describe("TaskOrchestratorWorkerSessionScheduler", () => {
-  test("admits a revision prompt and leaves wake-up to Session.prompt", async () => {
+  test("admits a revision prompt and resumes the worker session", async () => {
     let received: unknown
+    const resumed: string[] = []
     const sessionID = SessionSchema.ID.make("ses_worker")
     const scheduler = TaskOrchestratorWorkerSessionScheduler.make({
       sessionID,
@@ -15,6 +16,7 @@ describe("TaskOrchestratorWorkerSessionScheduler", () => {
           received = input
           return {} as never
         }),
+      resume: (id) => Effect.sync(() => resumed.push(id)),
     })
     const transition: TaskOrchestratorWorkerScheduler.Interface<never, never> extends never ? never : {
       readonly action: "revise"
@@ -37,6 +39,9 @@ describe("TaskOrchestratorWorkerSessionScheduler", () => {
     expect(received).toEqual({
       sessionID,
       prompt: { text: "Worker revision #2:\n\nFix the failing test" },
+      delivery: "queue",
+      resume: false,
     })
+    expect(resumed).toEqual([sessionID])
   })
 })

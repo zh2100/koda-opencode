@@ -84,6 +84,15 @@ test("keeps a hidden prod launcher for old Linux pins", async () => {
   expect(desktop).toContain("NoDisplay=true")
 })
 
+test("bundles open-computer-use outside the app archive", async () => {
+  const config = (await import("./electron-builder.config.ts?computer-use")).default as Configuration
+  expect(config.files).toContain("!resources/open-computer-use/**/*")
+  expect(config.extraResources).toContainEqual({
+    from: "resources/open-computer-use/",
+    to: "open-computer-use/",
+  })
+})
+
 test("bundles the CLI outside the dev app archive", async () => {
   const previous = process.env.OPENCODE_CHANNEL
   process.env.OPENCODE_CHANNEL = "dev"

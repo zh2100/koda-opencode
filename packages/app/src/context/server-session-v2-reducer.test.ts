@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import type { OpenCodeEvent, SessionMessageInfo } from "@opencode-ai/client/promise"
-import { createV2SessionReducer } from "./server-session-v2-reducer"
+import type { OpenCodeEvent } from "@opencode-ai/client"
+import type { SessionMessageInfo } from "@/utils/protocol-types"
+import { adaptV2SessionEvent, createV2SessionReducer } from "./server-session-v2-reducer"
 
 const event = (input: object) => input as OpenCodeEvent
 const base = { created: 1, location: { directory: "/repo" }, durable: { aggregateID: "ses_1", seq: 1, version: 1 } }
@@ -10,7 +11,7 @@ describe("v2 session reducer", () => {
     const reducer = createV2SessionReducer()
     let messages: SessionMessageInfo[] = []
     const apply = (input: object) => {
-      const result = reducer.reduce(messages, event(input))
+       const result = reducer.reduce(messages, adaptV2SessionEvent(event(input))!)
       if (result) messages = result.messages
       return result
     }
@@ -45,20 +46,20 @@ describe("v2 session reducer", () => {
     apply({
       ...base,
       id: "evt_text_start",
-      type: "session.text.started",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", ordinal: 0 },
+      type: "session.next.text.started",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", textID: "text_1" },
     })
     apply({
       ...base,
       id: "evt_text_delta",
-      type: "session.text.delta",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", ordinal: 0, delta: "hel" },
+      type: "session.next.text.delta",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", textID: "text_1", delta: "hel" },
     })
     apply({
       ...base,
       id: "evt_text_end",
-      type: "session.text.ended",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", ordinal: 0, text: "hello" },
+      type: "session.next.text.ended",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", textID: "text_1", text: "hello" },
     })
 
     expect(messages[0]).toMatchObject({ id: "msg_user", type: "user", text: "hello" })
@@ -73,7 +74,7 @@ describe("v2 session reducer", () => {
     const reducer = createV2SessionReducer()
     let messages: SessionMessageInfo[] = []
     const apply = (input: object) => {
-      const result = reducer.reduce(messages, event(input))
+       const result = reducer.reduce(messages, adaptV2SessionEvent(event(input))!)
       if (result) messages = result.messages
     }
 
@@ -143,14 +144,65 @@ describe("v2 session reducer", () => {
   test("requests hydration when promotion admission was missed", () => {
     const result = createV2SessionReducer().reduce(
       [],
-      event({
+       adaptV2SessionEvent(event({
         ...base,
         id: "evt_promoted",
         type: "session.input.promoted",
         data: { sessionID: "ses_1", inputID: "msg_user" },
-      }),
+       }))!,
     )
 
     expect(result).toMatchObject({ sessionID: "ses_1", missing: "msg_user", touched: [] })
+  })
+
+  test("folds reasoning deltas by reasoning ID without duplicating content", () => {
+    const reducer = createV2SessionReducer()
+    let messages: SessionMessageInfo[] = []
+    const apply = (input: object) => {
+       const result = reducer.reduce(messages, adaptV2SessionEvent(event(input))!)
+      if (result) messages = result.messages
+    }
+
+    apply({
+      ...base,
+      id: "evt_step_reasoning",
+      type: "session.step.started",
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_reasoning",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+      },
+    })
+    apply({
+      ...base,
+      id: "evt_reasoning_start",
+      type: "session.next.reasoning.started",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_reasoning", reasoningID: "reasoning_1" },
+    })
+    apply({
+      ...base,
+      id: "evt_reasoning_delta_1",
+      type: "session.next.reasoning.delta",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_reasoning", reasoningID: "reasoning_1", delta: "我" },
+    })
+    apply({
+      ...base,
+      id: "evt_reasoning_delta_2",
+      type: "session.next.reasoning.delta",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_reasoning", reasoningID: "reasoning_1", delta: "看看" },
+    })
+    apply({
+      ...base,
+      id: "evt_reasoning_end",
+      type: "session.next.reasoning.ended",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_reasoning", reasoningID: "reasoning_1", text: "我看看" },
+    })
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      type: "assistant",
+      content: [{ type: "reasoning", id: "reasoning_1", text: "我看看" }],
+    })
   })
 })
