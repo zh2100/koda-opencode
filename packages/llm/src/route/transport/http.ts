@@ -1,5 +1,5 @@
 import { Effect, Stream } from "effect"
-import { Headers, HttpClientRequest } from "effect/unstable/http"
+import { Headers, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { Auth } from "../auth"
 import { render as renderEndpoint } from "../endpoint"
 import { Framing, type Framing as FramingDef } from "../framing"
@@ -138,7 +138,7 @@ export const httpJson = <Body, Frame>(input: HttpJsonInput<Body, Frame>): HttpJs
                 Stream.mapError((error) =>
                   ProviderShared.eventError(
                     `${request.model.provider}/${request.model.route.id}`,
-                    `Failed to read ${request.model.provider}/${request.model.route.id} stream`,
+                    streamReadMessage(request, response, error),
                     ProviderShared.errorText(error),
                   ),
                 ),
@@ -148,6 +148,23 @@ export const httpJson = <Body, Frame>(input: HttpJsonInput<Body, Frame>): HttpJs
         ),
     ),
 })
+
+const streamReadMessage = (
+  request: LLMRequest,
+  response: HttpClientResponse.HttpClientResponse,
+  error: unknown,
+) => {
+  const route = `${request.model.provider}/${request.model.route.id}`
+  const contentType = response.headers["content-type"]
+  const requestID = response.headers["x-request-id"] ?? response.headers["request-id"]
+  const details = [
+    `HTTP ${response.status}`,
+    contentType ? `content-type ${contentType}` : undefined,
+    requestID ? `request-id ${requestID}` : undefined,
+    ProviderShared.errorText(error),
+  ].filter((value): value is string => value !== undefined)
+  return `Failed to read ${route} stream (${details.join(", ")})`
+}
 
 export const sseJson = {
   id: "http-json/sse",
