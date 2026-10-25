@@ -4,7 +4,7 @@ import { copyFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import pkg from "../package.json"
-import { downloadCliToResources, resolveChannel } from "./utils"
+import { downloadCliToResources, getCurrentCli, resolveChannel } from "./utils"
 
 const channel = resolveChannel()
 await $`bun ./scripts/copy-icons.ts ${channel}`
@@ -18,5 +18,11 @@ if (channel === "dev") {
   // daemon registrations from older builds are never reused.
   process.env.OPENCODE_VERSION = pkg.version
   await $`cd ../cli && bun script/build.ts --single --skip-install`
-  await copyFile(join(import.meta.dirname, "../../cli/dist/cli-windows-x64/bin/lildax.exe"), "resources/opencode-cli.exe")
+  const cli = getCurrentCli()
+  const cliName = cli.os === "win32" ? "windows" : cli.os
+  const binary = cli.os === "win32" ? "lildax.exe" : "lildax"
+  await copyFile(
+    join(import.meta.dirname, `../../cli/dist/cli-${cliName}-${cli.cpu}/bin/${binary}`),
+    cli.os === "win32" ? "resources/opencode-cli.exe" : "resources/opencode-cli",
+  )
 }
