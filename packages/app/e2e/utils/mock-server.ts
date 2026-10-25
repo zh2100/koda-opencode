@@ -98,6 +98,29 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
         },
       })
     if (path === "/experimental/capabilities") return json(route, { backgroundSubagents: true })
+    if (path === "/api/provider" && config.protocol === "v2") {
+      const provider = typeof config.provider === "function" ? config.provider() : config.provider
+      const all: readonly unknown[] =
+        provider &&
+        typeof provider === "object" &&
+        Array.isArray((provider as Record<string, unknown>).all)
+          ? ((provider as Record<string, unknown>).all as readonly unknown[])
+          : []
+      return json(route, {
+        location: location(config),
+        data: all.map((item) => {
+          const value = item as { id: string; name: string }
+          return {
+            id: value.id,
+            name: value.name,
+            api: { type: "native", settings: {} },
+            request: { headers: {}, body: {} },
+          }
+        }),
+      })
+    }
+    if (path === "/api/model" && config.protocol === "v2")
+      return json(route, { location: location(config), data: [] })
     if (path === "/provider")
       return json(route, typeof config.provider === "function" ? config.provider() : config.provider)
     if (path === "/provider/auth") return json(route, config.integrationMethods ?? {})
@@ -133,6 +156,24 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
           limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined,
         }),
       )
+    if (path === "/api/fs/list" && config.fileList) {
+      const result = await config.fileList(url.searchParams.get("path") ?? "")
+      return json(route, {
+        location: location(config),
+        data: Array.isArray(result) ? result : [],
+      })
+    }
+    if (path === "/api/fs/find" && config.findFiles) {
+      const result = await config.findFiles({
+        query: url.searchParams.get("query") ?? "",
+        dirs: url.searchParams.get("type") === "directory" ? "true" : "false",
+        limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined,
+      })
+      return json(route, {
+        location: location(config),
+        data: Array.isArray(result) ? result.map((path) => ({ path, type: "file" as const })) : result,
+      })
+    }
     if (path === "/api/reference")
       return json(route, {
         location: {

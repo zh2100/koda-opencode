@@ -27,6 +27,7 @@ async function openProjectDialog(page: Page) {
     findFiles: () => [],
   })
   await page.addInitScript((dirs) => {
+    localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
     localStorage.setItem(
       "opencode.global.dat:server",
       JSON.stringify({
@@ -36,9 +37,13 @@ async function openProjectDialog(page: Page) {
     )
   }, worktrees)
   await page.goto("/")
-  const add = page.getByRole("button", { name: "Add project" }).first()
-  await expectAppVisible(add)
-  await add.click()
+  const newSession = page.getByRole("main").locator('[data-action="home-new-session"]')
+  await expectAppVisible(newSession)
+  await newSession.click()
+  await expectAppVisible(page.locator('[data-component="prompt-input-v2"]'))
+
+  await page.locator('[data-action="prompt-project"]').click()
+  await page.getByText("Open existing project", { exact: true }).click()
   await expect(rows(page)).toHaveCount(5)
   return page.getByRole("textbox").last()
 }

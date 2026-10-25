@@ -82,7 +82,7 @@ test("keeps previous file search results visible while the next search loads", a
 
   const nextSearch = page.waitForRequest((request) => {
     const url = new URL(request.url())
-    return url.pathname === "/find/file" && url.searchParams.get("query") === "file-7"
+    return url.pathname === "/api/fs/find" && url.searchParams.get("query") === "file-7"
   })
   await filter.fill("file-7")
   await nextSearch
