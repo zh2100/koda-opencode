@@ -4,8 +4,10 @@ type Kind = "add" | "update" | "delete" | "move"
 
 type Raw = {
   filePath?: string
+  file?: string
   relativePath?: string
   type?: Kind
+  status?: "added" | "deleted" | "modified"
   patch?: string
   diff?: string
   before?: string
@@ -35,12 +37,18 @@ function status(type: Kind): "added" | "deleted" | "modified" {
   return "modified"
 }
 
+function kindFromStatus(value: unknown) {
+  if (value === "added") return "add" as const
+  if (value === "deleted") return "delete" as const
+  if (value === "modified") return "update" as const
+}
+
 export function patchFile(raw: unknown): ApplyPatchFile | undefined {
   if (!raw || typeof raw !== "object") return
 
   const value = raw as Raw
-  const type = kind(value.type)
-  const filePath = typeof value.filePath === "string" ? value.filePath : undefined
+  const type = kind(value.type) ?? kindFromStatus(value.status)
+  const filePath = typeof value.filePath === "string" ? value.filePath : value.file
   const relativePath = typeof value.relativePath === "string" ? value.relativePath : filePath
   const patch = typeof value.patch === "string" ? value.patch : typeof value.diff === "string" ? value.diff : undefined
   const before = typeof value.before === "string" ? value.before : undefined

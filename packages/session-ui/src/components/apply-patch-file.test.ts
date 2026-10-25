@@ -40,4 +40,23 @@ describe("apply patch file", () => {
     expect(text(file!.view, "deletions")).toBe("one\n")
     expect(text(file!.view, "additions")).toBe("two\n")
   })
+
+  test("parses the canonical apply_patch file diff shape", () => {
+    const file = patchFiles([
+      {
+        file: "src/a.ts",
+        status: "modified",
+        patch: "@@ -1 +1 @@\n-old\n+new\n",
+        additions: 1,
+        deletions: 1,
+      },
+    ])[0]
+
+    expect(file).toBeDefined()
+    expect(file?.filePath).toBe("src/a.ts")
+    expect(file?.relativePath).toBe("src/a.ts")
+    expect(file?.type).toBe("update")
+    expect(text(file!.view, "deletions")).toBe("old\n")
+    expect(text(file!.view, "additions")).toBe("new\n")
+  })
 })
