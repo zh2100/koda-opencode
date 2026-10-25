@@ -187,6 +187,51 @@ export function seedActiveSessionStatuses(
   }
 }
 
+
+export function sessionTodoRefreshID(event: {
+  type: string
+  properties?: unknown
+  current?: { type: string; data?: unknown }
+}) {
+  if (event.type === "session.status") {
+    const properties = event.properties
+    if (
+      properties &&
+      typeof properties === "object" &&
+      "sessionID" in properties &&
+      typeof properties.sessionID === "string" &&
+      "status" in properties &&
+      properties.status &&
+      typeof properties.status === "object" &&
+      "type" in properties.status &&
+      properties.status.type === "idle"
+    )
+      return properties.sessionID
+  }
+
+  const current = event.current
+  if (
+    !current ||
+    (current.type !== "session.step.ended" &&
+      current.type !== "session.step.failed" &&
+      current.type !== "session.next.step.ended" &&
+      current.type !== "session.next.step.failed")
+  )
+    return
+  if (!current.data || typeof current.data !== "object") return
+  if (!("sessionID" in current.data) || typeof current.data.sessionID !== "string") return
+  return current.data.sessionID
+}
+
+export function refreshSessionTodos(
+  session: Pick<ServerSession, "todo">,
+  event: Parameters<typeof sessionTodoRefreshID>[0],
+) {
+  const sessionID = sessionTodoRefreshID(event)
+  if (!sessionID) return
+  return session.todo(sessionID, { force: true })
+}
+
 function makeQueryOptionsApi(
   scope: ServerScope,
   serverSDK: () => OpencodeClient,
@@ -543,6 +588,8 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
 
     if (event.current) session.applyV2(event.current)
     session.apply(event)
+    const todoRefresh = refreshSessionTodos(session, event)
+    if (todoRefresh) void todoRefresh.catch(() => {})
     if (event.type === "session.created" || event.type === "session.updated" || event.type === "session.deleted") {
       homeSessions.apply(event)
     }

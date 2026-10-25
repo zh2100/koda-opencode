@@ -5,7 +5,14 @@ type McpResourceCatalogInput = Parameters<OpencodeClient["experimental"]["resour
 import { QueryClient } from "@tanstack/solid-query"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
 import { estimateRootSessionTotal, loadRootSessions } from "./global-sync/session-load"
-import { loadActiveSessionsQuery, loadMcpQuery, loadMcpResourcesQuery, seedActiveSessionStatuses } from "./server-sync"
+import {
+  loadActiveSessionsQuery,
+  loadMcpQuery,
+  loadMcpResourcesQuery,
+  refreshSessionTodos,
+  sessionTodoRefreshID,
+  seedActiveSessionStatuses,
+} from "./server-sync"
 import { ServerScope } from "@/utils/server-scope"
 import { createServerSession } from "./server-session"
 import type { ServerApi } from "@/utils/server"
@@ -98,6 +105,48 @@ describe("active session query", () => {
       message: "retrying",
       next: 10,
     })
+  })
+})
+
+describe("todo refresh events", () => {
+  test("refreshes todos when a legacy session becomes idle", () => {
+    expect(
+      sessionTodoRefreshID({
+        type: "session.status",
+        properties: { sessionID: "ses_1", status: { type: "idle" } },
+      }),
+    ).toBe("ses_1")
+  })
+
+  test("refreshes todos when a V2 step ends", () => {
+    expect(
+      sessionTodoRefreshID({
+        type: "session.step.ended",
+        current: { type: "session.step.ended", data: { sessionID: "ses_2" } },
+      }),
+    ).toBe("ses_2")
+  })
+
+  test("does not refresh todos for unrelated events", () => {
+    expect(sessionTodoRefreshID({ type: "session.status", properties: { sessionID: "ses_3", status: { type: "busy" } } })).toBeUndefined()
+    expect(sessionTodoRefreshID({ type: "message.updated", properties: { sessionID: "ses_3" } })).toBeUndefined()
+  })
+
+  test("forces a todo reload after a completed step", async () => {
+    const calls: Array<{ sessionID: string; options: { force?: boolean } | undefined }> = []
+    await refreshSessionTodos(
+      {
+        todo: async (sessionID, options) => {
+          calls.push({ sessionID, options })
+        },
+      },
+      {
+        type: "session.next.step.ended",
+        current: { type: "session.next.step.ended", data: { sessionID: "ses_4" } },
+      },
+    )
+
+    expect(calls).toEqual([{ sessionID: "ses_4", options: { force: true } }])
   })
 })
 
