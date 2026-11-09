@@ -1,0 +1,111 @@
+{
+  "date": "2026-11-09",
+  "scope": "NL-01 and NL-02; local Windows automated acceptance only",
+  "runtime": {
+    "platform": "win32",
+    "arch": "x64",
+    "bun": "1.4.3",
+    "nodeCompatibility": "v26.3.0",
+    "nodeCli": "v24.19.0"
+  },
+  "checks": [
+    {
+      "id": "independent-diagnosis",
+      "reasons": [
+        "absent",
+        "absent"
+      ],
+      "after": "acquired",
+      "passed": true
+    },
+    {
+      "id": "independent-cancelled-waiter",
+      "interrupted": true,
+      "businessEntered": false,
+      "originalOwnerPreserved": true,
+      "cancelMs": 31,
+      "after": "acquired",
+      "passed": true
+    },
+    {
+      "id": "independent-probe",
+      "inside": {
+        "status": "acquired",
+        "rival": "busy"
+      },
+      "after": "acquired",
+      "passed": true
+    },
+    {
+      "id": "independent-business-success",
+      "after": "acquired",
+      "passed": true
+    },
+    {
+      "id": "independent-business-failure",
+      "after": "acquired",
+      "passed": true
+    },
+    {
+      "id": "independent-business-cancel",
+      "after": "acquired",
+      "passed": true
+    }
+  ],
+  "sha256": {
+    "src/util/effect-flock.ts": "2ab37984829b16ceaaa8411603691fc8a980f4de473e1acc4012fbf1ca19a727",
+    "src/util/flock.ts": "39babc12a5d92e50746dbedb5595344633103d309af87663ca2e42414a737ffd",
+    "src/util/native-file-lock.ts": "1aeff9ecf88682ececd8fa11da1847d615e7838053d2b6a13d111746244d9d5d",
+    "src/util/lock-protocol.ts": "34e07dec33672d319d5dbb1e3d030126e787eafeaf59fe13ad0b68d52f13ac57",
+    "test/util/native-lease-lifecycle.test.ts": "9947b16e346035db50e4478d4e47344e8927cf93aa03b10f05d720a0b515ddd6",
+    "test/protocol-recheck.test.ts": "ec8516e6ed85a4f432c78fdfbcf9c0972358bcbb2228e832b3f46fa1261d3d2d",
+    "test/path-resolution.test.ts": "91f65893bcf40531d5f2714a959e855d1dab30e07a3af75760e47595da494047",
+    "native/dist/process-lock-win32-x64.node": "2c426d05a8b29757c41668b29794641f4bed2fe77a21ba15e06c0bdbd0dcfba8",
+    "test/util/native-file-lock.test.ts": "03f5fc8d21c768dac552c80c72790d5053af48469cf74226935a57ae11d49311",
+    "test/util/effect-flock.test.ts": "f82078a7efbd32a10d8c29e3a9b594a5e4e639a25f7c54a6a1702d74837d13f5",
+    "test/util/flock.test.ts": "9e3eeb0f33d45f96d91f2caf3422864622087f8cdfcded6fd063e19b86384673",
+    "native/dist/process-lock-manifest.json": "5a7c107738e1908b0037568a09ea8b49dc715233563e888f9b5d51819b4d4164"
+  },
+  "limitations": [
+    "No UI acceptance",
+    "No installed Electron acceptance",
+    "No Linux/macOS acceptance",
+    "Migration apply remains disabled"
+  ],
+  "sourceChanges": false,
+  "baseline": {
+    "gitHead": "b80464fbe6cb7f1df67feeaae8887d51b201840b",
+    "uncommittedWorkspace": true,
+    "hashesUnchangedAfterAcceptance": true
+  },
+  "testRuns": [
+    {
+      "command": "bun test test/util/native-file-lock.test.ts test/util/native-lease-lifecycle.test.ts test/protocol-recheck.test.ts test/path-resolution.test.ts --timeout 20000",
+      "passed": 19,
+      "failed": 0,
+      "assertions": 64,
+      "elapsedSeconds": 36.15,
+      "exitCode": 0
+    },
+    {
+      "command": "bun test test/util/effect-flock.test.ts test/util/flock.test.ts --timeout 30000",
+      "passed": 29,
+      "failed": 0,
+      "assertions": 72,
+      "elapsedSeconds": 26.37,
+      "exitCode": 0
+    },
+    {
+      "command": "bun typecheck",
+      "exitCode": 0
+    }
+  ],
+  "verdict": {
+    "NL01": "accepted-local-windows",
+    "NL02": "accepted-local-windows",
+    "R303B": "open",
+    "automatedTestsPassed": 48,
+    "independentScenariosPassed": 6,
+    "retriesThisAcceptance": 0
+  }
+}

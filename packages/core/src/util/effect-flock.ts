@@ -2,25 +2,51 @@ import path from "path"
 import os from "os"
 import { randomUUID } from "crypto"
 import { Context, Effect, Function, Layer, Option, Schedule, Schema } from "effect"
-import type { FileSystem, Scope } from "effect"
+import type { Scope } from "effect"
 import type { PlatformError } from "effect/PlatformError"
 import { FSUtil } from "../fs-util"
 import { Global } from "../global"
 import { makeGlobalNode } from "../effect/app-node"
+import { Flock } from "./flock"
 import { Hash } from "./hash"
+import { LockProtocol } from "./lock-protocol"
+import { NativeFileLock, NativeLockError } from "./native-file-lock"
 
 export namespace EffectFlock {
   // ---------------------------------------------------------------------------
   // Errors
   // ---------------------------------------------------------------------------
 
+  export const LockDiagnosisReason = Schema.Literals([
+    "live-owner",
+    "exited-owner",
+    "permission-denied",
+    "remote-owner",
+    "metadata-missing",
+    "metadata-corrupt",
+    "breaker-held",
+    "filesystem-unavailable",
+    "absent",
+  ])
+
+  export class LockDiagnosis extends Schema.Class<LockDiagnosis>("LockDiagnosis")({
+    reason: LockDiagnosisReason,
+    hostname: Schema.optional(Schema.String),
+    pid: Schema.optional(Schema.Number),
+  }) {}
+
   export class LockTimeoutError extends Schema.TaggedErrorClass<LockTimeoutError>()("LockTimeoutError", {
     key: Schema.String,
+    diagnosis: Schema.optional(LockDiagnosis),
   }) {}
 
   export class LockCompromisedError extends Schema.TaggedErrorClass<LockCompromisedError>()("LockCompromisedError", {
     detail: Schema.String,
-  }) {}
+  }) {
+    override get message() {
+      return this.detail
+    }
+  }
 
   class ReleaseError extends Schema.TaggedErrorClass<ReleaseError>()("ReleaseError", {
     detail: Schema.String,
@@ -32,9 +58,14 @@ export namespace EffectFlock {
   }
 
   /** Internal: signals "lock is held, retry later". Never leaks to callers. */
-  class NotAcquired extends Schema.TaggedErrorClass<NotAcquired>()("NotAcquired", {}) {}
+  class NotAcquired extends Schema.TaggedErrorClass<NotAcquired>()("NotAcquired", {
+    diagnosis: LockDiagnosis,
+  }) {}
+
+
 
   export type LockError = LockTimeoutError | LockCompromisedError
+  export type Probe = { readonly status: "busy" } | { readonly status: "acquired" }
 
   // ---------------------------------------------------------------------------
   // Timing (baked in — no caller ever overrides these)
@@ -73,7 +104,12 @@ export namespace EffectFlock {
   // ---------------------------------------------------------------------------
 
   export interface Interface {
+    readonly diagnose: (key: string, dir?: string) => Effect.Effect<LockDiagnosis>
+    readonly isLocked: (key: string, dir?: string) => Effect.Effect<boolean>
+    readonly key: (key: string) => Effect.Effect<string, LockCompromisedError>
     readonly acquire: (key: string, dir?: string) => Effect.Effect<void, LockError, Scope.Scope>
+    readonly tryAcquire: (key: string, dir?: string) => Effect.Effect<boolean, LockError, Scope.Scope>
+    readonly probe: (key: string, dir?: string) => Effect.Effect<Probe, LockError, Scope.Scope>
     readonly withLock: {
       (key: string, dir?: string): <A, E, R>(body: Effect.Effect<A, E, R>) => Effect.Effect<A, E | LockError, R>
       <A, E, R>(body: Effect.Effect<A, E, R>, key: string, dir?: string): Effect.Effect<A, E | LockError, R>
@@ -86,15 +122,9 @@ export namespace EffectFlock {
   // Layer
   // ---------------------------------------------------------------------------
 
-  function wall() {
-    return performance.timeOrigin + performance.now()
-  }
+  const isNotFound = (e: PlatformError) => e.reason._tag === "NotFound"
 
-  const mtimeMs = (info: FileSystem.File.Info) => Option.getOrElse(info.mtime, () => new Date(0)).getTime()
-
-  const isPathGone = (e: PlatformError) => e.reason._tag === "NotFound" || e.reason._tag === "Unknown"
-
-  const layer: Layer.Layer<Service, never, Global.Service | FSUtil.Service> = Layer.effect(
+  export const layer: Layer.Layer<Service, never, Global.Service | FSUtil.Service> = Layer.effect(
     Service,
     Effect.gen(function* () {
       const global = yield* Global.Service
@@ -103,13 +133,8 @@ export namespace EffectFlock {
       const hostname = os.hostname()
       const ensuredDirs = new Set<string>()
 
-      // -- helpers (close over fs) --
 
-      const safeStat = (file: string) =>
-        fs.stat(file).pipe(
-          Effect.catchIf(isPathGone, () => Effect.void),
-          Effect.orDie,
-        )
+      // -- helpers (close over fs) --
 
       const forceRemove = (target: string) => fs.remove(target, { recursive: true }).pipe(Effect.ignore)
 
@@ -124,22 +149,16 @@ export namespace EffectFlock {
           Effect.orDie,
         )
 
-      /** Write with exclusive create — compromised error if file already exists. */
-      const exclusiveWrite = (filePath: string, content: string, lockDir: string, detail: string) =>
+      /** Write with exclusive create. Cleanup stays with the caller so a failed write cannot delete twice. */
+      const exclusiveWrite = (filePath: string, content: string, detail: string, remove: Effect.Effect<void>) =>
         fs.writeFileString(filePath, content, { flag: "wx" }).pipe(
           Effect.catch(() =>
             Effect.gen(function* () {
-              yield* forceRemove(lockDir)
+              yield* remove
               return yield* new LockCompromisedError({ detail })
             }),
           ),
         )
-
-      const cleanStaleBreaker = Effect.fnUntraced(function* (breakerPath: string) {
-        const bs = yield* safeStat(breakerPath)
-        if (bs && wall() - mtimeMs(bs) > STALE_MS) yield* forceRemove(breakerPath)
-        return false
-      })
 
       const ensureDir = Effect.fnUntraced(function* (dir: string) {
         if (ensuredDirs.has(dir)) return
@@ -147,93 +166,97 @@ export namespace EffectFlock {
         ensuredDirs.add(dir)
       })
 
-      const isStale = Effect.fnUntraced(function* (lockDir: string, heartbeatPath: string, metaPath: string) {
-        const now = wall()
-
-        const hb = yield* safeStat(heartbeatPath)
-        if (hb) return now - mtimeMs(hb) > STALE_MS
-
-        const meta = yield* safeStat(metaPath)
-        if (meta) return now - mtimeMs(meta) > STALE_MS
-
-        const dir = yield* safeStat(lockDir)
-        if (!dir) return false
-
-        return now - mtimeMs(dir) > STALE_MS
+      const diagnoseMeta = Effect.fnUntraced(function* (metaPath: string) {
+        const raw = yield* fs.readFileString(metaPath).pipe(
+          Effect.map((text) => text as string | undefined),
+          Effect.catch((error) =>
+            isNotFound(error) ? Effect.succeed(undefined) : Effect.fail(new LockDiagnosis({ reason: "filesystem-unavailable" })),
+          ),
+        )
+        if (!raw) return new LockDiagnosis({ reason: "metadata-missing" })
+        const meta = Schema.decodeUnknownOption(LockMetaJson)(raw)
+        if (Option.isNone(meta)) return new LockDiagnosis({ reason: "metadata-corrupt" })
+        if (meta.value.hostname !== hostname)
+          return new LockDiagnosis({
+            reason: "remote-owner",
+            hostname: meta.value.hostname,
+            pid: meta.value.pid,
+          })
+        let probe: "live" | "exited" | "denied" = "denied"
+        try {
+          process.kill(meta.value.pid, 0)
+          probe = "live"
+        } catch (error) {
+          probe = error && typeof error === "object" && "code" in error && error.code === "ESRCH" ? "exited" : "denied"
+        }
+        if (probe === "live")
+          return new LockDiagnosis({ reason: "live-owner", hostname: meta.value.hostname, pid: meta.value.pid })
+        if (probe === "exited")
+          return new LockDiagnosis({ reason: "exited-owner", hostname: meta.value.hostname, pid: meta.value.pid })
+        return new LockDiagnosis({
+          reason: "permission-denied",
+          hostname: meta.value.hostname,
+          pid: meta.value.pid,
+        })
       })
 
       // -- single lock attempt --
 
       type Handle = { token: string; metaPath: string; heartbeatPath: string; lockDir: string }
 
-      const tryAcquireLockDir = (lockDir: string, key: string) =>
+      const claimDirectory = (lockDir: string): Effect.Effect<boolean, NotAcquired> =>
+        Effect.gen(function* () {
+          const created = yield* atomicMkdir(lockDir)
+          if (created) return true
+          const diagnosis = yield* diagnoseMeta(path.join(lockDir, "meta.json")).pipe(
+            Effect.catch((error) => Effect.succeed(error)),
+          )
+          if (diagnosis.reason !== "exited-owner") return yield* new NotAcquired({ diagnosis })
+          const breakerPath = lockDir + ".breaker"
+          const claimed = yield* fs.makeDirectory(breakerPath, { mode: 0o700 }).pipe(
+            Effect.as(true),
+            Effect.catchIf(
+              (e) => e.reason._tag === "AlreadyExists",
+              // A paused breaker may resume between its recheck and removal.
+              // Never revoke it by age; abandoned breakers need manual recovery.
+              () => Effect.succeed(false),
+            ),
+            Effect.catchIf(isNotFound, () => Effect.succeed(false)),
+            Effect.catch(() => Effect.succeed(false)),
+          )
+          if (!claimed) return yield* new NotAcquired({ diagnosis: new LockDiagnosis({ reason: "breaker-held" }) })
+          const recreated = yield* Effect.gen(function* () {
+            const again = yield* diagnoseMeta(path.join(lockDir, "meta.json")).pipe(
+              Effect.catch((error) => Effect.succeed(error)),
+            )
+            if (again.reason !== "exited-owner") return false
+            yield* forceRemove(lockDir)
+            return yield* atomicMkdir(lockDir)
+          }).pipe(Effect.ensuring(forceRemove(breakerPath)))
+          if (!recreated) return yield* new NotAcquired({ diagnosis: new LockDiagnosis({ reason: "exited-owner" }) })
+          return true
+        })
+
+      const publishOwnership = (lockDir: string, key: string, remove: Effect.Effect<void>) =>
         Effect.gen(function* () {
           const token = randomUUID()
           const metaPath = path.join(lockDir, "meta.json")
           const heartbeatPath = path.join(lockDir, "heartbeat")
-
-          // Atomic mkdir — the POSIX lock primitive
-          const created = yield* atomicMkdir(lockDir)
-
-          if (!created) {
-            if (!(yield* isStale(lockDir, heartbeatPath, metaPath))) return yield* new NotAcquired()
-
-            // Stale — race for breaker ownership
-            const breakerPath = lockDir + ".breaker"
-
-            const claimed = yield* fs.makeDirectory(breakerPath, { mode: 0o700 }).pipe(
-              Effect.as(true),
-              Effect.catchIf(
-                (e) => e.reason._tag === "AlreadyExists",
-                () => cleanStaleBreaker(breakerPath),
-              ),
-              Effect.catchIf(isPathGone, () => Effect.succeed(false)),
-              Effect.orDie,
-            )
-
-            if (!claimed) return yield* new NotAcquired()
-
-            // We own the breaker — double-check staleness, nuke, recreate
-            const recreated = yield* Effect.gen(function* () {
-              if (!(yield* isStale(lockDir, heartbeatPath, metaPath))) return false
-              yield* forceRemove(lockDir)
-              return yield* atomicMkdir(lockDir)
-            }).pipe(Effect.ensuring(forceRemove(breakerPath)))
-
-            if (!recreated) return yield* new NotAcquired()
-          }
-
-          // We own the lock dir — write heartbeat + meta with exclusive create
-          yield* exclusiveWrite(heartbeatPath, "", lockDir, "heartbeat already existed")
-
+          yield* exclusiveWrite(heartbeatPath, "", "heartbeat already existed", remove)
           const metaJson = encodeMeta({ token, pid: process.pid, hostname, createdAt: new Date().toISOString() })
-          yield* exclusiveWrite(metaPath, metaJson, lockDir, "meta.json already existed")
-
+          yield* exclusiveWrite(metaPath, metaJson, "meta.json already existed", remove)
           return { token, metaPath, heartbeatPath, lockDir } satisfies Handle
-        }).pipe(
-          Effect.withSpan("EffectFlock.tryAcquire", {
-            attributes: { key },
-          }),
-        )
+        }).pipe(Effect.withSpan("EffectFlock.publishOwnership", { attributes: { key } }))
 
-      // -- retry wrapper (preserves Handle type) --
 
-      const acquireHandle = (lockfile: string, key: string): Effect.Effect<Handle, LockError> =>
-        tryAcquireLockDir(lockfile, key).pipe(
-          Effect.retry({
-            while: (err) => err._tag === "NotAcquired",
-            schedule: retrySchedule,
-          }),
-          Effect.catchTag("NotAcquired", () => Effect.fail(new LockTimeoutError({ key }))),
-        )
 
       // -- release --
 
-      const release = (handle: Handle) =>
+      const release = (handle: Handle, remove: Effect.Effect<void>) =>
         Effect.gen(function* () {
           const raw = yield* fs.readFileString(handle.metaPath).pipe(
             Effect.catch((err) => {
-              if (isPathGone(err)) return Effect.die(new ReleaseError({ detail: "metadata missing" }))
+              if (isNotFound(err)) return Effect.die(new ReleaseError({ detail: "metadata missing" }))
               return Effect.die(err)
             }),
           )
@@ -245,25 +268,181 @@ export namespace EffectFlock {
 
           if (parsed.token !== handle.token) return yield* Effect.die(new ReleaseError({ detail: "token mismatch" }))
 
-          yield* forceRemove(handle.lockDir)
+          yield* remove
         })
 
       // -- build service --
 
-      const acquire = Effect.fn("EffectFlock.acquire")(function* (key: string, dir?: string) {
-        const lockDir = dir ?? lockRoot
+      const decide = (key: string, dir?: string) =>
+        Effect.try({
+          try: () => LockProtocol.resolve(key, global.lockContext, dir),
+          catch: (cause) => new LockCompromisedError({ detail: LockProtocol.fromIdentity(cause).message }),
+        })
+
+      const identity = (key: string) => decide(key).pipe(Effect.map((decision) => decision.key))
+
+      const nativeError = (error: unknown) =>
+        new LockCompromisedError({
+          detail: error instanceof NativeLockError || error instanceof Error ? error.message : "native file lock failed",
+        })
+
+      const nativeLease = (file: string) =>
+        Effect.acquireRelease(
+          Effect.try({
+            try: () => NativeFileLock.tryAcquire(file),
+            catch: nativeError,
+          }),
+          (result) =>
+            result.status === "busy"
+              ? Effect.void
+              : Effect.try({
+                  try: () => result.release(),
+                  catch: nativeError,
+                }).pipe(Effect.orDie),
+        ).pipe(Effect.map((result) => (result.status === "acquired" ? result.token : undefined)))
+
+      const confirm = (key: string, dir: string | undefined, granted: LockProtocol.Decision) =>
+        Effect.try({
+          try: () => LockProtocol.confirmCurrent(key, global.lockContext, dir, granted),
+          catch: (cause) => new LockCompromisedError({ detail: LockProtocol.fromIdentity(cause).message }),
+        })
+
+      const acquireNative = (key: string, dir?: string) =>
+        Effect.acquireRelease(
+          Effect.callback<Flock.Lease, LockCompromisedError>((resume, signal) => {
+            const pending = Flock.acquire(key, {
+              context: global.lockContext,
+              dir,
+              signal,
+              timeoutMs: TIMEOUT_MS,
+            })
+            const bridge = NativeFileLock.handoff(pending, (effect) => {
+              if (effect.status === "failed") {
+                resume(Effect.fail(nativeError(effect.cause)))
+                return
+              }
+              resume(Effect.succeed(effect.value))
+            })
+            return Effect.sync(() => {
+              bridge.cancel()
+            }).pipe(
+              Effect.andThen(Effect.promise(() => bridge.late((lease) => lease.release()).then(() => undefined))),
+            )
+          }),
+          (lease) => Effect.promise(() => lease.release()).pipe(Effect.orDie),
+          { interruptible: true },
+        ).pipe(Effect.asVoid)
+
+      const acquireDirectory = Effect.fn("EffectFlock.acquireDirectory")(function* (key: string, dir?: string) {
+        const decision = yield* decide(key, dir)
+        const lockDir = decision.directory
+        const lockKey = decision.key
         yield* ensureDir(lockDir)
 
-        const lockfile = path.join(lockDir, Hash.fast(key) + ".lock")
+        const lockfile = path.join(lockDir, Hash.fast(lockKey) + ".lock")
 
-        // acquireRelease: acquire is uninterruptible, release is guaranteed
-        const handle = yield* Effect.acquireRelease(acquireHandle(lockfile, key), (handle) => release(handle))
+        // One remover for this attempt. A second path delete can remove a successor that
+        // acquired after the first removal returned.
+        const removed = { done: false }
+        const removeOnce = Effect.gen(function* () {
+          if (removed.done) return
+          removed.done = true
+          yield* forceRemove(lockfile)
+        })
+        const cleanup = {
+          run: Effect.void as Effect.Effect<void>,
+        }
+        yield* Effect.addFinalizer(() => cleanup.run)
+        // Create, publish, and the swap to token-checked release stay uninterruptible.
+        const publishCreated = Effect.uninterruptible(
+          Effect.gen(function* () {
+            cleanup.run = removeOnce
+            const owned = yield* publishOwnership(lockfile, key, removeOnce)
+            cleanup.run = release(owned, removeOnce)
+            return owned
+          }),
+        )
+        const ownCreatedDirectory = Effect.uninterruptible(
+          Effect.gen(function* () {
+            if (!(yield* atomicMkdir(lockfile))) return undefined
+            return yield* publishCreated
+          }),
+        )
+        // A lost race is not a timeout. Backoff runs only while another owner is held,
+        // and every wait shares this attempt's original deadline.
+        const deadline = Date.now() + TIMEOUT_MS
+        const waitWhileHeld = Effect.gen(function* () {
+          const remaining = deadline - Date.now()
+          if (remaining <= 0) {
+            return yield* new LockTimeoutError({
+              key: path.basename(lockfile),
+              diagnosis: yield* diagnoseMeta(path.join(lockfile, "meta.json")).pipe(
+                Effect.catch((error) => Effect.succeed(error)),
+              ),
+            })
+          }
+          yield* fs.stat(lockfile).pipe(
+            Effect.as(true),
+            Effect.catchIf(isNotFound, () => Effect.succeed(false)),
+            Effect.catch(() => Effect.succeed(true)),
+            Effect.flatMap((held) =>
+              held
+                ? Effect.gen(function* () {
+                    const breaker = yield* fs.stat(lockfile + ".breaker").pipe(
+                      Effect.as(true),
+                      Effect.catchIf(isNotFound, () => Effect.succeed(false)),
+                      Effect.catch(() => Effect.succeed(true)),
+                    )
+                    if (breaker)
+                      return yield* new NotAcquired({ diagnosis: new LockDiagnosis({ reason: "breaker-held" }) })
+                    const diagnosis = yield* diagnoseMeta(path.join(lockfile, "meta.json")).pipe(
+                      Effect.catch((error) => Effect.succeed(error)),
+                    )
+                    if (diagnosis.reason === "exited-owner") return
+                    return yield* new NotAcquired({ diagnosis })
+                  })
+                : Effect.void,
+            ),
+            Effect.retry({
+              while: (error) => error._tag === "NotAcquired",
+              schedule: retrySchedule.pipe(Schedule.while((meta) => meta.elapsed < remaining)),
+            }),
+            Effect.catchTag("NotAcquired", (error) =>
+              Effect.fail(new LockTimeoutError({ key: path.basename(lockfile), diagnosis: error.diagnosis })),
+            ),
+          )
+        })
+        const claimOnce = Effect.uninterruptible(
+          Effect.gen(function* () {
+            const created = yield* ownCreatedDirectory
+            if (created) return created
+            if (!(yield* claimDirectory(lockfile))) return undefined
+            return yield* publishCreated
+          }),
+        )
+        const handle = yield* Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function* () {
+            while (true) {
+              const owned = yield* claimOnce.pipe(Effect.catchTag("NotAcquired", () => Effect.succeed(undefined)))
+              if (owned) return owned
+              yield* restore(waitWhileHeld)
+            }
+          }),
+        )
 
         // Heartbeat fiber — scoped, so it's interrupted before release runs
         yield* fs
           .utimes(handle.heartbeatPath, new Date(), new Date())
           .pipe(Effect.ignore, Effect.repeat(Schedule.spaced(HEARTBEAT_MS)), Effect.forkScoped)
+        yield* confirm(key, dir, decision)
       })
+
+      const acquire = (key: string, dir?: string) =>
+        decide(key, dir).pipe(
+          Effect.flatMap((decision) =>
+            decision.backend === "directory" ? acquireDirectory(key, dir) : acquireNative(key, dir),
+          ),
+        )
 
       const withLock: Interface["withLock"] = Function.dual(
         (args) => Effect.isEffect(args[0]),
@@ -276,7 +455,93 @@ export namespace EffectFlock {
           ),
       )
 
-      return Service.of({ acquire, withLock })
+      const diagnose = (key: string, dir?: string): Effect.Effect<LockDiagnosis> =>
+        Effect.gen(function* () {
+          const decision = yield* decide(key, dir).pipe(Effect.option)
+          if (Option.isNone(decision)) return new LockDiagnosis({ reason: "filesystem-unavailable" })
+          if (decision.value.backend !== "directory") {
+            const file = LockProtocol.file(decision.value)
+            const probed = yield* Effect.scoped(nativeLease(file)).pipe(
+              Effect.map((token) => (token ? ("free" as const) : ("busy" as const))),
+              Effect.catch(() => Effect.succeed("unavailable" as const)),
+            )
+            if (probed === "unavailable") return new LockDiagnosis({ reason: "filesystem-unavailable" })
+            if (probed === "busy") return new LockDiagnosis({ reason: "live-owner" })
+            return new LockDiagnosis({ reason: "absent" })
+          }
+          const lockKey = decision.value.key
+          const lockfile = path.join(decision.value.directory, Hash.fast(lockKey) + ".lock")
+          const exists = yield* fs.stat(lockfile).pipe(
+            Effect.as(true),
+            Effect.catchIf(isNotFound, () => Effect.succeed(false)),
+            Effect.catch(() => Effect.succeed(undefined)),
+          )
+          if (exists === undefined) return new LockDiagnosis({ reason: "filesystem-unavailable" })
+          if (!exists) return new LockDiagnosis({ reason: "absent" })
+          const breaker = yield* fs.stat(lockfile + ".breaker").pipe(
+            Effect.as(true),
+            Effect.catchIf(isNotFound, () => Effect.succeed(false)),
+            Effect.catch(() => Effect.succeed(undefined)),
+          )
+          if (breaker === undefined) return new LockDiagnosis({ reason: "filesystem-unavailable" })
+          if (breaker) return new LockDiagnosis({ reason: "breaker-held" })
+          return yield* diagnoseMeta(path.join(lockfile, "meta.json")).pipe(
+            Effect.catch((error) => Effect.succeed(error)),
+          )
+        })
+
+      // Unknown ownership stays locked. Only a confirmed absent or exited owner is free.
+      const isLocked = (key: string, dir?: string) =>
+        diagnose(key, dir).pipe(
+          Effect.map((diagnosis) => diagnosis.reason !== "absent" && diagnosis.reason !== "exited-owner"),
+          Effect.catch(() => Effect.succeed(true)),
+        )
+      // One filesystem attempt. Waiting and backoff stay in acquire. A slow disk is not BUSY.
+      const probeOnce = (key: string, dir?: string) =>
+        Effect.gen(function* () {
+          const decision = yield* decide(key, dir)
+          if (decision.backend !== "directory") {
+            const file = LockProtocol.file(decision)
+            yield* ensureDir(path.dirname(file))
+            const held = yield* nativeLease(file)
+            if (!held) return { status: "busy" } as const
+            yield* confirm(key, dir, decision)
+            return { status: "acquired" } as const
+          }
+          const lockDir = decision.directory
+          yield* ensureDir(lockDir)
+          const lockfile = path.join(lockDir, Hash.fast(decision.key) + ".lock")
+          const removed = { done: false }
+          const removeOnce = Effect.gen(function* () {
+            if (removed.done) return
+            removed.done = true
+            yield* forceRemove(lockfile)
+          })
+          const cleanup = { run: Effect.void as Effect.Effect<void> }
+          const owned = yield* Effect.uninterruptible(
+            Effect.gen(function* () {
+              yield* Effect.addFinalizer(() => cleanup.run)
+              cleanup.run = removeOnce
+              const created = yield* atomicMkdir(lockfile)
+              if (!created && !(yield* claimDirectory(lockfile).pipe(Effect.catchTag("NotAcquired", () => Effect.succeed(false))))) {
+                cleanup.run = Effect.void
+                return undefined
+              }
+              const handle = yield* publishOwnership(lockfile, key, removeOnce)
+              cleanup.run = release(handle, removeOnce)
+              return handle
+            }),
+          )
+          if (!owned) return { status: "busy" } as const
+          yield* fs
+            .utimes(owned.heartbeatPath, new Date(), new Date())
+            .pipe(Effect.ignore, Effect.repeat(Schedule.spaced(HEARTBEAT_MS)), Effect.forkScoped)
+          return { status: "acquired" } as const
+        })
+      const probe = (key: string, dir?: string) => probeOnce(key, dir)
+      const tryAcquire = (key: string, dir?: string) =>
+        probeOnce(key, dir).pipe(Effect.map((result) => result.status === "acquired"))
+      return Service.of({ acquire, withLock, diagnose, isLocked, key: identity, tryAcquire, probe })
     }),
   )
 

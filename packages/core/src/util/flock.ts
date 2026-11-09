@@ -3,11 +3,12 @@ import os from "os"
 import { randomBytes, randomUUID } from "crypto"
 import { mkdir, readFile, rm, stat, utimes, writeFile } from "fs/promises"
 import { Hash } from "./hash"
+import { LockProtocol } from "./lock-protocol"
+import { NativeFileLock } from "./native-file-lock"
+import { ResourceRoot } from "../resource-root"
 import { Effect } from "effect"
 
-export type FlockGlobal = {
-  state: string
-}
+export type FlockGlobal = LockProtocol.Context
 
 export namespace Flock {
   let global: FlockGlobal | undefined
@@ -40,6 +41,7 @@ export namespace Flock {
 
   export interface Options {
     dir?: string
+    context?: FlockGlobal
     signal?: AbortSignal
     staleMs?: number
     timeoutMs?: number
@@ -271,9 +273,57 @@ export namespace Flock {
     }
   }
 
+  async function acquireNative(
+    key: string,
+    context: LockProtocol.Context,
+    decision: LockProtocol.Decision,
+    input: Options,
+  ): Promise<Lease> {
+    const file = LockProtocol.file(decision)
+    await mkdir(path.dirname(file), { recursive: true })
+    const stop = mono() + (input.timeoutMs ?? defaultOpts.timeoutMs)
+    let attempt = 0
+    let waited = 0
+    let delay = input.baseDelayMs ?? defaultOpts.baseDelayMs
+    const maxDelay = input.maxDelayMs ?? defaultOpts.maxDelayMs
+    while (true) {
+      input.signal?.throwIfAborted()
+      LockProtocol.confirmCurrent(key, context, input.dir, decision)
+      const result = NativeFileLock.tryAcquire(file)
+      if (result.status === "acquired") {
+        let released = false
+        const release = async () => {
+          if (released) return
+          released = true
+          result.release()
+        }
+        if (input.signal?.aborted) {
+          await release()
+          input.signal.throwIfAborted()
+        }
+        return {
+          release,
+          [Symbol.asyncDispose]() {
+            return release()
+          },
+        }
+      }
+      if (mono() > stop) {
+        LockProtocol.confirmCurrent(key, context, input.dir, decision)
+        throw new Error(`Timed out waiting for lock: ${decision.key}`)
+      }
+      attempt += 1
+      const ms = jitter(delay)
+      await input.onWait?.({ key: decision.key, attempt, delay: ms, waited })
+      await sleep(ms, input.signal)
+      waited += ms
+      delay = Math.min(maxDelay, Math.floor(delay * 1.7))
+    }
+  }
+
   async function acquireLockDir(
     lockDir: string,
-    input: { key: string; onWait?: Wait; signal?: AbortSignal },
+    input: { key: string; onWait?: Wait; signal?: AbortSignal; confirm?: () => void },
     opts: Opts,
   ) {
     const stop = mono() + opts.timeoutMs
@@ -283,6 +333,7 @@ export namespace Flock {
 
     while (true) {
       input.signal?.throwIfAborted()
+      input.confirm?.()
 
       const res = await tryAcquireLockDir(lockDir, opts)
       if (res.acquired) {
@@ -290,6 +341,7 @@ export namespace Flock {
       }
 
       if (mono() > stop) {
+        input.confirm?.()
         throw new Error(`Timed out waiting for lock: ${input.key}`)
       }
 
@@ -315,21 +367,42 @@ export namespace Flock {
       baseDelayMs: input.baseDelayMs ?? defaultOpts.baseDelayMs,
       maxDelayMs: input.maxDelayMs ?? defaultOpts.maxDelayMs,
     }
-    const dir = input.dir ?? root()
+    const context = input.context ?? global ?? ResourceRoot.resolveContext()
+    const decision = LockProtocol.resolve(key, context, input.dir)
+    const lease =
+      decision.backend !== "directory"
+        ? await acquireNative(key, context, decision, input)
+        : await acquireDirectory(key, context, decision, input, cfg)
+    try {
+      LockProtocol.confirmCurrent(key, context, input.dir, decision)
+    } catch (error) {
+      await lease.release()
+      throw error
+    }
+    return lease
+  }
 
+  async function acquireDirectory(
+    key: string,
+    context: LockProtocol.Context,
+    decision: LockProtocol.Decision,
+    input: Options,
+    cfg: Opts,
+  ): Promise<Lease> {
+    const dir = decision.directory
     await mkdir(dir, { recursive: true })
-    const lockfile = path.join(dir, Hash.fast(key) + ".lock")
+    const lockfile = path.join(dir, Hash.fast(decision.key) + ".lock")
     const lock = await acquireLockDir(
       lockfile,
       {
-        key,
+        key: decision.key,
         onWait: input.onWait,
         signal: input.signal,
+        confirm: () => LockProtocol.confirmCurrent(key, context, input.dir, decision),
       },
       cfg,
     )
     lock.startHeartbeat()
-
     const release = () => lock.release()
     return {
       release,

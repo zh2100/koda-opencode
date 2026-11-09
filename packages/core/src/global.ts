@@ -1,18 +1,19 @@
 import path from "path"
 import fs from "fs/promises"
-import { xdgData, xdgCache, xdgConfig, xdgState } from "xdg-basedir"
 import os from "os"
 import { Context, Effect, Layer } from "effect"
 import { Flock } from "./util/flock"
 import { Flag } from "./flag/flag"
 import { makeGlobalNode } from "./effect/app-node"
+import { ResourceRoot } from "./resource-root"
+import { LockProtocol } from "./util/lock-protocol"
 
-const app = "opencode"
-const data = path.join(xdgData!, app)
-const cache = path.join(xdgCache!, app)
-const config = path.join(xdgConfig!, app)
-const state = path.join(xdgState!, app)
-const tmp = path.join(os.tmpdir(), app)
+const selected = ResourceRoot.select(ResourceRoot.defaultPaths(), process.env.OPENCODE_TEST_HOME ?? os.homedir())
+const data = selected.paths.data
+const cache = selected.paths.cache
+const config = selected.paths.config
+const state = selected.paths.state
+const tmp = path.join(os.tmpdir(), "opencode")
 
 const paths = {
   get home() {
@@ -29,8 +30,9 @@ const paths = {
 }
 
 export const Path = paths
+export const lockContext = selected.context
 
-Flock.setGlobal({ state })
+Flock.setGlobal(selected.context)
 
 await Promise.all([
   fs.mkdir(Path.data, { recursive: true }),
@@ -54,20 +56,41 @@ export interface Interface {
   readonly bin: string
   readonly log: string
   readonly repos: string
+  readonly lockContext: LockProtocol.Context
+}
+
+function lockContextFor(input: Partial<Interface>): LockProtocol.Context {
+  if (input.lockContext) return input.lockContext
+  const config = input.config ?? Flag.OPENCODE_CONFIG_DIR ?? Path.config
+  const overrides = Boolean(input.data || input.state || input.cache || config !== Path.config)
+  if (!overrides) return lockContext
+  const paths = {
+    data: input.data ?? Path.data,
+    config,
+    state: input.state ?? Path.state,
+    cache: input.cache ?? Path.cache,
+  }
+  if (input.home) return ResourceRoot.select(paths, input.home).context
+  if (lockContext.registration) {
+    throw new Error("resource root override does not match the adopted registration")
+  }
+  return LockProtocol.unregistered(paths)
 }
 
 export function make(input: Partial<Interface> = {}): Interface {
+  const context = lockContextFor(input)
   return {
-    home: Path.home,
-    data: Path.data,
-    cache: Path.cache,
-    config: Flag.OPENCODE_CONFIG_DIR ?? Path.config,
-    state: Path.state,
-    tmp: Path.tmp,
-    bin: Path.bin,
-    log: Path.log,
-    repos: Path.repos,
     ...input,
+    home: input.home ?? Path.home,
+    tmp: input.tmp ?? Path.tmp,
+    bin: input.bin ?? path.join(context.cache, "bin"),
+    log: input.log ?? path.join(context.data, "log"),
+    repos: input.repos ?? path.join(context.data, "repos"),
+    data: context.data,
+    cache: context.cache,
+    config: context.config,
+    state: context.state,
+    lockContext: context,
   }
 }
 
