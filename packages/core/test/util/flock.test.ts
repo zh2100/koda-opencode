@@ -215,7 +215,7 @@ describe("util.flock", () => {
     expect(hit).toBe(true)
   }, 20_000)
 
-  test("breaks stale lock dirs when heartbeat is missing", async () => {
+  test("preserves unknown ownership when heartbeat is missing", async () => {
     await using tmp = await tmpdir()
     const dir = path.join(tmp.path, "locks")
     const key = "flock:missing-heartbeat"
@@ -226,22 +226,25 @@ describe("util.flock", () => {
     await fs.utimes(lockDir, old, old)
 
     let hit = false
-    await Flock.withLock(
-      key,
-      async () => {
-        hit = true
-      },
-      {
-        dir,
-        staleMs: 200,
-        timeoutMs: 3_000,
-      },
-    )
+    await expect(
+      Flock.withLock(
+        key,
+        async () => {
+          hit = true
+        },
+        {
+          dir,
+          staleMs: 200,
+          timeoutMs: 100,
+        },
+      ),
+    ).rejects.toThrow("Timed out waiting for lock")
 
-    expect(hit).toBe(true)
+    expect(hit).toBe(false)
+    expect(await exists(lockDir)).toBe(true)
   })
 
-  test("recovers when a stale breaker claim was left behind", async () => {
+  test("preserves a breaker claim regardless of its age", async () => {
     await using tmp = await tmpdir()
     const dir = path.join(tmp.path, "locks")
     const key = "flock:stale-breaker"
@@ -250,26 +253,39 @@ describe("util.flock", () => {
 
     await fs.mkdir(lockDir, { recursive: true })
     await fs.mkdir(breaker)
+    const exited = Bun.spawn([process.execPath, "-e", ""], { stdout: "ignore", stderr: "ignore" })
+    await exited.exited
+    await fs.writeFile(
+      path.join(lockDir, "meta.json"),
+      JSON.stringify({
+        token: "exited-owner",
+        pid: exited.pid,
+        hostname: os.hostname(),
+        createdAt: new Date().toISOString(),
+      }),
+    )
 
     const old = new Date(Date.now() - 2_000)
     await fs.utimes(lockDir, old, old)
     await fs.utimes(breaker, old, old)
 
     let hit = false
-    await Flock.withLock(
-      key,
-      async () => {
-        hit = true
-      },
-      {
-        dir,
-        staleMs: 200,
-        timeoutMs: 3_000,
-      },
-    )
+    await expect(
+      Flock.withLock(
+        key,
+        async () => {
+          hit = true
+        },
+        {
+          dir,
+          staleMs: 200,
+          timeoutMs: 100,
+        },
+      ),
+    ).rejects.toThrow("Timed out waiting for lock")
 
-    expect(hit).toBe(true)
-    expect(await exists(breaker)).toBe(false)
+    expect(hit).toBe(false)
+    expect(await exists(breaker)).toBe(true)
   })
 
   test("fails clearly if lock dir is removed while held", async () => {
@@ -359,7 +375,7 @@ describe("util.flock", () => {
     expect(await exists(lockDir)).toBe(false)
   })
 
-  test("refuses token mismatch release and recovers from stale", async () => {
+  test("refuses token mismatch release and preserves the live owner", async () => {
     await using tmp = await tmpdir()
     const dir = path.join(tmp.path, "locks")
     const key = "flock:token"
@@ -386,18 +402,21 @@ describe("util.flock", () => {
     expect(await exists(lockDir)).toBe(true)
 
     let hit = false
-    await Flock.withLock(
-      key,
-      async () => {
-        hit = true
-      },
-      {
-        dir,
-        staleMs: 500,
-        timeoutMs: 6_000,
-      },
-    )
-    expect(hit).toBe(true)
+    await expect(
+      Flock.withLock(
+        key,
+        async () => {
+          hit = true
+        },
+        {
+          dir,
+          staleMs: 500,
+          timeoutMs: 100,
+        },
+      ),
+    ).rejects.toThrow("Timed out waiting for lock")
+    expect(hit).toBe(false)
+    expect((await readJson<{ token: string }>(meta)).token).toBe("tampered")
   })
 
   test("fails clearly on unwritable lock roots", async () => {

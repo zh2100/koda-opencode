@@ -34,8 +34,13 @@ export type Entry = Schema.Schema.Type<typeof Entry>
 const decodeAuthData = Schema.decodeUnknownOption(Schema.Record(Schema.String, Entry))
 type AuthData = Record<string, Entry>
 
-const filepath = path.join(Global.Path.data, "mcp-auth.json")
-const lockKey = `mcp-auth:${filepath}`
+function filepath(data: string) {
+  return path.join(data, "mcp-auth.json")
+}
+
+function lockKey(data: string) {
+  return `mcp-auth:${filepath(data)}`
+}
 
 export interface Interface {
   readonly all: () => Effect.Effect<Record<string, Entry>>
@@ -61,24 +66,27 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
     const flock = yield* EffectFlock.Service
+    const global = yield* Global.Service
+    const file = () => filepath(global.data)
+    const key = () => lockKey(global.data)
 
     const read = Effect.fn("McpAuth.read")(function* () {
-      return yield* fs.readJson(filepath).pipe(
+      return yield* fs.readJson(file()).pipe(
         Effect.map((data): AuthData => Option.getOrElse(decodeAuthData(data), () => ({}) as AuthData) as AuthData),
         Effect.catch(() => Effect.succeed({} as AuthData)),
       )
     })
 
     const all = Effect.fn("McpAuth.all")(function* () {
-      return yield* read().pipe(flock.withLock(lockKey), Effect.orDie)
+      return yield* read().pipe(flock.withLock(key()), Effect.orDie)
     })
 
     const mutate = Effect.fn("McpAuth.mutate")(function* (update: (data: AuthData) => AuthData | undefined) {
       yield* Effect.gen(function* () {
         const next = update(yield* read())
         if (!next) return
-        yield* fs.writeJson(filepath, next, 0o600).pipe(Effect.orDie)
-      }).pipe(flock.withLock(lockKey), Effect.orDie)
+        yield* fs.writeJson(file(), next, 0o600).pipe(Effect.orDie)
+      }).pipe(flock.withLock(key()), Effect.orDie)
     })
 
     const get = Effect.fn("McpAuth.get")(function* (mcpName: string) {
@@ -158,6 +166,6 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = LayerNode.make({ service: Service, layer: layer, deps: [FSUtil.node, EffectFlock.node] })
+export const node = LayerNode.make({ service: Service, layer: layer, deps: [FSUtil.node, Global.node, EffectFlock.node] })
 
 export * as McpAuth from "./auth"

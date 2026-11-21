@@ -62,6 +62,9 @@ export namespace ProviderTest {
             if (providerID === row.id && modelID === mdl.id) return Effect.succeed(mdl)
             return Effect.die(new Error(`Unknown test model: ${providerID}/${modelID}`))
           }),
+          getImageTarget: Effect.fn("TestProvider.getImageTarget")(() =>
+            Effect.die(new Error("ProviderTest.getImageTarget not configured")),
+          ),
           getLanguage: Effect.fn("TestProvider.getLanguage")(() =>
             Effect.die(new Error("ProviderTest.getLanguage not configured")),
           ),

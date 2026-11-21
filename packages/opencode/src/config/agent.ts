@@ -8,15 +8,14 @@ import { configEntryNameFromPath } from "./entry-name"
 import * as ConfigMarkdown from "./markdown"
 import { ConfigParse } from "./parse"
 
-export async function load(dir: string) {
+export async function paths(dir: string, mode = false) {
+  return Glob.scan(mode ? "{mode,modes}/*.md" : "{agent,agents}/**/*.md", { cwd: dir, absolute: true, dot: true, symlink: true })
+}
+
+export async function load(dir: string, readText?: (file: string) => Promise<string>) {
   const result: Record<string, ConfigAgentV1.Info> = {}
-  for (const item of await Glob.scan("{agent,agents}/**/*.md", {
-    cwd: dir,
-    absolute: true,
-    dot: true,
-    symlink: true,
-  })) {
-    const md = await ConfigMarkdown.parse(item).catch(() => undefined)
+  for (const item of await paths(dir)) {
+    const md = await ConfigMarkdown.parse(item, readText).catch(() => undefined)
     if (!md) continue
 
     const name = configEntryNameFromPath(path.relative(dir, item), ["agent/", "agents/"])
@@ -31,15 +30,10 @@ export async function load(dir: string) {
   return result
 }
 
-export async function loadMode(dir: string) {
+export async function loadMode(dir: string, readText?: (file: string) => Promise<string>) {
   const result: Record<string, ConfigAgentV1.Info> = {}
-  for (const item of await Glob.scan("{mode,modes}/*.md", {
-    cwd: dir,
-    absolute: true,
-    dot: true,
-    symlink: true,
-  })) {
-    const md = await ConfigMarkdown.parse(item).catch(() => undefined)
+  for (const item of await paths(dir, true)) {
+    const md = await ConfigMarkdown.parse(item, readText).catch(() => undefined)
     if (!md) continue
 
     const config = {

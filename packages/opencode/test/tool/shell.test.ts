@@ -22,7 +22,11 @@ import { Tool } from "@/tool/tool"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceStore } from "@/project/instance-store"
 
-const shellLayer = Layer.mergeAll(
+import { Npm } from "@opencode-ai/core/npm"
+import { NpmTest } from "../fake/npm"
+
+const shellLayer = Layer.provideMerge(
+  testInstanceStoreLayer,
   LayerNode.compile(
     LayerNode.group([
       CrossSpawnSpawner.node,
@@ -33,8 +37,8 @@ const shellLayer = Layer.mergeAll(
       Agent.node,
       RuntimeFlags.node,
     ]),
+    [[Npm.node, NpmTest.noop]],
   ),
-  testInstanceStoreLayer,
 )
 const it = testEffect(shellLayer)
 type ShellTestServices =
@@ -1017,7 +1021,7 @@ describe("tool.shell abort", () => {
           const collected: string[] = []
           const res = yield* run(
             {
-              command: `echo before && sleep 30`,
+              command: PS.has(sh()) ? "Write-Output before; Start-Sleep -Seconds 30" : "echo before && sleep 30",
             },
             {
               ...ctx,

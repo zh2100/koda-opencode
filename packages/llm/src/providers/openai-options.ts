@@ -7,6 +7,7 @@ export type { OpenAIResponseIncludable, OpenAIServiceTier } from "../protocols/u
 export interface OpenAIOptionsInput {
   readonly [key: string]: unknown
   readonly store?: boolean
+  readonly imageGeneration?: boolean
   readonly promptCacheKey?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly reasoningSummary?: "auto"

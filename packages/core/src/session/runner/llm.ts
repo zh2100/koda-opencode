@@ -1,3 +1,5 @@
+import { ToolErrorProjection } from "@opencode-ai/llm"
+import { sessionPermissions } from "../../session-policy"
 import {
   LLM,
   LLMClient,
@@ -35,9 +37,10 @@ import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
 import { SessionRunnerModel } from "./model"
 import { createLLMEventPublisher } from "./publish-llm-event"
-import { toLLMMessages } from "./to-llm-message"
+import { normalizeDocumentAttachments, toLLMMessages } from "./to-llm-message"
 import { MAX_STEPS_PROMPT } from "./max-steps"
 import { Snapshot } from "../../snapshot"
+import { FSUtil } from "../../fs-util"
 import { makeLocationNode } from "../../effect/app-node"
 import { llmClient } from "../../effect/app-node-platform"
 
@@ -106,6 +109,7 @@ const layer = Layer.effect(
     const referenceGuidance = yield* ReferenceGuidance.Service
     const config = yield* Config.Service
     const snapshots = yield* Snapshot.Service
+    const fs = yield* FSUtil.Service
     const db = (yield* Database.Service).db
     const compaction = SessionCompaction.make({ events, llm, config: yield* config.entries() })
     const getSession = Effect.fn("SessionRunner.getSession")(function* (sessionID: SessionSchema.ID) {
@@ -124,15 +128,22 @@ const layer = Layer.effect(
         if (message.type !== "assistant") continue
         for (const tool of message.content) {
           if (tool.type !== "tool" || (tool.state.status !== "pending" && tool.state.status !== "running")) continue
+          const projected = ToolErrorProjection.project({
+            id: tool.id,
+            name: tool.name,
+            executed: tool.provider?.executed === true,
+            callMetadata: tool.provider?.metadata,
+          })
           yield* events.publish(SessionEvent.Tool.Failed, {
             sessionID,
             timestamp: yield* DateTime.now,
             assistantMessageID: message.id,
             callID: tool.id,
             error: { type: "unknown", message: "Tool execution interrupted" },
+            result: projected.result,
             provider: {
               executed: tool.provider?.executed === true,
-              ...(tool.provider?.metadata === undefined ? {} : { metadata: tool.provider.metadata }),
+              ...(projected.metadata === undefined ? {} : { metadata: projected.metadata }),
             },
           })
         }
@@ -162,38 +173,50 @@ const layer = Layer.effect(
       }
     }
 
+    // A transition is internal control flow only when it is the entire cause.
+    // Catching the first defect alone would discard an accompanying interrupt or cleanup failure.
+    const turnTransition = (cause: Cause.Cause<unknown>) => {
+      const reason = cause.reasons[0]
+      return cause.reasons.length === 1 &&
+        reason &&
+        Cause.isDieReason(reason) &&
+        reason.defect instanceof TurnTransitionError
+        ? reason.defect.transition
+        : undefined
+    }
+
     const continueAfterCompaction = (step: number) => new TurnTransitionError({ _tag: "ContinueAfterCompaction", step })
     const continueAfterOverflowCompaction = (step: number) =>
       new TurnTransitionError({ _tag: "ContinueAfterOverflowCompaction", step })
 
     const languageInstruction = (messages: readonly SessionMessage.Message[]) => {
-  const text = [...messages].reverse().find((message) => message.type === "user" && message.text.trim())
-  if (!text || text.type !== "user") {
-    return "Reply in the same natural language as the user's latest message. Do not change languages unless the user asks you to."
-  }
-  const value = text.text
-  if (/\p{Script=Han}/u.test(value)) {
-    return "Reply entirely in the same Chinese variety used by the user, preserving code, identifiers, paths, and quoted text exactly. Do not switch to another language unless the user asks you to."
-  }
-  if (/\p{Script=Hiragana}|\p{Script=Katakana}/u.test(value)) {
-    return "Reply entirely in Japanese, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
-  }
-  if (/\p{Script=Hangul}/u.test(value)) {
-    return "Reply entirely in Korean, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
-  }
-  if (/\p{Script=Cyrillic}/u.test(value)) {
-    return "Reply entirely in the same Cyrillic-based language used by the user, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
-  }
-  if (/\p{Script=Arabic}/u.test(value)) {
-    return "Reply entirely in the same Arabic-script language used by the user, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
-  }
-  if (/\p{Script=Hebrew}/u.test(value)) {
-    return "Reply entirely in Hebrew, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
-  }
-  return "Reply entirely in the same language as the user's latest message, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
-}
+      const text = [...messages].reverse().find((message) => message.type === "user" && message.text.trim())
+      if (!text || text.type !== "user") {
+        return "Reply in the same natural language as the user's latest message. Do not change languages unless the user asks you to."
+      }
+      const value = text.text
+      if (/\p{Script=Han}/u.test(value)) {
+        return "Reply entirely in the same Chinese variety used by the user, preserving code, identifiers, paths, and quoted text exactly. Do not switch to another language unless the user asks you to."
+      }
+      if (/\p{Script=Hiragana}|\p{Script=Katakana}/u.test(value)) {
+        return "Reply entirely in Japanese, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+      }
+      if (/\p{Script=Hangul}/u.test(value)) {
+        return "Reply entirely in Korean, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+      }
+      if (/\p{Script=Cyrillic}/u.test(value)) {
+        return "Reply entirely in the same Cyrillic-based language used by the user, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+      }
+      if (/\p{Script=Arabic}/u.test(value)) {
+        return "Reply entirely in the same Arabic-script language used by the user, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+      }
+      if (/\p{Script=Hebrew}/u.test(value)) {
+        return "Reply entirely in Hebrew, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+      }
+      return "Reply entirely in the same language as the user's latest message, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+    }
 
-const loadSystemContext = (agent: AgentV2.Selection) =>
+    const loadSystemContext = (agent: AgentV2.Selection) =>
       Effect.all([systemContext.load(), skillGuidance.load(agent), referenceGuidance.load()], {
         concurrency: "unbounded",
       }).pipe(Effect.map(SystemContext.combine))
@@ -227,8 +250,13 @@ const loadSystemContext = (agent: AgentV2.Selection) =>
       const model = yield* models.resolve(session)
       const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
       const context = entries.map((entry) => entry.message)
+      const normalizedContext = yield* normalizeDocumentAttachments(context, (filepath) =>
+        fs.readFile(filepath).pipe(Effect.catch(() => Effect.succeed(undefined))),
+      )
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
-      const toolMaterialization = isLastStep ? undefined : yield* tools.materialize(agent.info?.permissions)
+      const toolMaterialization = isLastStep
+        ? undefined
+        : yield* tools.materialize(sessionPermissions(session.approvalMode, agent.info?.permissions ?? []))
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
       const request = LLM.request({
         model,
@@ -239,11 +267,14 @@ const loadSystemContext = (agent: AgentV2.Selection) =>
             ...(session.parentID ? { "x-parent-session-id": session.parentID } : {}),
           },
         },
-        providerOptions: { openai: { promptCacheKey } },
+        providerOptions: { openai: { promptCacheKey, imageGeneration: false } },
         system: [agent.info?.system, system.baseline, languageInstruction(context)]
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
-        messages: [...toLLMMessages(context, model), ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],
+        messages: [
+          ...toLLMMessages(normalizedContext, model),
+          ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : []),
+        ],
         tools: toolMaterialization?.definitions ?? [],
         toolChoice: isLastStep ? "none" : undefined,
       })
@@ -325,7 +356,7 @@ const loadSystemContext = (agent: AgentV2.Selection) =>
           const llmFailure = failure instanceof LLMError ? failure : undefined
           if (llmFailure && !publisher.hasProviderError()) {
             yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
-            yield* withPublication(publisher.failAssistant(llmFailure.reason.message))
+            yield* withPublication(publisher.failAssistant(ToolErrorProjection.assistant(llmFailure)))
           }
           if (stream._tag === "Failure" && Cause.hasInterrupts(stream.cause)) yield* FiberSet.clear(toolFibers)
           const settled = yield* restore(awaitToolFibers(toolFibers)).pipe(Effect.exit)
@@ -344,9 +375,7 @@ const loadSystemContext = (agent: AgentV2.Selection) =>
               yield* withPublication(publisher.failAssistant("Provider turn interrupted"))
           }
           if (settled._tag === "Failure" && !Cause.hasInterrupts(settled.cause)) {
-            const failure = Cause.squash(settled.cause)
-            const message = failure instanceof Error ? failure.message : String(failure)
-            yield* withPublication(publisher.failUnsettledTools(`Tool execution failed: ${message}`))
+            yield* withPublication(publisher.failUnsettledTools(ToolErrorProjection.toolMessage))
           }
           const stepSettlement = publisher.stepSettlement()
           if (stepSettlement && !publisher.hasProviderError()) {
@@ -389,13 +418,14 @@ const loadSystemContext = (agent: AgentV2.Selection) =>
 
     const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step) {
       return yield* runTurnAttempt(sessionID, promotion, step).pipe(
-        Effect.catchDefect(
-          Effect.fnUntraced(function* (defect) {
-            if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
-            if (defect.transition._tag === "ContinueAfterOverflowCompaction")
+        Effect.catchCause(
+          Effect.fnUntraced(function* (cause) {
+            const transition = turnTransition(cause)
+            if (!transition) return yield* Effect.failCause(cause)
+            if (transition._tag === "ContinueAfterOverflowCompaction")
               return yield* Effect.die("Post-compaction provider attempt cannot recover another overflow")
             yield* Effect.yieldNow
-            return yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step)
+            return yield* runAfterOverflowCompaction(sessionID, undefined, transition.step)
           }),
         ),
       )
@@ -403,13 +433,14 @@ const loadSystemContext = (agent: AgentV2.Selection) =>
 
     const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step) {
       return yield* runTurnAttempt(sessionID, promotion, step, compaction.compactAfterOverflow).pipe(
-        Effect.catchDefect(
-          Effect.fnUntraced(function* (defect) {
-            if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
+        Effect.catchCause(
+          Effect.fnUntraced(function* (cause) {
+            const transition = turnTransition(cause)
+            if (!transition) return yield* Effect.failCause(cause)
             yield* Effect.yieldNow
-            if (defect.transition._tag === "ContinueAfterOverflowCompaction")
-              return yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step)
-            return yield* runTurn(sessionID, undefined, defect.transition.step)
+            if (transition._tag === "ContinueAfterOverflowCompaction")
+              return yield* runAfterOverflowCompaction(sessionID, undefined, transition.step)
+            return yield* runTurn(sessionID, undefined, transition.step)
           }),
         ),
       )
@@ -462,6 +493,7 @@ export const node = makeLocationNode({
     ReferenceGuidance.node,
     Config.node,
     Snapshot.node,
+    FSUtil.node,
     Database.node,
   ],
 })

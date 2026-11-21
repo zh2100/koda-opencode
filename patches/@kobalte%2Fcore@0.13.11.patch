@@ -1,0 +1,151 @@
+diff --git a/dist/chunk/7A3GDF4Y.jsx b/dist/chunk/7A3GDF4Y.jsx
+index 6c563579b23688444d9e8a894f59addf6a993543..b314b9b4466b83a86dc3049f6cc2f4d4b89a0e3d 100644
+--- a/dist/chunk/7A3GDF4Y.jsx
++++ b/dist/chunk/7A3GDF4Y.jsx
+@@ -154,25 +154,41 @@ function createFocusScope(props, ref) {
+     if (!container || !access(props.trapFocus) || isPaused()) {
+       return;
+     }
++    // Autofocus may precede these listeners; seed the recovery target on activation.
++    const isValidFocusTarget = (element) =>
++      !!element && element.isConnected && contains(container, element) &&
++      !element.hasAttribute("data-focus-trap") && isFocusable(element);
++    const activeElement = getActiveElement(container);
++    if (isValidFocusTarget(activeElement)) lastFocusedElement = activeElement;
++    const restoreFocus = () => {
++      const current = getActiveElement(container);
++      const target = isValidFocusTarget(lastFocusedElement) ? lastFocusedElement
++        : isValidFocusTarget(current) ? current : firstTabbable() ?? container;
++      lastFocusedElement = target;
++      if (current !== target) focusWithoutScrolling(target);
++    };
++
+     const onFocusIn = (event) => {
++      if (isPaused() || !access(props.trapFocus)) return;
+       const target = event.target;
+       if (target?.closest(`[${DATA_TOP_LAYER_ATTR}]`)) {
+         return;
+       }
+       if (contains(container, target)) {
+-        lastFocusedElement = target;
++        if (isValidFocusTarget(target)) lastFocusedElement = target;
+       } else {
+-        focusWithoutScrolling(lastFocusedElement);
++        restoreFocus();
+       }
+     };
+     const onFocusOut = (event) => {
++      if (isPaused() || !access(props.trapFocus)) return;
+       const relatedTarget = event.relatedTarget;
+       const target = relatedTarget ?? getActiveElement(container);
+       if (target?.closest(`[${DATA_TOP_LAYER_ATTR}]`)) {
+         return;
+       }
+       if (!contains(container, target)) {
+-        focusWithoutScrolling(lastFocusedElement);
++        restoreFocus();
+       }
+     };
+     ownerDocument().addEventListener("focusin", onFocusIn);
+diff --git a/dist/chunk/ISKHZMHS.js b/dist/chunk/ISKHZMHS.js
+index 4419a5c911a6199d51791c01219808726bf15d0a..5a76462aa05d5061ed126cb2fe14b31f5987bbce 100644
+--- a/dist/chunk/ISKHZMHS.js
++++ b/dist/chunk/ISKHZMHS.js
+@@ -126,25 +126,41 @@ function createFocusScope(props, ref) {
+     if (!container || !access(props.trapFocus) || isPaused()) {
+       return;
+     }
++    // Autofocus may precede these listeners; seed the recovery target on activation.
++    const isValidFocusTarget = (element) =>
++      !!element && element.isConnected && contains(container, element) &&
++      !element.hasAttribute("data-focus-trap") && isFocusable(element);
++    const activeElement = getActiveElement(container);
++    if (isValidFocusTarget(activeElement)) lastFocusedElement = activeElement;
++    const restoreFocus = () => {
++      const current = getActiveElement(container);
++      const target = isValidFocusTarget(lastFocusedElement) ? lastFocusedElement
++        : isValidFocusTarget(current) ? current : firstTabbable() ?? container;
++      lastFocusedElement = target;
++      if (current !== target) focusWithoutScrolling(target);
++    };
++
+     const onFocusIn = (event) => {
++      if (isPaused() || !access(props.trapFocus)) return;
+       const target = event.target;
+       if (target?.closest(`[${DATA_TOP_LAYER_ATTR}]`)) {
+         return;
+       }
+       if (contains(container, target)) {
+-        lastFocusedElement = target;
++        if (isValidFocusTarget(target)) lastFocusedElement = target;
+       } else {
+-        focusWithoutScrolling(lastFocusedElement);
++        restoreFocus();
+       }
+     };
+     const onFocusOut = (event) => {
++      if (isPaused() || !access(props.trapFocus)) return;
+       const relatedTarget = event.relatedTarget;
+       const target = relatedTarget ?? getActiveElement(container);
+       if (target?.closest(`[${DATA_TOP_LAYER_ATTR}]`)) {
+         return;
+       }
+       if (!contains(container, target)) {
+-        focusWithoutScrolling(lastFocusedElement);
++        restoreFocus();
+       }
+     };
+     ownerDocument().addEventListener("focusin", onFocusIn);
+diff --git a/src/primitives/create-focus-scope/create-focus-scope.tsx b/src/primitives/create-focus-scope/create-focus-scope.tsx
+index eea9ca8fcbe53aeffa2ad521891fbc6893c4a355..ed512c6349489c22494b48e5f697eb2feee51416 100644
+--- a/src/primitives/create-focus-scope/create-focus-scope.tsx
++++ b/src/primitives/create-focus-scope/create-focus-scope.tsx
+@@ -271,7 +271,22 @@ export function createFocusScope<T extends HTMLElement>(
+ 			return;
+ 		}
+
++		// Autofocus may precede these listeners; seed the recovery target on activation.
++		const isValidFocusTarget = (element: HTMLElement | null): element is HTMLElement =>
++		  !!element && element.isConnected && contains(container, element) &&
++		  !element.hasAttribute("data-focus-trap") && isFocusable(element);
++		const activeElement = getActiveElement(container) as HTMLElement | null;
++		if (isValidFocusTarget(activeElement)) lastFocusedElement = activeElement;
++		const restoreFocus = () => {
++		  const current = getActiveElement(container) as HTMLElement | null;
++		  const target = isValidFocusTarget(lastFocusedElement) ? lastFocusedElement
++		    : isValidFocusTarget(current) ? current : firstTabbable() ?? container;
++		  lastFocusedElement = target;
++		  if (current !== target) focusWithoutScrolling(target);
++		};
++
+ 		const onFocusIn = (event: FocusEvent) => {
++			if (isPaused() || !access(props.trapFocus)) return;
+ 			const target = event.target as HTMLElement | null;
+
+ 			// If the element is within a top layer element (e.g. toasts), always allow moving focus there.
+@@ -280,13 +295,14 @@ export function createFocusScope<T extends HTMLElement>(
+ 			}
+
+ 			if (contains(container, target)) {
+-				lastFocusedElement = target;
++				if (isValidFocusTarget(target)) lastFocusedElement = target;
+ 			} else {
+-				focusWithoutScrolling(lastFocusedElement);
++				restoreFocus();
+ 			}
+ 		};
+
+ 		const onFocusOut = (event: FocusEvent) => {
++			if (isPaused() || !access(props.trapFocus)) return;
+ 			const relatedTarget = event.relatedTarget as HTMLElement | null;
+ 			const target = relatedTarget ?? getActiveElement(container);
+
+@@ -296,7 +312,7 @@ export function createFocusScope<T extends HTMLElement>(
+ 			}
+
+ 			if (!contains(container, target)) {
+-				focusWithoutScrolling(lastFocusedElement);
++				restoreFocus();
+ 			}
+ 		};
+

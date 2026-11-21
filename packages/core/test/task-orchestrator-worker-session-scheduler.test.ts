@@ -18,14 +18,16 @@ describe("TaskOrchestratorWorkerSessionScheduler", () => {
         }),
       resume: (id) => Effect.sync(() => resumed.push(id)),
     })
-    const transition: TaskOrchestratorWorkerScheduler.Interface<never, never> extends never ? never : {
-      readonly action: "revise"
-      readonly stepStatus: "needs_revision"
-      readonly taskStatus: "pending"
-      readonly runStatus: "needs_revision"
-      readonly retryCount: number
-      readonly workerPrompt: string
-    } = {
+    const transition: TaskOrchestratorWorkerScheduler.Interface<never, never> extends never
+      ? never
+      : {
+          readonly action: "revise"
+          readonly stepStatus: "needs_revision"
+          readonly taskStatus: "pending"
+          readonly runStatus: "needs_revision"
+          readonly retryCount: number
+          readonly workerPrompt: string
+        } = {
       action: "revise",
       stepStatus: "needs_revision",
       taskStatus: "pending",

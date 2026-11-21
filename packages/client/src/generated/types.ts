@@ -82,6 +82,22 @@ export type ScheduledTaskNotFoundError = {
 export const isScheduledTaskNotFoundError = (value: unknown): value is ScheduledTaskNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ScheduledTaskNotFoundError"
 
+export type ScheduledTaskDisabledError = {
+  readonly _tag: "ScheduledTaskDisabledError"
+  readonly taskID: string
+  readonly message: string
+}
+export const isScheduledTaskDisabledError = (value: unknown): value is ScheduledTaskDisabledError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ScheduledTaskDisabledError"
+
+export type ScheduledTaskConflictError = {
+  readonly _tag: "ScheduledTaskConflictError"
+  readonly taskID: string
+  readonly message: string
+}
+export const isScheduledTaskConflictError = (value: unknown): value is ScheduledTaskConflictError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ScheduledTaskConflictError"
+
 export type PermissionNotFoundError = {
   readonly _tag: "PermissionNotFoundError"
   readonly requestID: string
@@ -263,6 +279,7 @@ export type SessionsListOutput = {
     readonly id: string
     readonly parentID?: string
     readonly projectID: string
+    readonly approvalMode?: "ask" | "auto" | "plan"
     readonly agent?: string
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
     readonly cost: number
@@ -325,6 +342,7 @@ export type SessionsCreateOutput = {
     readonly id: string
     readonly parentID?: string
     readonly projectID: string
+    readonly approvalMode?: "ask" | "auto" | "plan"
     readonly agent?: string
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
     readonly cost: number
@@ -363,6 +381,7 @@ export type SessionsGetOutput = {
     readonly id: string
     readonly parentID?: string
     readonly projectID: string
+    readonly approvalMode?: "ask" | "auto" | "plan"
     readonly agent?: string
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
     readonly cost: number
@@ -406,6 +425,7 @@ export type SessionsUpdateOutput = {
     readonly id: string
     readonly parentID?: string
     readonly projectID: string
+    readonly approvalMode?: "ask" | "auto" | "plan"
     readonly agent?: string
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
     readonly cost: number
@@ -2375,10 +2395,9 @@ export type ServerRelayGetInput = {
 }
 
 export type ServerRelayGetOutput = {
-  readonly unified: boolean
-  readonly hasUnifiedKey: boolean
   readonly vendors: ReadonlyArray<{
     readonly id: string
+    readonly entityId?: string
     readonly name: string
     readonly baseURL?: string
     readonly builtin: boolean
@@ -2387,105 +2406,15 @@ export type ServerRelayGetOutput = {
     readonly revision: number
   }>
   readonly revision: number
-  readonly canRollback: boolean
-}
-
-export type ServerRelayModeInput = {
-  readonly location?: {
-    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
-  }["location"]
-  readonly unified: {
-    readonly unified: boolean
-    readonly revision: number
-    readonly operationId?: string | undefined
-  }["unified"]
-  readonly revision: {
-    readonly unified: boolean
-    readonly revision: number
-    readonly operationId?: string | undefined
-  }["revision"]
-  readonly operationId?: {
-    readonly unified: boolean
-    readonly revision: number
-    readonly operationId?: string | undefined
-  }["operationId"]
-}
-
-export type ServerRelayModeOutput = {
-  readonly unified: boolean
-  readonly hasUnifiedKey: boolean
-  readonly vendors: ReadonlyArray<{
-    readonly id: string
-    readonly name: string
-    readonly baseURL?: string
-    readonly builtin: boolean
-    readonly hasKey: boolean
-    readonly updatedAt: number
-    readonly revision: number
-  }>
-  readonly revision: number
-  readonly canRollback: boolean
-}
-
-export type ServerRelayUnifiedInput = {
-  readonly location?: {
-    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
-  }["location"]
-  readonly key?: {
-    readonly key?: string | undefined
-    readonly revision: number
-    readonly operationId?: string | undefined
-  }["key"]
-  readonly revision: {
-    readonly key?: string | undefined
-    readonly revision: number
-    readonly operationId?: string | undefined
-  }["revision"]
-  readonly operationId?: {
-    readonly key?: string | undefined
-    readonly revision: number
-    readonly operationId?: string | undefined
-  }["operationId"]
-}
-
-export type ServerRelayUnifiedOutput = {
-  readonly unified: boolean
-  readonly hasUnifiedKey: boolean
-  readonly vendors: ReadonlyArray<{
-    readonly id: string
-    readonly name: string
-    readonly baseURL?: string
-    readonly builtin: boolean
-    readonly hasKey: boolean
-    readonly updatedAt: number
-    readonly revision: number
-  }>
-  readonly revision: number
-  readonly canRollback: boolean
-}
-
-export type ServerRelayClearInput = {
-  readonly location?: {
-    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
-  }["location"]
-  readonly revision: { readonly revision: number; readonly operationId?: string | undefined }["revision"]
-  readonly operationId?: { readonly revision: number; readonly operationId?: string | undefined }["operationId"]
-}
-
-export type ServerRelayClearOutput = {
-  readonly unified: boolean
-  readonly hasUnifiedKey: boolean
-  readonly vendors: ReadonlyArray<{
-    readonly id: string
-    readonly name: string
-    readonly baseURL?: string
-    readonly builtin: boolean
-    readonly hasKey: boolean
-    readonly updatedAt: number
-    readonly revision: number
-  }>
-  readonly revision: number
-  readonly canRollback: boolean
+  readonly capabilities?: ReadonlyArray<string>
+  readonly operationReceipt?: {
+    readonly operationId: string
+    readonly kind: "vendor-create"
+    readonly vendorId: string
+    readonly entityId: string
+    readonly committedRevision: number
+  }
+  readonly catalogSync?: { readonly status: "synced" | "pending"; readonly retryable: boolean }
 }
 
 export type ServerRelayVendorInput = {
@@ -2493,48 +2422,75 @@ export type ServerRelayVendorInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
-  readonly name?: {
+  readonly createOnly?: {
+    readonly createOnly?: boolean | undefined
     readonly name?: string | undefined
     readonly baseURL?: string | undefined
     readonly key?: string | undefined
     readonly revision: number
     readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
+  }["createOnly"]
+  readonly name?: {
+    readonly createOnly?: boolean | undefined
+    readonly name?: string | undefined
+    readonly baseURL?: string | undefined
+    readonly key?: string | undefined
+    readonly revision: number
+    readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
   }["name"]
   readonly baseURL?: {
+    readonly createOnly?: boolean | undefined
     readonly name?: string | undefined
     readonly baseURL?: string | undefined
     readonly key?: string | undefined
     readonly revision: number
     readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
   }["baseURL"]
   readonly key?: {
+    readonly createOnly?: boolean | undefined
     readonly name?: string | undefined
     readonly baseURL?: string | undefined
     readonly key?: string | undefined
     readonly revision: number
     readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
   }["key"]
   readonly revision: {
+    readonly createOnly?: boolean | undefined
     readonly name?: string | undefined
     readonly baseURL?: string | undefined
     readonly key?: string | undefined
     readonly revision: number
     readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
   }["revision"]
   readonly operationId?: {
+    readonly createOnly?: boolean | undefined
     readonly name?: string | undefined
     readonly baseURL?: string | undefined
     readonly key?: string | undefined
     readonly revision: number
     readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
   }["operationId"]
+  readonly expectedEntityId?: {
+    readonly createOnly?: boolean | undefined
+    readonly name?: string | undefined
+    readonly baseURL?: string | undefined
+    readonly key?: string | undefined
+    readonly revision: number
+    readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
+  }["expectedEntityId"]
 }
 
 export type ServerRelayVendorOutput = {
-  readonly unified: boolean
-  readonly hasUnifiedKey: boolean
   readonly vendors: ReadonlyArray<{
     readonly id: string
+    readonly entityId?: string
     readonly name: string
     readonly baseURL?: string
     readonly builtin: boolean
@@ -2543,7 +2499,15 @@ export type ServerRelayVendorOutput = {
     readonly revision: number
   }>
   readonly revision: number
-  readonly canRollback: boolean
+  readonly capabilities?: ReadonlyArray<string>
+  readonly operationReceipt?: {
+    readonly operationId: string
+    readonly kind: "vendor-create"
+    readonly vendorId: string
+    readonly entityId: string
+    readonly committedRevision: number
+  }
+  readonly catalogSync?: { readonly status: "synced" | "pending"; readonly retryable: boolean }
 }
 
 export type ServerRelayKeyInput = {
@@ -2551,15 +2515,27 @@ export type ServerRelayKeyInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
-  readonly revision: { readonly revision: number; readonly operationId?: string | undefined }["revision"]
-  readonly operationId?: { readonly revision: number; readonly operationId?: string | undefined }["operationId"]
+  readonly revision: {
+    readonly revision: number
+    readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
+  }["revision"]
+  readonly operationId?: {
+    readonly revision: number
+    readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
+  }["operationId"]
+  readonly expectedEntityId?: {
+    readonly revision: number
+    readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
+  }["expectedEntityId"]
 }
 
 export type ServerRelayKeyOutput = {
-  readonly unified: boolean
-  readonly hasUnifiedKey: boolean
   readonly vendors: ReadonlyArray<{
     readonly id: string
+    readonly entityId?: string
     readonly name: string
     readonly baseURL?: string
     readonly builtin: boolean
@@ -2568,7 +2544,15 @@ export type ServerRelayKeyOutput = {
     readonly revision: number
   }>
   readonly revision: number
-  readonly canRollback: boolean
+  readonly capabilities?: ReadonlyArray<string>
+  readonly operationReceipt?: {
+    readonly operationId: string
+    readonly kind: "vendor-create"
+    readonly vendorId: string
+    readonly entityId: string
+    readonly committedRevision: number
+  }
+  readonly catalogSync?: { readonly status: "synced" | "pending"; readonly retryable: boolean }
 }
 
 export type ServerRelayDeleteInput = {
@@ -2576,15 +2560,27 @@ export type ServerRelayDeleteInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
-  readonly revision: { readonly revision: number; readonly operationId?: string | undefined }["revision"]
-  readonly operationId?: { readonly revision: number; readonly operationId?: string | undefined }["operationId"]
+  readonly revision: {
+    readonly revision: number
+    readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
+  }["revision"]
+  readonly operationId?: {
+    readonly revision: number
+    readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
+  }["operationId"]
+  readonly expectedEntityId?: {
+    readonly revision: number
+    readonly operationId?: string | undefined
+    readonly expectedEntityId?: string | undefined
+  }["expectedEntityId"]
 }
 
 export type ServerRelayDeleteOutput = {
-  readonly unified: boolean
-  readonly hasUnifiedKey: boolean
   readonly vendors: ReadonlyArray<{
     readonly id: string
+    readonly entityId?: string
     readonly name: string
     readonly baseURL?: string
     readonly builtin: boolean
@@ -2593,38 +2589,88 @@ export type ServerRelayDeleteOutput = {
     readonly revision: number
   }>
   readonly revision: number
-  readonly canRollback: boolean
+  readonly capabilities?: ReadonlyArray<string>
+  readonly operationReceipt?: {
+    readonly operationId: string
+    readonly kind: "vendor-create"
+    readonly vendorId: string
+    readonly entityId: string
+    readonly committedRevision: number
+  }
+  readonly catalogSync?: { readonly status: "synced" | "pending"; readonly retryable: boolean }
 }
 
-export type ServerRelayRollbackInput = {
+export type ServerRelaySyncInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
-  readonly revision: { readonly revision: number; readonly operationId?: string | undefined }["revision"]
-  readonly operationId?: { readonly revision: number; readonly operationId?: string | undefined }["operationId"]
+  readonly retryNotice?: { readonly retryNotice?: boolean | undefined }["retryNotice"]
 }
 
-export type ServerRelayRollbackOutput = {
-  readonly unified: boolean
-  readonly hasUnifiedKey: boolean
-  readonly vendors: ReadonlyArray<{
-    readonly id: string
-    readonly name: string
-    readonly baseURL?: string
-    readonly builtin: boolean
-    readonly hasKey: boolean
-    readonly updatedAt: number
+export type ServerRelaySyncOutput = {
+  readonly auth: {
+    readonly vendors: ReadonlyArray<{
+      readonly id: string
+      readonly entityId?: string
+      readonly name: string
+      readonly baseURL?: string
+      readonly builtin: boolean
+      readonly hasKey: boolean
+      readonly updatedAt: number
+      readonly revision: number
+    }>
     readonly revision: number
+    readonly capabilities?: ReadonlyArray<string>
+    readonly operationReceipt?: {
+      readonly operationId: string
+      readonly kind: "vendor-create"
+      readonly vendorId: string
+      readonly entityId: string
+      readonly committedRevision: number
+    }
+    readonly catalogSync?: { readonly status: "synced" | "pending"; readonly retryable: boolean }
+  }
+  readonly candidates: ReadonlyArray<{
+    readonly vendorId?: string
+    readonly modelId: string
+    readonly displayName?: string
+    readonly ownedBy?: string
+    readonly fetchedAt: number
+    readonly assignmentSource: "manual" | "owned_by" | "prefix" | "unassigned" | "conflict"
+    readonly upstreamPresent: boolean
   }>
-  readonly revision: number
-  readonly canRollback: boolean
+  readonly managed: ReadonlyArray<{
+    readonly vendorId: string
+    readonly modelId: string
+    readonly visible: boolean
+    readonly reasoningCapabilities: ReadonlyArray<"low" | "medium" | "high" | "xhigh">
+    readonly assignmentSource: "manual" | "owned_by" | "prefix" | "unassigned" | "conflict"
+    readonly lastSeenAt: number
+    readonly upstreamPresent: boolean
+  }>
+  readonly catalogRevision: number | null
+  readonly notice: { readonly status: "idle" | "pending" | "exhausted" }
 }
 
 export type ServerRelayProbeInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
-  readonly vendorId: { readonly vendorId: string }["vendorId"]
+  readonly vendorId: {
+    readonly vendorId: string
+    readonly expectedEntityId?: string | undefined
+    readonly expectedVendorRevision?: number | undefined
+  }["vendorId"]
+  readonly expectedEntityId?: {
+    readonly vendorId: string
+    readonly expectedEntityId?: string | undefined
+    readonly expectedVendorRevision?: number | undefined
+  }["expectedEntityId"]
+  readonly expectedVendorRevision?: {
+    readonly vendorId: string
+    readonly expectedEntityId?: string | undefined
+    readonly expectedVendorRevision?: number | undefined
+  }["expectedVendorRevision"]
 }
 
 export type ServerRelayProbeOutput = { readonly count: number }
@@ -2633,7 +2679,21 @@ export type ServerRelayRefreshInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
-  readonly vendorId: { readonly vendorId: string }["vendorId"]
+  readonly vendorId: {
+    readonly vendorId: string
+    readonly expectedEntityId?: string | undefined
+    readonly expectedVendorRevision?: number | undefined
+  }["vendorId"]
+  readonly expectedEntityId?: {
+    readonly vendorId: string
+    readonly expectedEntityId?: string | undefined
+    readonly expectedVendorRevision?: number | undefined
+  }["expectedEntityId"]
+  readonly expectedVendorRevision?: {
+    readonly vendorId: string
+    readonly expectedEntityId?: string | undefined
+    readonly expectedVendorRevision?: number | undefined
+  }["expectedVendorRevision"]
 }
 
 export type ServerRelayRefreshOutput = ReadonlyArray<{
@@ -2687,9 +2747,30 @@ export type ServerRelayVisibilityInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
-  readonly vendorId: { readonly vendorId: string; readonly modelId: string; readonly visible: boolean }["vendorId"]
-  readonly modelId: { readonly vendorId: string; readonly modelId: string; readonly visible: boolean }["modelId"]
-  readonly visible: { readonly vendorId: string; readonly modelId: string; readonly visible: boolean }["visible"]
+  readonly vendorId: {
+    readonly vendorId: string
+    readonly modelId: string
+    readonly visible: boolean
+    readonly expectedEntityId?: string | undefined
+  }["vendorId"]
+  readonly modelId: {
+    readonly vendorId: string
+    readonly modelId: string
+    readonly visible: boolean
+    readonly expectedEntityId?: string | undefined
+  }["modelId"]
+  readonly visible: {
+    readonly vendorId: string
+    readonly modelId: string
+    readonly visible: boolean
+    readonly expectedEntityId?: string | undefined
+  }["visible"]
+  readonly expectedEntityId?: {
+    readonly vendorId: string
+    readonly modelId: string
+    readonly visible: boolean
+    readonly expectedEntityId?: string | undefined
+  }["expectedEntityId"]
 }
 
 export type ServerRelayVisibilityOutput = ReadonlyArray<{
@@ -3078,6 +3159,7 @@ export type ServerScheduledTaskRunsOutput = ReadonlyArray<{
       | "MODEL_VENDOR_CONFLICT"
       | "PROVIDER_DISABLED"
       | "PROJECT_INVALID"
+      | "TASK_EXECUTION_FAILED"
       | "REVISION_CONFLICT"
       | "REQUEST_CONFLICT"
       | "SECRET_STORE_UNAVAILABLE"
@@ -3112,6 +3194,7 @@ export type ServerScheduledTaskRunOutput = {
       | "MODEL_VENDOR_CONFLICT"
       | "PROVIDER_DISABLED"
       | "PROJECT_INVALID"
+      | "TASK_EXECUTION_FAILED"
       | "REVISION_CONFLICT"
       | "REQUEST_CONFLICT"
       | "SECRET_STORE_UNAVAILABLE"
@@ -3155,6 +3238,36 @@ export type ServerScheduledTaskEnableOutput = {
   readonly revision: number
   readonly nextRun?: number
   readonly lastRun?: number
+}
+
+export type ImageGenerationGetOutput = {
+  readonly enabled?: boolean | undefined
+  readonly model?: string | undefined
+  readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
+}
+
+export type ImageGenerationUpdateInput = {
+  readonly enabled?: {
+    readonly enabled?: boolean | undefined
+    readonly model?: string | undefined
+    readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
+  }["enabled"]
+  readonly model?: {
+    readonly enabled?: boolean | undefined
+    readonly model?: string | undefined
+    readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
+  }["model"]
+  readonly api?: {
+    readonly enabled?: boolean | undefined
+    readonly model?: string | undefined
+    readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
+  }["api"]
+}
+
+export type ImageGenerationUpdateOutput = {
+  readonly enabled?: boolean | undefined
+  readonly model?: string | undefined
+  readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
 }
 
 export type PermissionsListRequestsInput = {

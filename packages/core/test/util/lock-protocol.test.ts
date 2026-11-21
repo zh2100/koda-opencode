@@ -70,10 +70,26 @@ describe("lock protocol", () => {
     const selected = context(root)
     const file = LockIdentity.marker(selected.state)
     for (const status of [123, true, null, { stage: "migrating" }]) {
-      write(file, { generation: "os-lock-v1", status, schemaVersion: 1, backend: "native-file-v1", keyFormat: "canonical-path-v1", rootId, epoch: 1 })
+      write(file, {
+        generation: "os-lock-v1",
+        status,
+        schemaVersion: 1,
+        backend: "native-file-v1",
+        keyFormat: "canonical-path-v1",
+        rootId,
+        epoch: 1,
+      })
       expect(() => LockProtocol.resolve("relay-secrets", selected)).toThrow(/invalid type/)
     }
-    write(file, { schemaVersion: 1, generation: "os-lock-v1", status: "complete", backend: "other", keyFormat: "canonical-path-v1", rootId, epoch: 1 })
+    write(file, {
+      schemaVersion: 1,
+      generation: "os-lock-v1",
+      status: "complete",
+      backend: "other",
+      keyFormat: "canonical-path-v1",
+      rootId,
+      epoch: 1,
+    })
     expect(() =>
       LockProtocol.resolve("relay-secrets", {
         ...selected,
@@ -95,7 +111,15 @@ describe("lock protocol", () => {
         },
       }),
     ).toThrow(/unknown or contradictory/)
-    write(file, { schemaVersion: 1, generation: "os-lock-v1", status: "complete", backend: "native-file-v1", keyFormat: "canonical-path-v1", rootId, epoch: "1" })
+    write(file, {
+      schemaVersion: 1,
+      generation: "os-lock-v1",
+      status: "complete",
+      backend: "native-file-v1",
+      keyFormat: "canonical-path-v1",
+      rootId,
+      epoch: "1",
+    })
     expect(() => LockProtocol.resolve("relay-secrets", selected)).toThrow(/invalid type/)
     fs.rmSync(root, { recursive: true, force: true })
   })

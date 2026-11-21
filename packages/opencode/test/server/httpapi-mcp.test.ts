@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { beforeAll, describe, expect } from "bun:test"
 import { Context, Effect, Layer } from "effect"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
 import { McpPaths } from "../../src/server/routes/instance/httpapi/groups/mcp"
@@ -6,6 +6,11 @@ import { Server } from "../../src/server/server"
 import { resetDatabase } from "../fixture/db"
 import { TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+
+import { installedPlugin } from "./installed-plugin"
+import { Global } from "@opencode-ai/core/global"
+
+beforeAll(() => installedPlugin(Global.Path.config))
 
 const context = Context.empty() as Context.Context<unknown>
 const testStateLayer = Layer.effectDiscard(
@@ -70,6 +75,7 @@ describe("mcp HttpApi", () => {
     {
       config: {
         mcp: {
+          openaiDeveloperDocs: { enabled: false },
           demo: {
             type: "local",
             command: ["echo", "demo"],
@@ -116,6 +122,7 @@ describe("mcp HttpApi", () => {
     {
       config: {
         mcp: {
+          openaiDeveloperDocs: { enabled: false },
           demo: {
             type: "local",
             command: ["echo", "demo"],
@@ -145,6 +152,7 @@ describe("mcp HttpApi", () => {
     {
       config: {
         mcp: {
+          openaiDeveloperDocs: { enabled: false },
           demo: {
             type: "local",
             command: ["echo", "demo"],
@@ -179,6 +187,7 @@ describe("mcp HttpApi", () => {
         formatter: false,
         lsp: false,
         mcp: {
+          openaiDeveloperDocs: { enabled: false },
           demo: {
             type: "local",
             command: ["echo", "demo"],
@@ -218,6 +227,6 @@ describe("mcp HttpApi", () => {
           })
         }
       }),
-    { config: { mcp: {} } },
+    { config: { mcp: { openaiDeveloperDocs: { enabled: false } } } },
   )
 })

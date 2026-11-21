@@ -10,7 +10,7 @@ import type {
   AppLogResponses,
   AppSkillsErrors,
   AppSkillsResponses,
-  Auth as Auth3,
+  Auth as Auth4,
   AuthRemoveErrors,
   AuthRemoveResponses,
   AuthSetErrors,
@@ -20,9 +20,13 @@ import type {
   Config as Config3,
   ConfigGetErrors,
   ConfigGetResponses,
+  ConfigMcpSourceErrors,
+  ConfigMcpSourceResponses,
   ConfigProvidersErrors,
   ConfigProvidersResponses,
   ConfigUpdateErrors,
+  ConfigUpdateMcpErrors,
+  ConfigUpdateMcpResponses,
   ConfigUpdateResponses,
   EventSubscribeResponses,
   EventTuiCommandExecute,
@@ -88,6 +92,7 @@ import type {
   GlobalHealthResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  ImageGenerationConfig,
   InstanceDisposeErrors,
   InstanceDisposeResponses,
   LocationRef,
@@ -113,6 +118,8 @@ import type {
   McpStatusResponses,
   ModelRef,
   MoveSessionDestination,
+  OrchestratorControlPayload,
+  OrchestratorCreatePayload,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -128,6 +135,7 @@ import type {
   PermissionRespondErrors,
   PermissionRespondResponses,
   PermissionRuleset,
+  PermissionV2Effect,
   PermissionV2Reply,
   PermissionV2Source,
   ProjectCommands,
@@ -175,6 +183,12 @@ import type {
   QuestionReplyErrors,
   QuestionReplyResponses,
   QuestionV2Reply,
+  RelayVendorBaseUrl,
+  ScheduledTaskCreatePayload,
+  ServerImageGenerationImageGenerationGetErrors,
+  ServerImageGenerationImageGenerationGetResponses,
+  ServerImageGenerationImageGenerationUpdateErrors,
+  ServerImageGenerationImageGenerationUpdateResponses,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionChildrenErrors,
@@ -299,8 +313,16 @@ import type {
   V2LocationGetResponses,
   V2ModelListErrors,
   V2ModelListResponses,
+  V2OrchestratorControlErrors,
+  V2OrchestratorControlResponses,
+  V2OrchestratorCreateErrors,
+  V2OrchestratorCreateResponses,
+  V2OrchestratorGetErrors,
+  V2OrchestratorGetResponses,
   V2PermissionRequestListErrors,
   V2PermissionRequestListResponses,
+  V2PermissionSavedCreateErrors,
+  V2PermissionSavedCreateResponses,
   V2PermissionSavedListErrors,
   V2PermissionSavedListResponses,
   V2PermissionSavedRemoveErrors,
@@ -333,6 +355,36 @@ import type {
   V2QuestionRequestListResponses,
   V2ReferenceListErrors,
   V2ReferenceListResponses,
+  V2RelayAuthGetErrors,
+  V2RelayAuthGetResponses,
+  V2RelayAuthVendorDeleteErrors,
+  V2RelayAuthVendorDeleteResponses,
+  V2RelayAuthVendorErrors,
+  V2RelayAuthVendorKeyClearErrors,
+  V2RelayAuthVendorKeyClearResponses,
+  V2RelayAuthVendorResponses,
+  V2RelayModelsCandidatesErrors,
+  V2RelayModelsCandidatesResponses,
+  V2RelayModelsManagedErrors,
+  V2RelayModelsManagedResponses,
+  V2RelayModelsProbeErrors,
+  V2RelayModelsProbeResponses,
+  V2RelayModelsRefreshErrors,
+  V2RelayModelsRefreshResponses,
+  V2RelayModelsSyncErrors,
+  V2RelayModelsSyncResponses,
+  V2RelayModelsVisibilityErrors,
+  V2RelayModelsVisibilityResponses,
+  V2ScheduledTaskCreateErrors,
+  V2ScheduledTaskCreateResponses,
+  V2ScheduledTaskEnableErrors,
+  V2ScheduledTaskEnableResponses,
+  V2ScheduledTaskListErrors,
+  V2ScheduledTaskListResponses,
+  V2ScheduledTaskRunErrors,
+  V2ScheduledTaskRunResponses,
+  V2ScheduledTaskRunsErrors,
+  V2ScheduledTaskRunsResponses,
   V2SessionActiveErrors,
   V2SessionActiveResponses,
   V2SessionCompactErrors,
@@ -371,6 +423,10 @@ import type {
   V2SessionQuestionRejectResponses,
   V2SessionQuestionReplyErrors,
   V2SessionQuestionReplyResponses,
+  V2SessionRemoveErrors,
+  V2SessionRemoveResponses,
+  V2SessionResumeErrors,
+  V2SessionResumeResponses,
   V2SessionRevertClearErrors,
   V2SessionRevertClearResponses,
   V2SessionRevertCommitErrors,
@@ -381,6 +437,10 @@ import type {
   V2SessionSwitchAgentResponses,
   V2SessionSwitchModelErrors,
   V2SessionSwitchModelResponses,
+  V2SessionTodoErrors,
+  V2SessionTodoResponses,
+  V2SessionUpdateErrors,
+  V2SessionUpdateResponses,
   V2SessionWaitErrors,
   V2SessionWaitResponses,
   V2SkillListErrors,
@@ -479,7 +539,7 @@ export class Auth extends HeyApiClient {
   public set<ThrowOnError extends boolean = false>(
     parameters: {
       providerID: string
-      auth?: Auth3
+      auth?: Auth4
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1472,6 +1532,81 @@ export class Config2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).patch<ConfigUpdateResponses, ConfigUpdateErrors, ThrowOnError>({
       url: "/config",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read MCP configuration source
+   */
+  public mcpSource<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ConfigMcpSourceResponses, ConfigMcpSourceErrors, ThrowOnError>({
+      url: "/config/mcp/{name}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update MCP at its configuration source
+   */
+  public updateMcp<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+      workspace?: string
+      source?: string
+      version?: string
+      patch?: {
+        type?: "local" | "remote"
+        command?: Array<string>
+        url?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "source" },
+            { in: "body", key: "version" },
+            { in: "body", key: "patch" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<ConfigUpdateMcpResponses, ConfigUpdateMcpErrors, ThrowOnError>({
+      url: "/config/mcp/{name}",
       ...options,
       ...params,
       headers: {
@@ -5518,6 +5653,25 @@ export class Session3 extends HeyApiClient {
   }
 
   /**
+   * Delete session
+   *
+   * Delete a session and its messages.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).delete<V2SessionRemoveResponses, V2SessionRemoveErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get session
    *
    * Retrieve a session by ID.
@@ -5533,6 +5687,41 @@ export class Session3 extends HeyApiClient {
       url: "/api/session/{sessionID}",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Update session
+   *
+   * Update a session title.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      title?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "body", key: "title" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<V2SessionUpdateResponses, V2SessionUpdateErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -5694,6 +5883,25 @@ export class Session3 extends HeyApiClient {
   }
 
   /**
+   * Get session todos
+   *
+   * Retrieve the persisted todo list for a session.
+   */
+  public todo<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).get<V2SessionTodoResponses, V2SessionTodoErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}/todo",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get session context
    *
    * Retrieve the active context messages for a session (all messages after the last compaction).
@@ -5788,6 +5996,25 @@ export class Session3 extends HeyApiClient {
     const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
     return (options?.client ?? this.client).post<V2SessionInterruptResponses, V2SessionInterruptErrors, ThrowOnError>({
       url: "/api/session/{sessionID}/interrupt",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resume session execution
+   *
+   * Resume idle or failed execution owned by this OpenCode process.
+   */
+  public resume<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).post<V2SessionResumeResponses, V2SessionResumeErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}/resume",
       ...options,
       ...params,
     })
@@ -6316,6 +6543,562 @@ export class Credential extends HeyApiClient {
   }
 }
 
+export class Key extends HeyApiClient {
+  /**
+   * Clear a vendor key
+   *
+   * Remove one vendor API key without deleting the vendor.
+   */
+  public clear<ThrowOnError extends boolean = false>(
+    parameters: {
+      vendorId: string
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      revision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      operationId?: string
+      expectedEntityId?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "vendorId" },
+            { in: "query", key: "location" },
+            { in: "body", key: "revision" },
+            { in: "body", key: "operationId" },
+            { in: "body", key: "expectedEntityId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      V2RelayAuthVendorKeyClearResponses,
+      V2RelayAuthVendorKeyClearErrors,
+      ThrowOnError
+    >({
+      url: "/api/relay/auth/vendors/{vendorId}/key",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Vendor extends HeyApiClient {
+  /**
+   * Delete a custom relay vendor
+   *
+   * Delete an independent vendor and retire its credential.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      vendorId: string
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      revision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      operationId?: string
+      expectedEntityId?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "vendorId" },
+            { in: "query", key: "location" },
+            { in: "body", key: "revision" },
+            { in: "body", key: "operationId" },
+            { in: "body", key: "expectedEntityId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      V2RelayAuthVendorDeleteResponses,
+      V2RelayAuthVendorDeleteErrors,
+      ThrowOnError
+    >({
+      url: "/api/relay/auth/vendors/{vendorId}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  private _key?: Key
+  get key(): Key {
+    return (this._key ??= new Key({ client: this.client }))
+  }
+}
+
+export class Auth3 extends HeyApiClient {
+  /**
+   * Get relay auth
+   *
+   * Retrieve Relay independent vendor key status without secret values.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "location" }] }])
+    return (options?.client ?? this.client).get<V2RelayAuthGetResponses, V2RelayAuthGetErrors, ThrowOnError>({
+      url: "/api/relay/auth",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create or update a relay vendor
+   *
+   * Create a custom vendor or update its name, key, and independent OpenAI-compatible baseURL. Omitted fields are preserved. An independent baseURL is required.
+   */
+  public vendor<ThrowOnError extends boolean = false>(
+    parameters: {
+      vendorId: string
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      createOnly?: boolean
+      name?: string
+      baseURL?: RelayVendorBaseUrl
+      key?: string
+      revision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      operationId?: string
+      expectedEntityId?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "vendorId" },
+            { in: "query", key: "location" },
+            { in: "body", key: "createOnly" },
+            { in: "body", key: "name" },
+            { in: "body", key: "baseURL" },
+            { in: "body", key: "key" },
+            { in: "body", key: "revision" },
+            { in: "body", key: "operationId" },
+            { in: "body", key: "expectedEntityId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<V2RelayAuthVendorResponses, V2RelayAuthVendorErrors, ThrowOnError>({
+      url: "/api/relay/auth/vendors/{vendorId}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  private _vendor?: Vendor
+  get vendor2(): Vendor {
+    return (this._vendor ??= new Vendor({ client: this.client }))
+  }
+}
+
+export class Models extends HeyApiClient {
+  /**
+   * Synchronize relay catalog
+   *
+   * Adopt the shared catalog and return an atomic auth/catalog snapshot without upstream requests.
+   */
+  public sync<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      retryNotice?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "location" },
+            { in: "body", key: "retryNotice" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<V2RelayModelsSyncResponses, V2RelayModelsSyncErrors, ThrowOnError>({
+      url: "/api/relay/models/sync",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Probe relay connectivity
+   *
+   * Fetch /v1/models for a vendor key without writing the candidate cache.
+   */
+  public probe<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      vendorId?: string
+      expectedEntityId?: string
+      expectedVendorRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "location" },
+            { in: "body", key: "vendorId" },
+            { in: "body", key: "expectedEntityId" },
+            { in: "body", key: "expectedVendorRevision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<V2RelayModelsProbeResponses, V2RelayModelsProbeErrors, ThrowOnError>({
+      url: "/api/relay/models/probe",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Refresh relay model candidates
+   *
+   * Fetch /v1/models for a vendor key and update the candidate cache.
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      vendorId?: string
+      expectedEntityId?: string
+      expectedVendorRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "location" },
+            { in: "body", key: "vendorId" },
+            { in: "body", key: "expectedEntityId" },
+            { in: "body", key: "expectedVendorRevision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      V2RelayModelsRefreshResponses,
+      V2RelayModelsRefreshErrors,
+      ThrowOnError
+    >({
+      url: "/api/relay/models/refresh",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List managed relay models
+   *
+   * List models that have been added to the managed registry.
+   */
+  public managed<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "location" }] }])
+    return (options?.client ?? this.client).get<
+      V2RelayModelsManagedResponses,
+      V2RelayModelsManagedErrors,
+      ThrowOnError
+    >({
+      url: "/api/relay/models",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List relay model candidates
+   *
+   * List cached upstream models. This is not the session selector.
+   */
+  public candidates<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      vendorId?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "location" },
+            { in: "query", key: "vendorId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      V2RelayModelsCandidatesResponses,
+      V2RelayModelsCandidatesErrors,
+      ThrowOnError
+    >({
+      url: "/api/relay/models/candidates",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set relay model visibility
+   *
+   * Show or hide a candidate in the managed model registry.
+   */
+  public visibility<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      vendorId?: string
+      modelId?: string
+      visible?: boolean
+      expectedEntityId?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "location" },
+            { in: "body", key: "vendorId" },
+            { in: "body", key: "modelId" },
+            { in: "body", key: "visible" },
+            { in: "body", key: "expectedEntityId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      V2RelayModelsVisibilityResponses,
+      V2RelayModelsVisibilityErrors,
+      ThrowOnError
+    >({
+      url: "/api/relay/models/visibility",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Relay extends HeyApiClient {
+  private _auth?: Auth3
+  get auth(): Auth3 {
+    return (this._auth ??= new Auth3({ client: this.client }))
+  }
+
+  private _models?: Models
+  get models(): Models {
+    return (this._models ??= new Models({ client: this.client }))
+  }
+}
+
+export class ScheduledTask extends HeyApiClient {
+  /**
+   * List scheduled tasks
+   *
+   * List saved scheduled tasks. Empty when the scheduled_tasks gate is closed.
+   */
+  public list<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<V2ScheduledTaskListResponses, V2ScheduledTaskListErrors, ThrowOnError>({
+      url: "/api/scheduled-task",
+      ...options,
+    })
+  }
+
+  /**
+   * Create a scheduled task
+   *
+   * Create a once or daily scheduled prompt. Unavailable when the scheduled_tasks gate is closed.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      scheduledTaskCreatePayload: ScheduledTaskCreatePayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ key: "scheduledTaskCreatePayload", map: "body" }] }])
+    return (options?.client ?? this.client).post<
+      V2ScheduledTaskCreateResponses,
+      V2ScheduledTaskCreateErrors,
+      ThrowOnError
+    >({
+      url: "/api/scheduled-task",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List scheduled task runs
+   *
+   * List runs for one scheduled task. Empty when the scheduled_tasks gate is closed.
+   */
+  public runs<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "taskID" }] }])
+    return (options?.client ?? this.client).get<V2ScheduledTaskRunsResponses, V2ScheduledTaskRunsErrors, ThrowOnError>({
+      url: "/api/scheduled-task/{taskID}/run",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Run a scheduled task now
+   *
+   * Start one manual run. Unavailable when the scheduled_tasks gate is closed.
+   */
+  public run<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "taskID" }] }])
+    return (options?.client ?? this.client).post<V2ScheduledTaskRunResponses, V2ScheduledTaskRunErrors, ThrowOnError>({
+      url: "/api/scheduled-task/{taskID}/run",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Enable or pause a scheduled task
+   *
+   * Manually resume a paused task after key, model, or project repair.
+   */
+  public enable<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskID: string
+      enabled?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "taskID" },
+            { in: "body", key: "enabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      V2ScheduledTaskEnableResponses,
+      V2ScheduledTaskEnableErrors,
+      ThrowOnError
+    >({
+      url: "/api/scheduled-task/{taskID}/enable",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Request extends HeyApiClient {
   /**
    * List pending permission requests
@@ -6365,6 +7148,49 @@ export class Saved extends HeyApiClient {
       url: "/api/permission/saved",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Save a permission
+   *
+   * Save a permission rule for a project action and resource.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+      action?: string
+      resource?: string
+      effect?: PermissionV2Effect
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "projectID" },
+            { in: "body", key: "action" },
+            { in: "body", key: "resource" },
+            { in: "body", key: "effect" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      V2PermissionSavedCreateResponses,
+      V2PermissionSavedCreateErrors,
+      ThrowOnError
+    >({
+      url: "/api/permission/saved",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -6987,6 +7813,127 @@ export class ProjectCopy2 extends HeyApiClient {
   }
 }
 
+export class Orchestrator extends HeyApiClient {
+  /**
+   * Create a collaboration task
+   *
+   * Create a planner/worker/reviewer/tester/finalizer task and start it in the background.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      orchestratorCreatePayload?: OrchestratorCreatePayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "location" },
+            { key: "orchestratorCreatePayload", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      V2OrchestratorCreateResponses,
+      V2OrchestratorCreateErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/orchestrator",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get a collaboration task
+   *
+   * Read the current status of a collaboration task.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskID: string
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "taskID" },
+            { in: "query", key: "location" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<V2OrchestratorGetResponses, V2OrchestratorGetErrors, ThrowOnError>({
+      url: "/experimental/orchestrator/{taskID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Control a collaboration task
+   *
+   * Pause, abort, or retry a collaboration task.
+   */
+  public control<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskID: string
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      orchestratorControlPayload?: OrchestratorControlPayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "taskID" },
+            { in: "query", key: "location" },
+            { key: "orchestratorControlPayload", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      V2OrchestratorControlResponses,
+      V2OrchestratorControlErrors,
+      ThrowOnError
+    >({
+      url: "/experimental/orchestrator/{taskID}/control",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class V2 extends HeyApiClient {
   private _health?: Health
   get health(): Health {
@@ -7026,6 +7973,16 @@ export class V2 extends HeyApiClient {
   private _credential?: Credential
   get credential(): Credential {
     return (this._credential ??= new Credential({ client: this.client }))
+  }
+
+  private _relay?: Relay
+  get relay(): Relay {
+    return (this._relay ??= new Relay({ client: this.client }))
+  }
+
+  private _scheduledTask?: ScheduledTask
+  get scheduledTask(): ScheduledTask {
+    return (this._scheduledTask ??= new ScheduledTask({ client: this.client }))
   }
 
   private _permission?: Permission3
@@ -7071,6 +8028,64 @@ export class V2 extends HeyApiClient {
   private _projectCopy?: ProjectCopy2
   get projectCopy(): ProjectCopy2 {
     return (this._projectCopy ??= new ProjectCopy2({ client: this.client }))
+  }
+
+  private _orchestrator?: Orchestrator
+  get orchestrator(): Orchestrator {
+    return (this._orchestrator ??= new Orchestrator({ client: this.client }))
+  }
+}
+
+export class ImageGeneration extends HeyApiClient {
+  /**
+   * Read this server's independent image generation settings
+   */
+  public get<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      ServerImageGenerationImageGenerationGetResponses,
+      ServerImageGenerationImageGenerationGetErrors,
+      ThrowOnError
+    >({ url: "/api/settings/image-generation", ...options })
+  }
+
+  /**
+   * Save this server's independent image generation settings
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      imageGenerationConfig: ImageGenerationConfig
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ key: "imageGenerationConfig", map: "body" }] }])
+    return (options?.client ?? this.client).put<
+      ServerImageGenerationImageGenerationUpdateResponses,
+      ServerImageGenerationImageGenerationUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/api/settings/image-generation",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class ImageGeneration2 extends HeyApiClient {
+  private _imageGeneration?: ImageGeneration
+  get imageGeneration(): ImageGeneration {
+    return (this._imageGeneration ??= new ImageGeneration({ client: this.client }))
+  }
+}
+
+export class Server extends HeyApiClient {
+  private _imageGeneration?: ImageGeneration2
+  get imageGeneration(): ImageGeneration2 {
+    return (this._imageGeneration ??= new ImageGeneration2({ client: this.client }))
   }
 }
 
@@ -7215,5 +8230,10 @@ export class OpencodeClient extends HeyApiClient {
   private _v2?: V2
   get v2(): V2 {
     return (this._v2 ??= new V2({ client: this.client }))
+  }
+
+  private _server?: Server
+  get server(): Server {
+    return (this._server ??= new Server({ client: this.client }))
   }
 }

@@ -154,7 +154,7 @@ export function cancelPending(mcpName: string): void {
   if (pending) {
     clearTimeout(pending.timeout)
     pendingAuths.delete(key)
-    mcpNameToState.delete(mcpName)
+    cleanupStateIndex(key)
     pending.reject(new Error("Authorization cancelled"))
     stopIfIdle()
   }

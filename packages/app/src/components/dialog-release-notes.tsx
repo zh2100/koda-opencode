@@ -2,7 +2,7 @@ import { createSignal } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { useLanguage } from "@/context/language"
+import { useLanguage, type Direction } from "@/context/language"
 import { useSettings } from "@/context/settings"
 
 export type Highlight = {
@@ -13,6 +13,14 @@ export type Highlight = {
     src: string
     alt?: string
   }
+}
+
+export function releaseNotesDelta(key: string, direction: Direction) {
+  const previous = direction === "rtl" ? "ArrowRight" : "ArrowLeft"
+  const next = direction === "rtl" ? "ArrowLeft" : "ArrowRight"
+  if (key === previous) return -1
+  if (key === next) return 1
+  return 0
 }
 
 export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
@@ -50,13 +58,14 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
     }
 
     if (!paged()) return
-    if (e.key === "ArrowLeft" && !isFirst()) {
+    const delta = releaseNotesDelta(e.key, language.direction())
+    if (delta < 0 && !isFirst()) {
       e.preventDefault()
-      setIndex(index() - 1)
+      setIndex(index() + delta)
     }
-    if (e.key === "ArrowRight" && !isLast()) {
+    if (delta > 0 && !isLast()) {
       e.preventDefault()
-      setIndex(index() + 1)
+      setIndex(index() + delta)
     }
   }
 
@@ -126,15 +135,15 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
 
         {/* Right side - Media content (edge to edge) */}
         {feature()?.media && (
-          <div class="flex-1 min-w-0 bg-surface-base overflow-hidden rounded-r-xl">
-            {feature()!.media!.type === "image" ? (
+          <div class="flex-1 min-w-0 bg-surface-base overflow-hidden rounded-e-xl">
+            {feature()?.media?.type === "image" ? (
               <img
-                src={feature()!.media!.src}
-                alt={feature()!.media!.alt ?? feature()?.title ?? language.t("dialog.releaseNotes.media.alt")}
+                src={feature()?.media?.src}
+                alt={feature()?.media?.alt ?? feature()?.title ?? language.t("dialog.releaseNotes.media.alt")}
                 class="w-full h-full object-cover"
               />
             ) : (
-              <video src={feature()!.media!.src} autoplay loop muted playsinline class="w-full h-full object-cover" />
+              <video src={feature()?.media?.src} autoplay loop muted playsinline class="w-full h-full object-cover" />
             )}
           </div>
         )}

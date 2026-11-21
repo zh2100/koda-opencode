@@ -712,6 +712,92 @@ it.instance("loop stops provider overflow instead of auto-compacting when disabl
   }),
 )
 
+it.instance("loop continues the task after automatic compaction", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig((url) => {
+      const base = providerCfg(url)
+      return {
+        ...base,
+        provider: {
+          ...base.provider,
+          test: {
+            ...base.provider.test,
+            models: {
+              ...base.provider.test.models,
+              "test-model": {
+                ...base.provider.test.models["test-model"],
+                limit: { context: 20, output: 10 },
+              },
+            },
+          },
+        },
+      }
+    })
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+
+    yield* llm.push(
+      reply().text("before compaction").usage({ input: 100, output: 1 }).stop(),
+      reply().text("summary").stop(),
+      reply().text("after compaction").stop(),
+    )
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "finish the task" }],
+    })
+
+    const result = yield* prompt.loop({ sessionID: chat.id })
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+
+    expect(result.info.role).toBe("assistant")
+    expect(result.parts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "text", text: "after compaction" })]),
+    )
+    expect(messages.some((message) => message.parts.some((part) => part.type === "compaction"))).toBe(true)
+    expect(yield* llm.hits).toHaveLength(3)
+  }),
+  30_000,
+)
+
+it.instance("generates a title for a new session after the first prompt", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({})
+
+    expect(chat.title).toMatch(/^New session - /)
+    yield* llm.push(reply().text("first response").stop())
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "Help me understand this project" }],
+    })
+    yield* prompt.loop({ sessionID: chat.id })
+    yield* llm.wait(2)
+
+    expect((yield* sessions.get(chat.id)).title).toBe("E2E Title")
+
+    yield* llm.push(reply().text("second response").stop())
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "Now explain the main entry point" }],
+    })
+    yield* prompt.loop({ sessionID: chat.id })
+    yield* llm.wait(3)
+
+    expect((yield* sessions.get(chat.id)).title).toBe("E2E Title")
+    expect(yield* llm.hits).toHaveLength(3)
+  }),
+  30_000,
+)
+
 noLLMServer.instance.skip(
   "prompt emits v2 prompted and synthetic events (v2 projector disabled)",
   () =>

@@ -166,6 +166,14 @@ test("rejects desktop duplicates and keeps changed files in the V2 prompt store"
     ])
     expect(state.prompt).toHaveLength(4)
     expect(duplicates).toHaveLength(3)
+
+    await attachments.addAttachments([new File([Uint8Array.of(208, 207, 17, 224)], "legacy.xls", { type: "" })])
+    expect(state.prompt).toHaveLength(5)
+    expect(state.prompt[4]).toMatchObject({ filename: "legacy.xls", mime: "application/vnd.ms-excel" })
+
+    await attachments.addAttachments([new File([Uint8Array.of(208, 207, 17, 224)], "legacy.doc", { type: "" })])
+    expect(state.prompt).toHaveLength(6)
+    expect(state.prompt[5]).toMatchObject({ filename: "legacy.doc", mime: "application/msword" })
     dispose()
   })
 })

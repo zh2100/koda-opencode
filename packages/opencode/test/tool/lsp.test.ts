@@ -1,6 +1,7 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { afterEach, describe, expect } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Npm } from "@opencode-ai/core/npm"
 import { Effect, Layer } from "effect"
 import path from "path"
 import { Agent } from "../../src/agent/agent"
@@ -14,6 +15,7 @@ import { Truncate } from "@/tool/truncate"
 import { LspTool } from "../../src/tool/lsp"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import { NpmTest } from "../fake/npm"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -59,6 +61,7 @@ const lsp = Layer.succeed(
 const it = testEffect(
   LayerNode.compile(LayerNode.group([Agent.node, FSUtil.node, CrossSpawnSpawner.node, Truncate.node, LSP.node]), [
     [LSP.node, lsp],
+    [Npm.node, NpmTest.noop],
   ]),
 )
 

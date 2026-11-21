@@ -1,4 +1,12 @@
-export const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/tiff", "image/avif"]
+export const ACCEPTED_IMAGE_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/bmp",
+  "image/tiff",
+  "image/avif",
+]
 
 export const ACCEPTED_FILE_TYPES = [
   "image/*",
@@ -11,6 +19,16 @@ export const ACCEPTED_FILE_TYPES = [
   "application/x-yaml",
   "application/xml",
   "application/yaml",
+  "application/msword",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/rtf",
+  "application/epub+zip",
+  "application/vnd.oasis.opendocument.text",
+  "application/vnd.oasis.opendocument.spreadsheet",
+  "application/vnd.oasis.opendocument.presentation",
   ".c",
   ".cc",
   ".cjs",
@@ -53,13 +71,33 @@ export const ACCEPTED_FILE_TYPES = [
   ".yaml",
   ".yml",
   ".zsh",
+  ".avif",
+  ".bmp",
+  ".doc",
+  ".docx",
+  ".epub",
+  ".gif",
+  ".jpeg",
+  ".jpg",
+  ".odt",
+  ".ods",
+  ".odp",
+  ".pdf",
+  ".rtf",
+  ".xls",
+  ".xlsx",
+  ".pptx",
+  ".png",
+  ".tif",
+  ".tiff",
+  ".webp",
 ]
 
 export const ACCEPTED_FILE_EXTENSIONS = Array.from(
   new Set(
     ACCEPTED_FILE_TYPES.flatMap((item) => {
       if (item.startsWith(".")) return [item.slice(1)]
-       return []
+      return []
     }),
   ),
 ).sort()

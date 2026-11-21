@@ -66,6 +66,7 @@ export type SessionMessageUser = {
   text: string
   files?: Array<{
     data: string
+    uri?: string
     mime: string
     name: string
     source?: JsonValue

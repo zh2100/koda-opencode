@@ -22,6 +22,7 @@ export const VendorBaseURL = Schema.String.check(
 export interface Vendor extends Schema.Schema.Type<typeof Vendor> {}
 export const Vendor = Schema.Struct({
   id: VendorID,
+  entityId: optional(Schema.String),
   name: Schema.String,
   baseURL: optional(VendorBaseURL),
   builtin: Schema.Boolean,
@@ -30,20 +31,32 @@ export const Vendor = Schema.Struct({
   revision: NonNegativeInt,
 }).annotate({ identifier: "Relay.Vendor" })
 
+export interface OperationReceipt extends Schema.Schema.Type<typeof OperationReceipt> {}
+export const OperationReceipt = Schema.Struct({
+  operationId: Schema.String,
+  kind: Schema.Literal("vendor-create"),
+  vendorId: VendorID,
+  entityId: Schema.String,
+  committedRevision: NonNegativeInt,
+}).annotate({ identifier: "Relay.OperationReceipt" })
+
+export interface CatalogSync extends Schema.Schema.Type<typeof CatalogSync> {}
+export const CatalogSync = Schema.Struct({
+  status: Schema.Literals(["synced", "pending"]),
+  retryable: Schema.Boolean,
+}).annotate({ identifier: "Relay.CatalogSync" })
+
 export interface AuthState extends Schema.Schema.Type<typeof AuthState> {}
 export const AuthState = Schema.Struct({
-  unified: Schema.Boolean,
-  hasUnifiedKey: Schema.Boolean,
   vendors: Schema.Array(Vendor),
   revision: NonNegativeInt,
-  canRollback: Schema.Boolean,
+  capabilities: optional(Schema.Array(Schema.String)),
+  operationReceipt: optional(OperationReceipt),
+  catalogSync: optional(CatalogSync),
 }).annotate({ identifier: "Relay.AuthState" })
 
 export const ProviderID = Schema.Literal("leidiandonghua").pipe(Schema.brand("Relay.ProviderID"))
 export type ProviderID = typeof ProviderID.Type
-
-export const BaseURL = Schema.Literal("https://api.leidiandonghua.cn/v1")
-export type BaseURL = typeof BaseURL.Type
 
 export const Effort = Schema.Literals(["low", "medium", "high", "xhigh"]).annotate({ identifier: "Relay.Effort" })
 export type Effort = typeof Effort.Type

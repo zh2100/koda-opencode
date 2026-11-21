@@ -1,4 +1,4 @@
-import { DateTime } from "effect"
+import { DateTime, Schema } from "effect"
 import { AgentV2 } from "../agent"
 import { Location } from "../location"
 import { ModelV2 } from "../model"
@@ -16,6 +16,10 @@ export function fromRow(row: typeof SessionTable.$inferSelect): SessionSchema.In
     id: SessionSchema.ID.make(row.id),
     projectID: ProjectV2.ID.make(row.project_id),
     title: row.title,
+    approvalMode:
+      row.metadata?.scheduledApprovalMode === undefined
+        ? undefined
+        : Schema.decodeUnknownSync(Schema.Literals(["ask", "auto", "plan"]))(row.metadata.scheduledApprovalMode),
     parentID: row.parent_id ? SessionSchema.ID.make(row.parent_id) : undefined,
     agent: row.agent ? AgentV2.ID.make(row.agent) : undefined,
     model: row.model

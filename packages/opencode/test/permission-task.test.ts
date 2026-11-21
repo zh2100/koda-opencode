@@ -1,12 +1,14 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Npm } from "@opencode-ai/core/npm"
 import { describe, test, expect } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { Permission } from "../src/permission"
 import { Config } from "@/config/config"
 import { testEffect } from "./lib/effect"
 
-const it = testEffect(LayerNode.compile(Config.node))
+// Exercise real config loading and instance disposal without a registry install.
+const it = testEffect(LayerNode.compile(Config.node, [[Npm.node, Layer.mock(Npm.Service, { install: () => Effect.void })]]))
 
 const load = Config.use.get()
 

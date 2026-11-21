@@ -3,6 +3,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Deferred, Effect, Fiber, Layer } from "effect"
 import { InstanceRef } from "../../src/effect/instance-ref"
+import { InstanceState } from "../../src/effect/instance-state"
 import { registerDisposer } from "../../src/effect/instance-registry"
 import { InstanceBootstrap } from "../../src/project/bootstrap"
 import { InstanceStore } from "../../src/project/instance-store"
@@ -39,6 +40,23 @@ const registerDisposerScoped = (disposer: (directory: string) => Promise<void>) 
   )
 
 describe("InstanceStore", () => {
+  it.live("ACC-02 clears the failed owner's inner cache before retrying the same directory", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const store = yield* InstanceStore.Service
+      let attempts = 0
+      const state = yield* InstanceState.make(() =>
+        Effect.suspend(() => ++attempts === 1 ? Effect.die(new Error("cold read denied")) : Effect.succeed("ready")),
+      )
+      yield* setBootstrap(InstanceState.get(state).pipe(Effect.asVoid))
+      const first = yield* store.load({ directory: dir }).pipe(Effect.exit)
+      expect(first._tag).toBe("Failure")
+      const second = yield* store.load({ directory: dir })
+      expect(second.directory).toBe(dir)
+      expect(attempts).toBe(2)
+    }),
+  )
+
   it.live("loads instance context", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped({ git: true })

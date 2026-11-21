@@ -1,5 +1,6 @@
 import type { JsonValue, OpenCodeEvent } from "@opencode-ai/client"
 import type { SessionMessageInfo, SessionPendingMessage } from "@/utils/protocol-types"
+import { normalizePromptAgents, normalizePromptFiles } from "@/utils/session-prompt"
 
 export type V2SessionEvent = {
   id: string
@@ -43,7 +44,7 @@ export type V2SessionEvent = {
     description?: string
     prompt: {
       text: string
-      files?: Array<{ data: string; mime: string; name: string; source?: JsonValue }>
+      files?: Parameters<typeof normalizePromptFiles>[0]
       agents?: Array<{ name: string; source?: JsonValue }>
     }
     delivery: "steer" | "queue"
@@ -121,8 +122,8 @@ export function createV2SessionReducer() {
           type: "user",
           data: {
             text: event.data.prompt.text,
-            files: event.data.prompt.files,
-            agents: event.data.prompt.agents,
+            files: normalizePromptFiles(event.data.prompt.files),
+            agents: normalizePromptAgents(event.data.prompt.agents),
           },
         })
         return result([...source])
@@ -131,7 +132,11 @@ export function createV2SessionReducer() {
         if (!input && !event.data.prompt) return { sessionID, messages: [...source], touched: [], missing: event.data.messageID }
         const value = input ?? {
           type: "user" as const,
-          data: { text: event.data.prompt.text, files: event.data.prompt.files, agents: event.data.prompt.agents },
+          data: {
+            text: event.data.prompt.text,
+            files: normalizePromptFiles(event.data.prompt.files),
+            agents: normalizePromptAgents(event.data.prompt.agents),
+          },
         }
         pending.delete(key(sessionID, event.data.messageID))
         if (value.type === "user")

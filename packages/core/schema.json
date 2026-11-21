@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "4e0fd29d-5d9f-4ad4-a538-5752917eeca0",
+  "id": "64ef50ba-e154-49fd-94d5-33cdcb971856",
   "prevIds": [
-    "f14a9b18-8207-487e-a3d3-227e629ba9ad"
+    "f527ad2c-64fd-41d9-b202-ce999780cabf"
   ],
   "ddl": [
     {
@@ -848,6 +848,26 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner",
+      "entityType": "columns",
+      "table": "scheduled_task_run"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cancel_epoch",
+      "entityType": "columns",
+      "table": "scheduled_task_run"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -1043,6 +1063,16 @@
       "default": null,
       "generated": null,
       "name": "enabled",
+      "entityType": "columns",
+      "table": "scheduled_task"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "cancel_epoch",
       "entityType": "columns",
       "table": "scheduled_task"
     },
@@ -2210,7 +2240,7 @@
       "type": "integer",
       "notNull": true,
       "autoincrement": false,
-      "default": "300000",
+      "default": "900000",
       "generated": null,
       "name": "timeout_ms",
       "entityType": "columns",

@@ -1,7 +1,7 @@
 export * as Reference from "./reference"
 
 import { makeLocationNode } from "./effect/app-node"
-import { Context, Effect, Layer, Scope, Types } from "effect"
+import { Context, Duration, Effect, Layer, Scope, Types } from "effect"
 import { Reference } from "@opencode-ai/schema/reference"
 import { Global } from "./global"
 import { EventV2 } from "./event"
@@ -92,6 +92,7 @@ const layer = Layer.effect(
               }),
             )
             yield* cache.ensure({ reference: repository, branch: source.branch, refresh: true }).pipe(
+              Effect.timeout(Duration.seconds(30)),
               Effect.catchCause((cause) =>
                 Effect.logWarning("failed to materialize reference", {
                   name,
@@ -99,7 +100,6 @@ const layer = Layer.effect(
                   cause,
                 }),
               ),
-              Effect.forkIn(scope),
             )
           }
           yield* events.publish(Event.Updated, {})

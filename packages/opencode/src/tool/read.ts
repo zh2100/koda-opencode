@@ -9,7 +9,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { Instruction } from "../session/instruction"
 import { isPdfAttachment, sniffAttachmentMime } from "@/util/media"
-import { extractOfficeText, isOfficeDocument } from "@/util/office-text"
+import { extractDocumentText, isReadableDocument } from "@/util/office-text"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -221,6 +221,7 @@ export const ReadTool = Tool.define<
         case ".odt":
         case ".ods":
         case ".odp":
+        case ".epub":
         case ".bin":
         case ".dat":
         case ".obj":
@@ -344,20 +345,19 @@ export const ReadTool = Tool.define<
         }
       }
 
-      const office = isOfficeDocument(filepath)
-        ? extractOfficeText(filepath, yield* fs.readFile(filepath))
-        : undefined
-      if (isOfficeDocument(filepath) && office === undefined) {
-        return yield* Effect.fail(new Error(`Cannot read office file: ${filepath}`))
+      const documentBytes = isReadableDocument(filepath) ? yield* fs.readFile(filepath) : undefined
+      const document = documentBytes === undefined ? undefined : extractDocumentText(filepath, documentBytes)
+      if (isReadableDocument(filepath) && document === undefined) {
+        return yield* Effect.fail(new Error(`Cannot read document file: ${filepath}`))
       }
-      if (office === undefined && isBinaryFile(filepath, sample)) {
+      if (document === undefined && isBinaryFile(filepath, sample)) {
         return yield* Effect.fail(new Error(`Cannot read binary file: ${filepath}`))
       }
 
       const file =
-        office === undefined
+        document === undefined
           ? yield* lines(filepath, { limit: params.limit ?? DEFAULT_READ_LIMIT, offset: params.offset || 1 })
-          : sliceText(office, { limit: params.limit ?? DEFAULT_READ_LIMIT, offset: params.offset || 1 })
+          : sliceText(document, { limit: params.limit ?? DEFAULT_READ_LIMIT, offset: params.offset || 1 })
       if (file.count < file.offset && !(file.count === 0 && file.offset === 1)) {
         return yield* Effect.fail(
           new Error(`Offset ${file.offset} is out of range for this file (${file.count} lines)`),

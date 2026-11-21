@@ -39,40 +39,60 @@ describe("relay contracts", () => {
 
   test("auth state omits secret material", () => {
     const encoded = Schema.encodeSync(Relay.AuthState)({
-      unified: true,
-      hasUnifiedKey: true,
       vendors: [
         {
           id: Relay.VendorID.chatgpt,
           name: "ChatGPT",
-          builtin: true,
+          builtin: false,
           hasKey: true,
           updatedAt: now,
           revision: 1,
         },
       ],
       revision: 2,
-      canRollback: false,
     })
 
     expect(encoded).toEqual({
-      unified: true,
-      hasUnifiedKey: true,
       vendors: [
         {
           id: "chatgpt",
           name: "ChatGPT",
-          builtin: true,
+          builtin: false,
           hasKey: true,
           updatedAt: 1_704_067_200_000,
           revision: 1,
         },
       ],
       revision: 2,
-      canRollback: false,
     })
+    expect(encoded).not.toHaveProperty("unified")
+    expect(encoded).not.toHaveProperty("hasUnifiedKey")
+    expect(encoded).not.toHaveProperty("canRollback")
     expect(JSON.stringify(encoded)).not.toContain("sk-")
     expect(JSON.stringify(encoded)).not.toContain("keyFingerprint")
+  })
+
+  test("committed auth catalog outcome is optional, serializable and closed", () => {
+    const old = Schema.decodeUnknownSync(Relay.AuthState)({ vendors: [], revision: 0 })
+    expect(Schema.encodeSync(Relay.AuthState)(old)).not.toHaveProperty("catalogSync")
+    for (const status of ["synced", "pending"] as const) {
+      const decoded = Schema.decodeUnknownSync(Relay.AuthState)({
+        vendors: [],
+        revision: 1,
+        catalogSync: { status, retryable: status === "pending" },
+      })
+      expect(Schema.encodeSync(Relay.AuthState)(decoded).catalogSync).toEqual({
+        status,
+        retryable: status === "pending",
+      })
+    }
+    expect(() =>
+      Schema.decodeUnknownSync(Relay.AuthState)({
+        vendors: [],
+        revision: 1,
+        catalogSync: { status: "unknown", retryable: true },
+      }),
+    ).toThrow()
   })
 
   test("candidate DTO omits key fingerprints and undefined keys", () => {
@@ -93,6 +113,11 @@ describe("relay contracts", () => {
     })
     expect("keyFingerprint" in encoded).toBe(false)
     expect("displayName" in encoded).toBe(false)
+  })
+
+  test("safe task execution error round trips through the public union", () => {
+    const value = { code: "TASK_EXECUTION_FAILED" as const, retryable: false, requestId: "run_safe" }
+    expect(Schema.decodeUnknownSync(RelayError.Info)(Schema.encodeSync(RelayError.Info)(value))).toEqual(value)
   })
 
   test("conflict error code is part of the public union", () => {
@@ -123,6 +148,7 @@ describe("relay contracts", () => {
     const identifiers = [
       Relay.Vendor,
       Relay.AuthState,
+      Relay.CatalogSync,
       Relay.Effort,
       RelayModel.Candidate,
       RelayModel.Managed,

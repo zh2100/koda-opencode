@@ -1,5 +1,8 @@
+import { InstanceWork } from "./instance-work"
+import { AtomicDocument } from "@opencode-ai/core/config/atomic-document"
+import { RuntimeShutdown } from "./runtime-shutdown"
 import { Layer, ManagedRuntime } from "effect"
-import { attach } from "./run-service"
+import { assertEntry, attach } from "./run-service"
 import * as Observability from "@opencode-ai/core/observability"
 
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -109,11 +112,19 @@ export const AppLayer = AppNodeBuilderV1.build(
 ).pipe(Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)), Layer.provideMerge(Observability.layer))
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })
+export const appShutdown = RuntimeShutdown.makeShutdown(async () => {
+  await InstanceWork.drainAll()
+  const cleanup = await AtomicDocument.retryCleanup()
+  if (cleanup.remaining) throw new Error("Configuration document cleanup is incomplete")
+}, () => rt.dispose())
 type Runtime = Pick<typeof rt, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback" | "dispose">
 
 /** Services provided by AppRuntime — i.e. what an Effect run via AppRuntime.runPromise can yield. */
 export type AppServices = ManagedRuntime.ManagedRuntime.Services<typeof rt>
-const wrap = (effect: Parameters<typeof rt.runSync>[0]) => attach(effect as never) as never
+const wrap = (effect: Parameters<typeof rt.runSync>[0]) => {
+  assertEntry()
+  return attach(effect as never) as never
+}
 
 export const AppRuntime: Runtime = {
   runSync(effect) {
@@ -131,5 +142,5 @@ export const AppRuntime: Runtime = {
   runCallback(effect) {
     return rt.runCallback(wrap(effect))
   },
-  dispose: () => rt.dispose(),
+  dispose: () => appShutdown.dispose(),
 }

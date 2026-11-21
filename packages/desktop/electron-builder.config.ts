@@ -117,7 +117,7 @@ const getBase = (appId: string): Configuration => ({
     {
       from: "resources/",
       to: "",
-      filter: ["opencode-cli*"],
+      filter: ["opencode-cli*", "process-lock-*"],
     },
     {
       from: "native/",
@@ -214,6 +214,7 @@ function getConfig() {
         appId,
         productName: "Koda",
         protocols: { name: "Koda", schemes: ["opencode"] },
+        publish: { provider: "github", owner: "zh2100", repo: "koda-opencode", channel: "latest" },
         deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
         rpm: { packageName: "opencode", fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
       }

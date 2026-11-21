@@ -10,7 +10,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { createLLMEventPublisher } from "@opencode-ai/core/session/runner/publish-llm-event"
 
 const sessionID = SessionV2.ID.make("ses_tool_event_test")
-const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"
+const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 
 const capture = () => {
   const published: Array<{ readonly type: string; readonly data: unknown }> = []
@@ -96,6 +96,37 @@ test("provider-executed success retains its compatibility result", async () => {
   expect(success?.data).toHaveProperty("result")
 })
 
+test("provider-executed image generation becomes durable file content", async () => {
+  const { published, publisher } = capture()
+  await Effect.runPromise(
+    publisher.publish(
+      LLMEvent.toolCall({
+        id: "call-generated-image",
+        name: "image_generation",
+        input: {},
+        providerExecuted: true,
+      }),
+    ),
+  )
+  await Effect.runPromise(
+    publisher.publish(
+      LLMEvent.toolResult({
+        id: "call-generated-image",
+        name: "image_generation",
+        providerExecuted: true,
+        result: {
+          type: "json",
+          value: { result: `data:image/png;base64,${base64}` },
+        },
+      }),
+    ),
+  )
+  const success = published.find((event) => event.type === "session.next.tool.success.1")
+  expect(success?.data).toMatchObject({
+    content: [{ type: "file", mime: "image/png", uri: `data:image/png;base64,${base64}` }],
+  })
+})
+
 test("binary failure emits no success event", async () => {
   const { published, publisher } = capture()
   await Effect.runPromise(publisher.publish(call))
@@ -133,4 +164,56 @@ test("step finish records settlement without publishing step ended", async () =>
 
   expect(published.some((event) => event.type === "session.next.step.ended.2")).toBe(false)
   expect(publisher.stepSettlement()).toMatchObject({ finish: "stop" })
+})
+
+for (const value of [
+  "TEST-PRIVATE-result",
+  { message: "TEST-PRIVATE-result", nested: { token: "TEST-PRIVATE-result" } },
+]) {
+  test(`T17 local error result is rebuilt safely (${typeof value})`, async () => {
+    const { published, publisher } = capture()
+    await Effect.runPromise(publisher.publish(call))
+    await Effect.runPromise(
+      publisher.publish(
+        LLMEvent.toolResult({
+          id: call.id,
+          name: call.name,
+          result: { type: "error", value },
+          providerMetadata: { test: { token: "TEST-PRIVATE-metadata" } },
+        }),
+      ),
+    )
+    const failed = published.find((event) => event.type === "session.next.tool.failed.1")!
+    expect(failed).toBeDefined()
+    expect(JSON.stringify(failed)).not.toContain("TEST-PRIVATE")
+    expect(failed.data).toMatchObject({ result: { type: "error", value: "Tool execution failed" } })
+    Schema.decodeUnknownSync(SessionEvent.Tool.Failed.data)(
+      Schema.encodeSync(SessionEvent.Tool.Failed.data)(failed.data as typeof SessionEvent.Tool.Failed.data.Type),
+    )
+  })
+}
+
+test("T15 provider and tool errors never publish diagnostic text", async () => {
+  const { published, publisher } = capture()
+  await Effect.runPromise(publisher.publish(call))
+  await Effect.runPromise(
+    publisher.publish(
+      LLMEvent.toolError({
+        id: call.id,
+        name: call.name,
+        message: "TEST-PRIVATE-tool",
+        providerMetadata: { test: { token: "TEST-PRIVATE-metadata" } },
+      }),
+    ),
+  )
+  await Effect.runPromise(
+    publisher.publish(
+      LLMEvent.providerError({
+        message: "TEST-PRIVATE-provider",
+        providerMetadata: { test: { token: "TEST-PRIVATE-metadata" } },
+      }),
+    ),
+  )
+  expect(JSON.stringify(published)).not.toContain("TEST-PRIVATE")
+  expect(published.some((event) => event.type === "session.next.step.failed.2")).toBe(true)
 })

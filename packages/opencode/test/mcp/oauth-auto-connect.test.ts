@@ -13,10 +13,12 @@ import { MCP } from "../../src/mcp/index"
 import { McpOAuthCallback } from "../../src/mcp/oauth-callback"
 import { McpOAuthPendingProvider, McpOAuthProvider } from "../../src/mcp/oauth-provider"
 import { testEffect } from "../lib/effect"
+import { TestConfig } from "../fixture/config"
 
 const mcpTest = testEffect(
   LayerNode.compile(
     LayerNode.group([MCP.node, McpAuth.node, EventV2Bridge.node, Config.node, CrossSpawnSpawner.node, FSUtil.node]),
+    [[Config.node, TestConfig.layer()]],
   ),
 )
 

@@ -103,6 +103,8 @@ export async function setupTimelineBenchmark(
     turnDiffs?: unknown[]
   },
 ) {
+  // Keep the retained layout benchmark before its sunset, matching the page acceptance fixtures.
+  await page.clock.setFixedTime(new Date("2026-09-01T00:00:00+08:00"))
   const events: EventPayload[] = []
   let eventBatch = options.eventBatch
   const currentUserMessage = options.turnDiffs
@@ -131,6 +133,8 @@ export async function setupTimelineBenchmark(
         JSON.stringify({
           general: {
             newLayoutDesigns: input.newLayoutDesigns,
+            layoutTransitionEligible: true,
+            newInterfaceNoticeDismissed: true,
             editToolPartsExpanded: true,
             shellToolPartsExpanded: true,
             showReasoningSummaries: true,

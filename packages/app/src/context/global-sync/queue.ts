@@ -5,6 +5,45 @@ type QueueInput = {
   key?: (directory: string) => string
 }
 
+export function bindRefreshResume(input: {
+  saves: () => number
+  resume: () => void
+  observe: (run: () => void) => () => void
+}) {
+  let previous = input.saves()
+  const check = () => {
+    const current = input.saves()
+    if (previous > 0 && current === 0) input.resume()
+    previous = current
+  }
+  const stop = input.observe(check)
+  check()
+  return { dispose: stop }
+}
+
+export function createConfigSaveGate() {
+  let count = 0
+  const listeners = new Set<() => void>()
+  const emit = () => {
+    for (const listener of listeners) listener()
+  }
+  return {
+    count: () => count,
+    begin() {
+      count += 1
+      emit()
+    },
+    finish() {
+      count = Math.max(0, count - 1)
+      emit()
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+}
+
 export function createRefreshQueue(input: QueueInput) {
   const queued = new Map<string, string>()
   let root = false
@@ -75,6 +114,12 @@ export function createRefreshQueue(input: QueueInput) {
   return {
     push,
     refresh,
+    resume() {
+      if (input.paused()) return
+      if (!root && queued.size === 0) return
+      if (running) return
+      void drain()
+    },
     clear(directory: string) {
       queued.delete(key(directory))
     },

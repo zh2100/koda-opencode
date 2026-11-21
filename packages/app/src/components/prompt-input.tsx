@@ -1214,6 +1214,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       ref={(el) => (fileInputRef = el)}
       type="file"
       multiple
+      accept={ACCEPTED_FILE_TYPES.join(",")}
       class="hidden"
       onChange={(e) => {
         const list = e.currentTarget.files
@@ -1603,6 +1604,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               ref={fileInputRef}
               type="file"
               multiple
+              accept={ACCEPTED_FILE_TYPES.join(",")}
               class="hidden"
               onChange={(e) => {
                 const list = e.currentTarget.files
@@ -1638,7 +1640,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
                 <IconButton
                   data-action="prompt-submit"
-                  type="submit"
+                  type={stopping() ? "button" : "submit"}
+                  onClick={(event) => {
+                    if (!stopping()) return
+                    event.preventDefault()
+                    void abort()
+                  }}
                   disabled={!stopping() && (collaboration()?.blocked() || (!working() && blank()))}
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}

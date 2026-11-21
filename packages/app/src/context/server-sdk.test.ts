@@ -57,9 +57,15 @@ describe("coalesceServerEvents", () => {
       adaptServerEvent({
         id,
         created: 1,
-        type: "session.text.delta",
+        type: "session.next.text.delta",
         location: { directory: "/repo" },
-        data: { sessionID: "ses", assistantMessageID: "msg", ordinal: 0, delta: value },
+        data: {
+          sessionID: "ses",
+          assistantMessageID: "msg",
+          textID: "text",
+          timestamp: 1,
+          delta: value,
+        },
       } as unknown as OpenCodeEvent)
     const result = coalesceServerEvents([
       { directory: "/repo", payload: current("evt_1", "hello ") },

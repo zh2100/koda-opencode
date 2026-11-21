@@ -9,6 +9,7 @@ import { AgentV2 } from "./agent"
 import { SessionV2 } from "./session"
 import { SessionStore } from "./session/store"
 import { Wildcard } from "./util/wildcard"
+import { sessionPermissions } from "./session-policy"
 import { PermissionSaved } from "./permission/saved"
 
 export { Effect, Rule, Ruleset } from "@opencode-ai/schema/permission"
@@ -141,7 +142,7 @@ const layer = Layer.effect(
       const session = yield* sessions.get(sessionID)
       if (!session) return yield* new SessionV2.NotFoundError({ sessionID })
       const agent = yield* agents.resolve(agentID ?? session.agent)
-      return agent?.permissions ?? missingAgentPermissions
+      return sessionPermissions(session.approvalMode, agent?.permissions ?? missingAgentPermissions)
     })
 
     function denied(input: AssertInput, rules: Permission.Ruleset) {
@@ -156,7 +157,12 @@ const layer = Layer.effect(
       const rules = yield* configured(input.sessionID, input.agent)
       if (denied(input, rules)) return { effect: "deny" as const, rules }
       const all = [...rules, ...(yield* savedRules())]
-      const effects = input.resources.map((resource) => evaluate(input.action, resource, all).effect)
+      const session = yield* sessions.get(input.sessionID)
+      const auto = session?.approvalMode === "auto" && !["question", "external_directory"].includes(input.action)
+      const effects = input.resources.map((resource) => {
+        const effect = evaluate(input.action, resource, all).effect
+        return auto && effect === "ask" ? "allow" : effect
+      })
       const effect: Permission.Effect = effects.includes("deny") ? "deny" : effects.includes("ask") ? "ask" : "allow"
       return { effect, rules: all }
     })

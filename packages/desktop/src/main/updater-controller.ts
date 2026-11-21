@@ -1,4 +1,5 @@
 import type { UpdaterState } from "@opencode-ai/app/updater"
+import { isNewerKodaVersion } from "./koda-release"
 
 export type { UpdaterState } from "@opencode-ai/app/updater"
 
@@ -44,7 +45,7 @@ export function createUpdaterController(input: {
       transition({ status: "checking" })
       const result = await input.backend.checkForUpdates()
       const version = result?.updateInfo?.version
-      if (!result?.isUpdateAvailable || !version || version === input.currentVersion) {
+      if (!result?.isUpdateAvailable || !version || !isNewerKodaVersion(version, input.currentVersion)) {
         await input.persistence.clear()
         return transition({ status: "up-to-date" })
       }
@@ -72,7 +73,7 @@ export function createUpdaterController(input: {
     },
     async start() {
       const ready = await input.persistence.get()
-      if (ready?.version === input.currentVersion) await input.persistence.clear()
+      if (ready && !isNewerKodaVersion(ready.version, input.currentVersion)) await input.persistence.clear()
       return check()
     },
     check,

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite"
-import { mkdir, symlink } from "node:fs/promises"
+import { mkdir } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, expect, spyOn, test } from "bun:test"
@@ -80,11 +80,11 @@ test("offsetToPosition converts Zed offsets to 1-based editor positions", () => 
 
 test("resolveZedDbPath skips candidates that cannot be stated", async () => {
   await using tmp = await tmpdir()
-  const loop = path.join(tmp.path, "loop")
-  await symlink(loop, loop)
+  const file = path.join(tmp.path, "not-a-directory")
+  await Bun.write(file, "")
   const home = spyOn(os, "homedir").mockImplementation(() => tmp.path)
   const previous = process.env.OPENCODE_ZED_DB
-  process.env.OPENCODE_ZED_DB = loop
+  process.env.OPENCODE_ZED_DB = path.join(file, "db.sqlite")
 
   try {
     expect(resolveZedDbPath()).toBeUndefined()

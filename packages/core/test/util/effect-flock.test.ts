@@ -434,9 +434,9 @@ describe("util.effect-flock", () => {
             ...service,
             writeFileString: (file, content, options) =>
               file === heartbeat
-                ? service.writeFileString(file, content, { ...options, flag: "wx" }).pipe(
-                    Effect.andThen(service.writeFileString(file, content, { ...options, flag: "wx" })),
-                  )
+                ? service
+                    .writeFileString(file, content, { ...options, flag: "wx" })
+                    .pipe(Effect.andThen(service.writeFileString(file, content, { ...options, flag: "wx" })))
                 : service.writeFileString(file, content, options),
             remove: (file, options) =>
               Effect.gen(function* () {
@@ -554,9 +554,13 @@ describe("util.effect-flock", () => {
           return FSUtil.Service.of({
             ...service,
             makeDirectory: (file, options) =>
-              service.makeDirectory(file, options).pipe(
-                Effect.tap(() => (file === lockDir ? Deferred.succeed(created, undefined).pipe(Effect.asVoid) : Effect.void)),
-              ),
+              service
+                .makeDirectory(file, options)
+                .pipe(
+                  Effect.tap(() =>
+                    file === lockDir ? Deferred.succeed(created, undefined).pipe(Effect.asVoid) : Effect.void,
+                  ),
+                ),
             writeFileString: (file, content, options) =>
               file === path.join(lockDir, "heartbeat") && !publish
                 ? Effect.interrupt
@@ -573,7 +577,9 @@ describe("util.effect-flock", () => {
         const diagnosis = yield* flock.diagnose(key, dir)
         const locked = yield* flock.isLocked(key, dir)
         publish = true
-        const acquired = yield* flock.acquire(key, dir).pipe(Effect.scoped, Effect.as(true), Effect.timeoutOption("2 seconds"))
+        const acquired = yield* flock
+          .acquire(key, dir)
+          .pipe(Effect.scoped, Effect.as(true), Effect.timeoutOption("2 seconds"))
         return { interrupted, diagnosis, locked, acquired }
       }).pipe(Effect.provide(layer))
       expect(Option.isSome(outcome.interrupted)).toBe(true)

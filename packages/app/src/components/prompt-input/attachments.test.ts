@@ -24,6 +24,52 @@ describe("attachmentMime", () => {
     expect(await attachmentMime(new File(["avif"], "image.avif", { type: "" }))).toBe("image/avif")
   })
 
+  test("accepts Office document types and extension fallbacks", async () => {
+    expect(await attachmentMime(new File([Uint8Array.of(208, 207, 17, 224)], "legacy.doc", { type: "" }))).toBe(
+      "application/msword",
+    )
+    expect(
+      await attachmentMime(
+        new File([Uint8Array.of(208, 207, 17, 224)], "legacy.doc", { type: "application/msword" }),
+      ),
+    ).toBe("application/msword")
+    expect(
+      await attachmentMime(new File([Uint8Array.of(208, 207, 17, 224)], "legacy.xls", { type: "" })),
+    ).toBe("application/vnd.ms-excel")
+    expect(
+      await attachmentMime(
+        new File([Uint8Array.of(208, 207, 17, 224)], "legacy.xls", { type: "application/vnd.ms-excel" }),
+      ),
+    ).toBe("application/vnd.ms-excel")
+    expect(
+      await attachmentMime(
+        new File([Uint8Array.of(80, 75, 3, 4)], "report.docx", { type: "application/octet-stream" }),
+      ),
+    ).toBe("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    expect(
+      await attachmentMime(
+        new File([Uint8Array.of(80, 75, 3, 4)], "book.xlsx", {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
+      ),
+    ).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    expect(
+      await attachmentMime(new File([Uint8Array.of(80, 75, 3, 4)], "archive.xlsx", { type: "application/zip" })),
+    ).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+  })
+
+  test("accepts OpenDocument, RTF, and EPUB types", async () => {
+    expect(await attachmentMime(new File(["{\\rtf1"], "note.rtf", { type: "application/octet-stream" }))).toBe(
+      "application/rtf",
+    )
+    expect(await attachmentMime(new File([Uint8Array.of(80, 75, 3, 4)], "note.odt", { type: "application/zip" }))).toBe(
+      "application/vnd.oasis.opendocument.text",
+    )
+    expect(await attachmentMime(new File([Uint8Array.of(80, 75, 3, 4)], "book.epub", { type: "" }))).toBe(
+      "application/epub+zip",
+    )
+  })
+
   test("rejects SVG and unsupported image formats", async () => {
     expect(await attachmentMime(new File(["<svg />"], "image.svg", { type: "image/svg+xml" }))).toBeUndefined()
     expect(await attachmentMime(new File(["sheet"], "image.sheet", { type: "image/fastbidsheet" }))).toBeUndefined()
@@ -67,7 +113,12 @@ describe("pickAttachmentFiles", () => {
     await Promise.resolve()
     expect(files).toEqual([file, file])
     expect(paths).toEqual(["C:\\Projects\\LoremIpsum", "C:\\Projects\\DolorSit"])
-    expect(accepts).toEqual([undefined, undefined])
+    expect(accepts).toHaveLength(2)
+    expect(accepts.every((value) => Array.isArray(value))).toBe(true)
+    expect(accepts[0]).toContain(".docx")
+    expect(accepts[0]).toContain(".doc")
+    expect(accepts[0]).toContain(".xls")
+    expect(accepts[0]).toContain(".xlsx")
   })
 
   test("uses the browser file input when no native picker exists", async () => {

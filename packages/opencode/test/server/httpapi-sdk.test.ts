@@ -1,4 +1,4 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, beforeAll, describe, expect } from "bun:test"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Deferred, Effect, Layer } from "effect"
@@ -30,6 +30,11 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { Database } from "@opencode-ai/core/database/database"
 import { httpApiLayer } from "./httpapi-layer"
+
+import { installedPlugin } from "./installed-plugin"
+import { Global } from "@opencode-ai/core/global"
+
+beforeAll(() => installedPlugin(Global.Path.config))
 
 const noopBootstrapLayer = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
 const appLayer = AppNodeBuilder.build(
@@ -214,7 +219,7 @@ function httpapiInstance<A, E>(
       yield* options.setup?.(instance.directory) ?? Effect.void
       return yield* run({ sdk: yield* client(options.serverPath, instance.directory), directory: instance.directory })
     }),
-    { git: options.git ?? true, config: { formatter: false, lsp: false, ...options.config } },
+    { git: options.git ?? true, config: { formatter: false, lsp: false, mcp: { openaiDeveloperDocs: { enabled: false } }, ...options.config } },
   )
 }
 
@@ -234,9 +239,10 @@ function withProject<A, E, E2 = never>(
   return Effect.gen(function* () {
     const directory = yield* tmpdirScoped({
       git: options.git ?? false,
-      config: { formatter: false, lsp: false, ...options.config },
+      config: { formatter: false, lsp: false, mcp: { openaiDeveloperDocs: { enabled: false } }, ...options.config },
     })
     yield* options.setup?.(directory) ?? Effect.void
+
     return yield* run({ sdk: yield* client(serverPath, directory), directory })
   })
 }
@@ -293,7 +299,7 @@ description: A project skill visible to REST API prompts.
 
 # Project REST Skill
 `,
-    ),
+    ).pipe(Effect.andThen(() => Effect.promise(() => installedPlugin(path.join(dir, ".opencode"))))),
   )
 }
 

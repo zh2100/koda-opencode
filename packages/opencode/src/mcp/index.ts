@@ -953,16 +953,22 @@ const layer = Layer.effect(
         return yield* storeClient(s, mcpName, client, listed, client.getInstructions()?.trim(), mcpConfig.timeout)
       }
 
-      const callbackPromise = McpOAuthCallback.waitForCallback(result.oauthState, mcpName)
-      onAuthorization?.(result.authorizationUrl)
-
-      yield* browser.open(result.authorizationUrl).pipe(
-        Effect.catch(() => {
-          return events.publish(BrowserOpenFailed, { mcpName, url: result.authorizationUrl }).pipe(Effect.ignore)
+      const code = yield* Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const callback = McpOAuthCallback.waitForCallback(result.oauthState, mcpName)
+          // A callback can reject before the browser has finished opening.
+          void callback.catch(() => undefined)
+          return callback
         }),
+        (callback) => Effect.gen(function* () {
+          onAuthorization?.(result.authorizationUrl)
+          yield* browser.open(result.authorizationUrl).pipe(
+            Effect.catch(() => events.publish(BrowserOpenFailed, { mcpName, url: result.authorizationUrl }).pipe(Effect.ignore)),
+          )
+          return yield* Effect.promise(() => callback)
+        }),
+        () => Effect.sync(() => McpOAuthCallback.cancelPending(result.oauthState)),
       )
-
-      const code = yield* Effect.promise(() => callbackPromise)
 
       const storedState = yield* auth.getOAuthState(mcpName)
       if (storedState !== result.oauthState) {

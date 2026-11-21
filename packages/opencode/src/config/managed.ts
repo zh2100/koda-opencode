@@ -41,6 +41,13 @@ export function parseManagedPlist(json: string): string {
 }
 
 export async function readManagedPreferences() {
+  const review = process.env.OPENCODE_TEST_MANAGED_PREFERENCES
+  if (review) {
+    return {
+      source: "mobileconfig:review",
+      text: review,
+    }
+  }
   if (process.platform !== "darwin") return
 
   const user = (() => {

@@ -130,7 +130,6 @@ const layer = Layer.effect(
               }
               fn(current.provider)
               normalizeApi(current.provider)
-              if (RelayPolicy.allowsProvider(providerID)) current.provider.api.url = RelayPolicy.BaseURL
             },
             remove: (providerID) => {
               draft.providers.delete(providerID)
@@ -224,7 +223,7 @@ const layer = Layer.effect(
             (model) =>
               providers.has(model.providerID) &&
               model.enabled &&
-              (!RelayPolicy.allowsProvider(model.providerID) || !relay.hasManaged() || relay.visible(model.id)),
+              (!RelayPolicy.allowsProvider(model.providerID) || relay.visible(model.id)),
           )
         }),
 
@@ -236,7 +235,7 @@ const layer = Layer.effect(
               const model = yield* result.model.get(defaultModel.providerID, defaultModel.modelID)
               if (
                 model?.enabled &&
-                (!RelayPolicy.allowsProvider(model.providerID) || !relay.hasManaged() || relay.visible(model.id))
+                (!RelayPolicy.allowsProvider(model.providerID) || relay.visible(model.id))
               )
                 return model
             }

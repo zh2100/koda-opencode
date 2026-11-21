@@ -14,7 +14,6 @@ import {
   For,
 } from "solid-js"
 import { Dialog as Kobalte } from "@kobalte/core/dialog"
-import { makeEventListener } from "@solid-primitives/event-listener"
 
 type DialogElement = () => JSX.Element
 
@@ -25,58 +24,63 @@ type Active = {
   owner: Owner
   onClose?: () => void
   setClosing: (closing: boolean) => void
+  layer: number
+  closing: boolean
+  disposed: boolean
+  timer?: ReturnType<typeof setTimeout>
 }
 
 const Context = createContext<ReturnType<typeof init>>()
+const InstanceContext = createContext<string>()
+
+export function bindDialog<T extends Record<string, unknown>>(element: DialogElement, id: string) {
+  const bound = (() => element()) as DialogElement & { __dialogID?: string }
+  bound.__dialogID = id
+  return bound
+}
+
+export function dialogBinding(element: DialogElement) {
+  return (element as DialogElement & { __dialogID?: string }).__dialogID
+}
 
 function init() {
   const [stack, setStack] = createSignal<Active[]>([])
-  const timer = { current: undefined as ReturnType<typeof setTimeout> | undefined }
-  const lock = { value: false }
+  const lifecycle = { disposed: false }
+  const disposeDialog = (item: Active) => {
+    if (item.disposed) return
+    item.disposed = true
+    if (item.timer !== undefined) {
+      clearTimeout(item.timer)
+      item.timer = undefined
+    }
+    item.dispose()
+  }
 
   onCleanup(() => {
-    if (timer.current === undefined) return
-    clearTimeout(timer.current)
-    timer.current = undefined
+    lifecycle.disposed = true
+    const items = stack()
+    setStack([])
+    for (const item of items) disposeDialog(item)
   })
 
   const close = (id?: string) => {
     const items = stack()
     const current = id ? items.find((item) => item.id === id) : items.at(-1)
-    if (!current || lock.value) return
-    lock.value = true
-    current.onClose?.()
-    current.setClosing(true)
-
-    const closed = current.id
-    if (timer.current !== undefined) {
-      clearTimeout(timer.current)
-      timer.current = undefined
-    }
-
-    timer.current = setTimeout(() => {
-      timer.current = undefined
-      current.dispose()
-      setStack((items) => items.filter((item) => item.id !== closed))
-      lock.value = false
+    if (!current || current.closing || current.disposed) return
+    current.closing = true
+    // Register the timer before callbacks can replace or dispose this instance.
+    current.timer = setTimeout(() => {
+      current.timer = undefined
+      setStack((items) => items.filter((item) => item !== current))
+      disposeDialog(current)
     }, 100)
+    current.setClosing(true)
+    current.onClose?.()
   }
 
-  createEffect(() => {
-    if (stack().length === 0) return
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return
-      close()
-      event.preventDefault()
-      event.stopPropagation()
-    }
-
-    makeEventListener(window, "keydown", onKeyDown, { capture: true })
-  })
-
   const mount = (element: DialogElement, owner: Owner, onClose: (() => void) | undefined, layer: number) => {
-    const id = Math.random().toString(36).slice(2)
+    if (lifecycle.disposed) return
+    const id = dialogBinding(element) ?? Math.random().toString(36).slice(2)
     const zIndex = 50 + layer * 10
     let dispose: (() => void) | undefined
     let setClosing: ((closing: boolean) => void) | undefined
@@ -96,13 +100,10 @@ function init() {
             }}
           >
             <Kobalte.Portal>
-              <Kobalte.Overlay
-                data-component="dialog-overlay"
-                style={{ "z-index": String(zIndex) }}
-                onClick={() => close(id)}
-              />
+              <Kobalte.Overlay data-component="dialog-overlay" style={{ "z-index": String(zIndex) }} />
               <div
                 data-dialog-layer={layer}
+                data-dialog-id={id}
                 style={{
                   position: "fixed",
                   inset: "0",
@@ -113,7 +114,7 @@ function init() {
                   "pointer-events": "none",
                 }}
               >
-                {element()}
+                <InstanceContext.Provider value={id}>{element()}</InstanceContext.Provider>
               </div>
             </Kobalte.Portal>
           </Kobalte>
@@ -123,27 +124,27 @@ function init() {
 
     if (!dispose || !setClosing) return
 
-    const active: Active = { id, node, dispose, owner, onClose, setClosing }
+    queueMicrotask(() => {
+      if (active.disposed) return
+      const overlay = document
+        .querySelector(`[data-dialog-id="${id}"]`)
+        ?.parentElement?.querySelector("[data-component='dialog-overlay']")
+      // Kobalte strips unknown props before they reach the overlay, so the close listener is attached after mount.
+      overlay?.addEventListener("click", () => close(id))
+    })
+
+    const active: Active = { id, node, dispose, owner, onClose, setClosing, layer, closing: false, disposed: false }
     setStack((items) => [...items, active])
   }
 
   const push = (element: DialogElement, owner: Owner, onClose?: () => void) => {
-    if (timer.current !== undefined) {
-      clearTimeout(timer.current)
-      timer.current = undefined
-    }
-    lock.value = false
-    mount(element, owner, onClose, stack().length)
+    mount(element, owner, onClose, (stack().at(-1)?.layer ?? -1) + 1)
   }
 
   const show = (element: DialogElement, owner: Owner, onClose?: () => void) => {
-    for (const item of stack()) item.dispose()
+    const items = stack()
     setStack([])
-    if (timer.current !== undefined) {
-      clearTimeout(timer.current)
-      timer.current = undefined
-    }
-    lock.value = false
+    for (const item of items) disposeDialog(item)
     mount(element, owner, onClose, 0)
   }
 
@@ -160,16 +161,27 @@ export function DialogProvider(props: ParentProps) {
   return (
     <Context.Provider value={ctx}>
       {props.children}
-      <div data-component="dialog-stack">
+      <div data-component="dialog-stack" data-dialog-count={ctx.stack().length}>
         <For each={ctx.stack()}>{(item) => item.node}</For>
       </div>
     </Context.Provider>
   )
 }
 
+// Nested controls inherit only their own active dialog's modality.
+export function useDialogModal() {
+  const ctx = useContext(Context)
+  const id = useContext(InstanceContext)
+  return () => id !== undefined && ctx?.stack().at(-1)?.id === id
+}
+
 export function useDialog() {
   const ctx = useContext(Context)
   const owner = getOwner()
+  const captured = { id: useContext(InstanceContext) }
+  createEffect(() => {
+    captured.id = useContext(InstanceContext) ?? captured.id
+  })
 
   if (!owner) {
     throw new Error("useDialog must be used within a DialogProvider")
@@ -184,14 +196,16 @@ export function useDialog() {
     },
     show(element: DialogElement, onClose?: () => void) {
       const base = ctx.stack().at(-1)?.owner ?? owner
-      return startTransition(() => ctx.show(element, base, onClose))
+      ctx.show(element, base, onClose)
+      return startTransition(() => undefined)
     },
     push(element: DialogElement, onClose?: () => void) {
       const base = ctx.stack().at(-1)?.owner ?? owner
-      return startTransition(() => ctx.push(element, base, onClose))
+      ctx.push(element, base, onClose)
+      return startTransition(() => undefined)
     },
-    close() {
-      ctx.close()
+    close(id?: string) {
+      ctx.close(id ?? captured.id)
     },
   }
 }

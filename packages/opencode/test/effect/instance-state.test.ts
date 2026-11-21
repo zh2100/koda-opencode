@@ -4,6 +4,8 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { $ } from "bun"
 import { Context, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
+import { InstanceStore } from "@/project/instance-store"
+import { InstanceRef } from "@/effect/instance-ref"
 import {
   disposeAllInstancesEffect,
   provideInstanceEffect,
@@ -76,6 +78,25 @@ it.live("InstanceState invalidates on reload", () =>
 
     expect(a).not.toBe(b)
     expect(seen).toEqual(["1"])
+  }),
+)
+
+it.live("stale cache reads and invalidations cannot touch the replacement owner", () =>
+  Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
+    const store = yield* InstanceStore.Service
+    let created = 0
+    const state = yield* InstanceState.make(() => Effect.sync(() => ({ version: ++created })))
+    const first = yield* store.load({ directory: dir })
+    yield* InstanceState.get(state).pipe(Effect.provideService(InstanceRef, first))
+    const second = yield* store.reload({ directory: dir })
+    const replacement = yield* InstanceState.get(state).pipe(Effect.provideService(InstanceRef, second))
+    for (const operation of [InstanceState.get(state), InstanceState.has(state), InstanceState.invalidate(state)]) {
+      const stale = yield* operation.pipe(Effect.provideService(InstanceRef, first), Effect.exit)
+      expect(stale._tag).toBe("Failure")
+      expect(yield* InstanceState.get(state).pipe(Effect.provideService(InstanceRef, second))).toBe(replacement)
+    }
+    expect(created).toBe(2)
   }),
 )
 

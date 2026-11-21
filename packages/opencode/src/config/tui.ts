@@ -12,6 +12,7 @@ import { resolveHostAttentionSoundPaths } from "./tui-host-attention"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { isRecord } from "@opencode-ai/tui/util/record"
 import { Global } from "@opencode-ai/core/global"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { CurrentWorkingDirectory } from "./tui-cwd"
 import { ConfigPlugin } from "@/config/plugin"
@@ -171,7 +172,7 @@ const loadState = Effect.fn("TuiConfig.loadState")(function* (ctx: { directory: 
   // Every config dir we may read from: global config dir, any `.opencode`
   // folders between cwd and home, and OPENCODE_CONFIG_DIR.
   const directories = yield* ConfigPaths.directories(ctx.directory)
-  yield* Effect.promise(() => migrateTuiConfig({ directories, cwd: ctx.directory }))
+  yield* migrateTuiConfig({ directories, cwd: ctx.directory })
 
   const projectFiles = Flag.OPENCODE_DISABLE_PROJECT_CONFIG ? [] : yield* ConfigPaths.files("tui", ctx.directory)
 
@@ -259,7 +260,7 @@ const layer = Layer.effect(
   }).pipe(Effect.withSpan("TuiConfig.layer")),
 )
 
-export const node = LayerNode.make({ service: Service, layer, deps: [Npm.node, FSUtil.node] })
+export const node = LayerNode.make({ service: Service, layer, deps: [Npm.node, FSUtil.node, EffectFlock.node, Global.node] })
 
 const { runPromise } = makeRuntime(Service, AppNodeBuilder.build(node))
 

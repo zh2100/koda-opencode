@@ -10,6 +10,7 @@ import { makeGlobalNode } from "../effect/app-node"
 import { Flock } from "./flock"
 import { Hash } from "./hash"
 import { LockProtocol } from "./lock-protocol"
+import { LockOwner } from "./lock-owner"
 import { NativeFileLock, NativeLockError } from "./native-file-lock"
 
 export namespace EffectFlock {
@@ -61,8 +62,6 @@ export namespace EffectFlock {
   class NotAcquired extends Schema.TaggedErrorClass<NotAcquired>()("NotAcquired", {
     diagnosis: LockDiagnosis,
   }) {}
-
-
 
   export type LockError = LockTimeoutError | LockCompromisedError
   export type Probe = { readonly status: "busy" } | { readonly status: "acquired" }
@@ -124,7 +123,16 @@ export namespace EffectFlock {
 
   const isNotFound = (e: PlatformError) => e.reason._tag === "NotFound"
 
-  export const layer: Layer.Layer<Service, never, Global.Service | FSUtil.Service> = Layer.effect(
+  /** @internal Test observation only; not a supported runtime configuration API. */
+  export type WaitObservation = {
+    readonly key: string
+    readonly lockfile: string
+  }
+
+  /** @internal Builds the real lock layer with an optional synchronous test observer. */
+  export const layerWith = (
+    options: { readonly onWait?: (event: WaitObservation) => void } = {},
+  ): Layer.Layer<Service, never, Global.Service | FSUtil.Service> => Layer.effect(
     Service,
     Effect.gen(function* () {
       const global = yield* Global.Service
@@ -132,7 +140,6 @@ export namespace EffectFlock {
       const lockRoot = path.join(global.state, "locks")
       const hostname = os.hostname()
       const ensuredDirs = new Set<string>()
-
 
       // -- helpers (close over fs) --
 
@@ -170,34 +177,12 @@ export namespace EffectFlock {
         const raw = yield* fs.readFileString(metaPath).pipe(
           Effect.map((text) => text as string | undefined),
           Effect.catch((error) =>
-            isNotFound(error) ? Effect.succeed(undefined) : Effect.fail(new LockDiagnosis({ reason: "filesystem-unavailable" })),
+            isNotFound(error)
+              ? Effect.succeed(undefined)
+              : Effect.fail(new LockDiagnosis({ reason: "filesystem-unavailable" })),
           ),
         )
-        if (!raw) return new LockDiagnosis({ reason: "metadata-missing" })
-        const meta = Schema.decodeUnknownOption(LockMetaJson)(raw)
-        if (Option.isNone(meta)) return new LockDiagnosis({ reason: "metadata-corrupt" })
-        if (meta.value.hostname !== hostname)
-          return new LockDiagnosis({
-            reason: "remote-owner",
-            hostname: meta.value.hostname,
-            pid: meta.value.pid,
-          })
-        let probe: "live" | "exited" | "denied" = "denied"
-        try {
-          process.kill(meta.value.pid, 0)
-          probe = "live"
-        } catch (error) {
-          probe = error && typeof error === "object" && "code" in error && error.code === "ESRCH" ? "exited" : "denied"
-        }
-        if (probe === "live")
-          return new LockDiagnosis({ reason: "live-owner", hostname: meta.value.hostname, pid: meta.value.pid })
-        if (probe === "exited")
-          return new LockDiagnosis({ reason: "exited-owner", hostname: meta.value.hostname, pid: meta.value.pid })
-        return new LockDiagnosis({
-          reason: "permission-denied",
-          hostname: meta.value.hostname,
-          pid: meta.value.pid,
-        })
+        return new LockDiagnosis(LockOwner.diagnose(raw, hostname))
       })
 
       // -- single lock attempt --
@@ -248,8 +233,6 @@ export namespace EffectFlock {
           return { token, metaPath, heartbeatPath, lockDir } satisfies Handle
         }).pipe(Effect.withSpan("EffectFlock.publishOwnership", { attributes: { key } }))
 
-
-
       // -- release --
 
       const release = (handle: Handle, remove: Effect.Effect<void>) =>
@@ -283,7 +266,8 @@ export namespace EffectFlock {
 
       const nativeError = (error: unknown) =>
         new LockCompromisedError({
-          detail: error instanceof NativeLockError || error instanceof Error ? error.message : "native file lock failed",
+          detail:
+            error instanceof NativeLockError || error instanceof Error ? error.message : "native file lock failed",
         })
 
       const nativeLease = (file: string) =>
@@ -325,9 +309,7 @@ export namespace EffectFlock {
             })
             return Effect.sync(() => {
               bridge.cancel()
-            }).pipe(
-              Effect.andThen(Effect.promise(() => bridge.late((lease) => lease.release()).then(() => undefined))),
-            )
+            }).pipe(Effect.andThen(Effect.promise(() => bridge.late((lease) => lease.release()).then(() => undefined))))
           }),
           (lease) => Effect.promise(() => lease.release()).pipe(Effect.orDie),
           { interruptible: true },
@@ -384,9 +366,9 @@ export namespace EffectFlock {
           yield* fs.stat(lockfile).pipe(
             Effect.as(true),
             Effect.catchIf(isNotFound, () => Effect.succeed(false)),
-            Effect.catch(() => Effect.succeed(true)),
+            Effect.catch(() => Effect.succeed(undefined)),
             Effect.flatMap((held) =>
-              held
+              held !== false
                 ? Effect.gen(function* () {
                     const breaker = yield* fs.stat(lockfile + ".breaker").pipe(
                       Effect.as(true),
@@ -399,6 +381,10 @@ export namespace EffectFlock {
                       Effect.catch((error) => Effect.succeed(error)),
                     )
                     if (diagnosis.reason === "exited-owner") return
+                    if (held === true && diagnosis.reason === "live-owner" && options.onWait) {
+                      // An observer must never alter lock errors, ownership, or retry behavior.
+                      yield* Effect.sync(() => options.onWait?.({ key: lockKey, lockfile })).pipe(Effect.ignoreCause)
+                    }
                     return yield* new NotAcquired({ diagnosis })
                   })
                 : Effect.void,
@@ -523,7 +509,10 @@ export namespace EffectFlock {
               yield* Effect.addFinalizer(() => cleanup.run)
               cleanup.run = removeOnce
               const created = yield* atomicMkdir(lockfile)
-              if (!created && !(yield* claimDirectory(lockfile).pipe(Effect.catchTag("NotAcquired", () => Effect.succeed(false))))) {
+              if (
+                !created &&
+                !(yield* claimDirectory(lockfile).pipe(Effect.catchTag("NotAcquired", () => Effect.succeed(false))))
+              ) {
                 cleanup.run = Effect.void
                 return undefined
               }
@@ -545,5 +534,24 @@ export namespace EffectFlock {
     }),
   )
 
+  export const layer = layerWith()
+
   export const node = makeGlobalNode({ service: Service, layer: layer, deps: [Global.node, FSUtil.node] })
 }
+
+// Named bindings for the public facade. Keep these aliases next to the source
+// namespace so the facade can forward identity without re-exporting internals.
+export const EffectFlockService = EffectFlock.Service
+export type EffectFlockServiceType = EffectFlock.Service
+export type EffectFlockLockDiagnosisType = EffectFlock.LockDiagnosis
+export type EffectFlockLockTimeoutErrorType = EffectFlock.LockTimeoutError
+export type EffectFlockLockCompromisedErrorType = EffectFlock.LockCompromisedError
+export const EffectFlockLockDiagnosisReason = EffectFlock.LockDiagnosisReason
+export const EffectFlockLockDiagnosis = EffectFlock.LockDiagnosis
+export const EffectFlockLockTimeoutError = EffectFlock.LockTimeoutError
+export const EffectFlockLockCompromisedError = EffectFlock.LockCompromisedError
+export const EffectFlockLayer = EffectFlock.layer
+export const EffectFlockNode = EffectFlock.node
+export type EffectFlockInterface = EffectFlock.Interface
+export type EffectFlockLockError = EffectFlock.LockError
+export type EffectFlockProbe = EffectFlock.Probe

@@ -7,7 +7,10 @@ import { WorkspaceV2 } from "@opencode-ai/core/workspace"
 import { it } from "./lib/effect"
 
 const location = (directory: string, workspaceID?: string) =>
-  Location.Ref.make({ directory: AbsolutePath.make(directory), ...(workspaceID ? { workspaceID: WorkspaceV2.ID.make(`wrk_${workspaceID}`) } : {}) })
+  Location.Ref.make({
+    directory: AbsolutePath.make(directory),
+    ...(workspaceID ? { workspaceID: WorkspaceV2.ID.make(`wrk_${workspaceID}`) } : {}),
+  })
 
 describe("WorkspaceOwnership", () => {
   it.effect("serializes owners of the same workspace and releases on completion", () =>
@@ -46,6 +49,10 @@ describe("WorkspaceOwnership", () => {
     Effect.gen(function* () {
       const ownership = yield* WorkspaceOwnership.Service
       expect(ownership.key(location("C:/Repo/../Repo"))).toBe(ownership.key(location("c:/repo")))
+      if (process.platform !== "win32") {
+        expect(ownership.key(location("/Repo/../Repo"))).toBe("directory:/Repo")
+        expect(ownership.key(location("/repo"))).not.toBe(ownership.key(location("/Repo")))
+      }
       expect(ownership.key(location("C:/repo", "one"))).not.toBe(ownership.key(location("C:/repo", "two")))
     }).pipe(Effect.provide(WorkspaceOwnership.layer)),
   )
@@ -63,7 +70,9 @@ describe("WorkspaceOwnership", () => {
         .pipe(Effect.flip)
 
       expect(failure).toBe("expected failure")
-      expect(yield* ownership.withOwnership({ location: key, ownerID: "next", effect: Effect.succeed("released") })).toBe("released")
+      expect(
+        yield* ownership.withOwnership({ location: key, ownerID: "next", effect: Effect.succeed("released") }),
+      ).toBe("released")
     }).pipe(Effect.provide(WorkspaceOwnership.layer)),
   )
 
@@ -81,7 +90,13 @@ describe("WorkspaceOwnership", () => {
 
       yield* Deferred.await(started)
       yield* Fiber.interrupt(holder)
-      expect(yield* ownership.withOwnership({ location: location("C:/repo", "interrupt"), ownerID: "next", effect: Effect.succeed(true) })).toBe(true)
+      expect(
+        yield* ownership.withOwnership({
+          location: location("C:/repo", "interrupt"),
+          ownerID: "next",
+          effect: Effect.succeed(true),
+        }),
+      ).toBe(true)
     }).pipe(Effect.provide(WorkspaceOwnership.layer)),
   )
 
@@ -134,7 +149,9 @@ describe("WorkspaceOwnership", () => {
       yield* Fiber.interrupt(waiter)
       yield* Deferred.succeed(release, undefined)
       yield* Fiber.join(holder)
-      expect(yield* ownership.withOwnership({ location: key, ownerID: "next", effect: Effect.succeed(true) })).toBe(true)
+      expect(yield* ownership.withOwnership({ location: key, ownerID: "next", effect: Effect.succeed(true) })).toBe(
+        true,
+      )
     }).pipe(Effect.provide(WorkspaceOwnership.layer)),
   )
 })

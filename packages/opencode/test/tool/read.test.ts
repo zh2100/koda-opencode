@@ -10,6 +10,8 @@ import { Global } from "@opencode-ai/core/global"
 import { Config } from "@/config/config"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
+import { Npm } from "@opencode-ai/core/npm"
+import { NpmTest } from "../fake/npm"
 import { LSP } from "@/lsp/lsp"
 import { Permission } from "../../src/permission"
 import { SessionID, MessageID } from "../../src/session/schema"
@@ -55,9 +57,11 @@ const readLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
       Ripgrep.node,
       Truncate.node,
     ]),
+    [[Npm.node, NpmTest.noop]],
   )
 
-const it = testEffect(Layer.mergeAll(readLayer(), testInstanceStoreLayer))
+// Dispose the store before releasing services whose caches belong to its instances.
+const it = testEffect(Layer.provideMerge(testInstanceStoreLayer, readLayer()))
 
 const init = Effect.fn("ReadToolTest.init")(function* () {
   const info = yield* ReadTool
@@ -192,10 +196,7 @@ describe("tool.read external_directory permission", () => {
 
         const { items, next } = asks()
         const target = path.join(dir, "test.txt")
-        const alt = target
-          .replace(/^[A-Za-z]:/, "")
-          .replaceAll("\\", "/")
-          .toLowerCase()
+        const alt = target.replaceAll("\\", "/").toLowerCase()
 
         yield* exec(dir, { filePath: alt }, next)
         const read = items.find((item) => item.permission === "read")

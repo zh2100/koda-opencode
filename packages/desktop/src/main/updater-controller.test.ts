@@ -1,12 +1,20 @@
 import { describe, expect, test } from "bun:test"
 import { createUpdaterController, type UpdaterBackend, type UpdaterReadyRecord } from "./updater-controller"
 
-function setup(input?: { currentVersion?: string; ready?: UpdaterReadyRecord }) {
+function setup(input?: {
+  currentVersion?: string
+  ready?: UpdaterReadyRecord
+  availableVersion?: string
+  checkError?: string
+  isUpdateAvailable?: boolean
+  enabled?: boolean
+}) {
   const calls: string[] = []
   const backend: UpdaterBackend = {
     async checkForUpdates() {
       calls.push("check")
-      return { isUpdateAvailable: true, updateInfo: { version: "2.0.0" } }
+      if (input?.checkError) throw new Error(input.checkError)
+      return { isUpdateAvailable: input?.isUpdateAvailable ?? true, updateInfo: { version: input?.availableVersion ?? "2.0.0" } }
     },
     async downloadUpdate() {
       calls.push("download")
@@ -17,7 +25,7 @@ function setup(input?: { currentVersion?: string; ready?: UpdaterReadyRecord }) 
   }
   let ready = input?.ready
   const controller = createUpdaterController({
-    enabled: true,
+    enabled: input?.enabled ?? true,
     currentVersion: input?.currentVersion ?? "1.0.0",
     backend,
     persistence: {
@@ -66,6 +74,70 @@ describe("updater controller", () => {
 
     expect(app.getReady()).toBeUndefined()
     expect(app.calls).toEqual(["check"])
+  })
+
+  test("ignores an update feed that only contains an older version", async () => {
+    const app = setup({ currentVersion: "1.0.6", availableVersion: "1.0.5", ready: { version: "1.0.5" } })
+
+    await app.controller.start()
+
+    expect(app.getReady()).toBeUndefined()
+    expect(app.calls).toEqual(["check"])
+    expect(app.controller.getState()).toEqual({ status: "up-to-date" })
+    await expect(app.controller.install()).rejects.toThrow("Update is not ready to install")
+    expect(app.calls).toEqual(["check"])
+  })
+
+  test.each([
+    ["1.9.9", "2.0.0", true],
+    ["1.9.9", "1.10.0", true],
+    ["2.0.0", "1.99.99", false],
+    ["1.10.0", "1.9.99", false],
+    ["1.0.6", "1.0.6", false],
+    ["1.0.6", "invalid", false],
+    ["1.0.6", "1.0.6-beta.1", false],
+    ["1.0.6", "1.0.6+build.2", false],
+    ["1.0.6-beta.1", "1.0.6", true],
+  ])("compares current %s with target %s numerically", async (currentVersion, availableVersion, newer) => {
+    const app = setup({ currentVersion, availableVersion })
+
+    await app.controller.start()
+
+    expect(app.calls).toEqual(newer ? ["check", "download"] : ["check"])
+    expect(app.controller.getState()).toEqual(
+      newer ? { status: "ready", version: availableVersion } : { status: "up-to-date" },
+    )
+  })
+
+  test("clears a stale downgrade record even when the update check fails", async () => {
+    const app = setup({ currentVersion: "1.0.6", ready: { version: "1.0.5" }, checkError: "offline" })
+
+    await app.controller.start()
+
+    expect(app.getReady()).toBeUndefined()
+    expect(app.controller.getState()).toEqual({ status: "error", message: "offline" })
+    expect(app.calls).toEqual(["check"])
+  })
+
+  test("does not download when the GitHub provider reports no update", async () => {
+    const app = setup({ currentVersion: "1.0.6", availableVersion: "1.0.7", isUpdateAvailable: false })
+
+    await app.controller.check()
+
+    expect(app.calls).toEqual(["check"])
+    expect(app.controller.getState()).toEqual({ status: "up-to-date" })
+    await expect(app.controller.install()).rejects.toThrow("Update is not ready to install")
+  })
+
+  test("keeps development and beta update checks disabled", async () => {
+    const app = setup({ enabled: false, ready: { version: "2.0.0" } })
+
+    await app.controller.start()
+    await app.controller.check()
+
+    expect(app.calls).toEqual([])
+    expect(app.controller.getState()).toEqual({ status: "disabled" })
+    await expect(app.controller.install()).rejects.toThrow("Update is not ready to install")
   })
 
   test("coalesces concurrent checks", async () => {

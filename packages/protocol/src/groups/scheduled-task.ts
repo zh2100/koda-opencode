@@ -18,6 +18,24 @@ export class ScheduledTaskNotFoundError extends Schema.TaggedErrorClass<Schedule
   { httpApiStatus: 404 },
 ) {}
 
+export class ScheduledTaskDisabledError extends Schema.TaggedErrorClass<ScheduledTaskDisabledError>()(
+  "ScheduledTaskDisabledError",
+  {
+    taskID: Schema.String,
+    message: Schema.String,
+  },
+  { httpApiStatus: 409 },
+) {}
+
+export class ScheduledTaskConflictError extends Schema.TaggedErrorClass<ScheduledTaskConflictError>()(
+  "ScheduledTaskConflictError",
+  {
+    taskID: Schema.String,
+    message: Schema.String,
+  },
+  { httpApiStatus: 409 },
+) {}
+
 export const CreatePayload = Schema.Struct({
   name: Schema.String,
   projectID: Project.ID,
@@ -73,7 +91,7 @@ export const ScheduledTaskGroup = HttpApiGroup.make("server.scheduledTask")
     HttpApiEndpoint.post("scheduledTask.run", "/api/scheduled-task/:taskID/run", {
       params: { taskID: ScheduledTask.ID },
       success: ScheduledTask.Run,
-      error: [ScheduledTaskNotFoundError, ServiceUnavailableError],
+      error: [ScheduledTaskNotFoundError, ScheduledTaskDisabledError, ScheduledTaskConflictError, ServiceUnavailableError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "v2.scheduledTask.run",

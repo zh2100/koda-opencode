@@ -3,7 +3,6 @@ import { Dialog } from "@opencode-ai/ui/v2/dialog-v2"
 import { TabsV2 } from "@opencode-ai/ui/v2/tabs-v2"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
-import { usePlatform } from "@/context/platform"
 import { SettingsGeneralV2 } from "./general"
 import { SettingsKeybinds } from "../settings-keybinds"
 import { SettingsProvidersV2 } from "./providers"
@@ -27,7 +26,6 @@ export const DialogSettings: Component<{
   defaultValue?: string
 }> = (props) => {
   const language = useLanguage()
-  const platform = usePlatform()
   const dialog = useDialog()
   const layout = useLayout()
   const tabs = useTabs()
@@ -124,7 +122,7 @@ export const DialogSettings: Component<{
              <div class="settings-v2-nav-footer">
                <span>{language.t("app.name.desktop")}</span>
                <span>数元AI</span>
-               <span>v1.0.5</span>
+               <span>v{import.meta.env.VITE_KODA_VERSION}</span>
              </div>
           </div>
         </TabsV2.List>

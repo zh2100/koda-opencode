@@ -37,20 +37,22 @@ export const { use: useGlobal, provider: GlobalProvider } = createSimpleContext(
 
     const serverCtxs = new Map<
       ServerConnection.Key,
-      { dispose: () => void; serverCtx: ReturnType<typeof createServerCtx> }
+      { dispose: () => void; connection: string; serverCtx: ReturnType<typeof createServerCtx> }
     >()
 
     const owner = getOwner()
 
     const ensureServerCtx = (conn: ServerConnection.Any) => {
       const key = ServerConnection.key(conn)
+      const connection = JSON.stringify([conn.type, conn.http.url, conn.http.username, conn.http.password, "authToken" in conn ? conn.authToken : undefined])
       const existing = serverCtxs.get(key)
-      if (existing) return existing.serverCtx
+      if (existing?.connection === connection) return existing.serverCtx
       const root = createRoot((dispose) => {
         const serverCtx = createServerCtx(conn, server.scope(key), server.projects.forServer(key))
-        return { dispose, serverCtx }
+        return { dispose, connection, serverCtx }
       }, owner as any)
       serverCtxs.set(key, root)
+      existing?.dispose()
       return root.serverCtx
     }
 

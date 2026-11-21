@@ -1,4 +1,6 @@
-import { afterEach, expect } from "bun:test"
+import { afterEach, beforeAll, expect } from "bun:test"
+import { Global } from "@opencode-ai/core/global"
+import { installedConfigDependencies } from "../fixture/config-dependencies"
 import { $ } from "bun"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -19,6 +21,7 @@ import { testEffect } from "../lib/effect"
 const it = testEffect(
   Layer.mergeAll(LayerNode.compile(LayerNode.group([Snapshot.node, FSUtil.node])), testInstanceStoreLayer),
 )
+beforeAll(() => installedConfigDependencies(Global.Path.config))
 // Windows forbids both * and : in directory names.
 const nonWindowsIt = process.platform === "win32" ? it.live.skip : it.live
 // Creating file/dir symlinks needs Developer Mode or an elevated token.

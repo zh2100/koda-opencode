@@ -5,7 +5,7 @@ import { QueryClientProvider } from "@tanstack/solid-query"
 import { createMemo, For, type ParentProps, Show } from "solid-js"
 import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
 import { ModelsProvider } from "@/context/models"
-import { ServerConnection } from "@/context/server"
+import { ServerConnection, useServer } from "@/context/server"
 import { ServerSDKProvider } from "@/context/server-sdk"
 import { ServerSyncProvider } from "@/context/server-sync"
 import { useGlobal } from "@/context/global"
@@ -14,12 +14,14 @@ import { useSettings } from "@/context/settings"
 export function SettingsServerScope(props: ParentProps) {
   const global = useGlobal()
   const settings = useSettings()
+  const active = useServer()
+  const selected = createMemo(() =>
+    settings.general.newLayoutDesigns() ? global.settings.server.selected() : active.current,
+  )
 
   return (
-    <Show when={settings.general.newLayoutDesigns()} fallback={props.children}>
-      <Show when={global.settings.server.selected()}>
-        {(server) => <SettingsServerDataProviders server={server()}>{props.children}</SettingsServerDataProviders>}
-      </Show>
+    <Show when={selected()} keyed>
+      {(server) => <SettingsServerDataProviders server={server}>{props.children}</SettingsServerDataProviders>}
     </Show>
   )
 }
@@ -31,7 +33,7 @@ function SettingsServerDataProviders(props: ParentProps<{ server: ServerConnecti
   return (
     <QueryClientProvider client={serverCtx().queryClient}>
       <ServerSDKProvider server={() => props.server}>
-        <ServerSyncProvider>
+        <ServerSyncProvider server={() => props.server}>
           <ModelsProvider>{props.children}</ModelsProvider>
         </ServerSyncProvider>
       </ServerSDKProvider>

@@ -36,10 +36,21 @@ export function formatServerError(error: unknown, translate?: Translator, fallba
 }
 
 function unwrapNamedError(error: unknown): unknown {
-  if (error instanceof Error && error.cause && typeof error.cause === "object" && "body" in error.cause) {
-    return (error.cause as Record<string, unknown>).body
+  let current = error
+  const seen = new Set<object>()
+
+  while (current instanceof Error && current.cause) {
+    if (seen.has(current)) return current
+    seen.add(current)
+
+    if (typeof current.cause === "object" && current.cause !== null && "body" in current.cause) {
+      return (current.cause as Record<string, unknown>).body
+    }
+
+    current = current.cause
   }
-  return error
+
+  return current
 }
 
 // Client-synthesized session not-found errors share one constructor and

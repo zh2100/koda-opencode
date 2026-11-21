@@ -19,8 +19,9 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/WorkspaceOwnership") {}
 
 const normalizeDirectory = (directory: string) => {
-  const normalized = path.resolve(directory).replaceAll("\\", "/")
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized
+  const windowsPath = process.platform === "win32" || /^[A-Za-z]:[\\/]/.test(directory) || directory.startsWith("\\\\")
+  if (!windowsPath) return path.resolve(directory)
+  return path.win32.resolve(directory).replaceAll("\\", "/").toLowerCase()
 }
 
 export const workspaceKey = (location: Location.Ref) =>

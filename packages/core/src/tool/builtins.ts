@@ -6,6 +6,7 @@ import { BashTool } from "./bash"
 import { ApplyPatchTool } from "./apply-patch"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
+import { ImageGenerationTool } from "./image-generation"
 import { GrepTool } from "./grep"
 import { QuestionTool } from "./question"
 import { ReadTool } from "./read"
@@ -37,6 +38,7 @@ export const node = makeLocationNode({
     EditTool.node,
     GlobTool.node,
     GrepTool.node,
+    ImageGenerationTool.node,
     QuestionTool.node,
     ReadTool.node,
     SkillTool.node,

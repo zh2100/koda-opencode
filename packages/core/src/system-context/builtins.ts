@@ -4,10 +4,10 @@ import { makeLocationNode } from "../effect/app-node"
 import { DateTime, Effect, Layer, Schema } from "effect"
 import { Location } from "../location"
 import { SystemContext } from "./index"
-import { InstructionContext } from "../instruction-context"
 import { SystemContextRegistry } from "./registry"
 import { FSUtil } from "../fs-util"
 import { Global } from "../global"
+import { InstructionContext } from "../instruction-context"
 
 const builtIns = Layer.effectDiscard(
   Effect.gen(function* () {

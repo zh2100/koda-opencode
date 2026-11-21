@@ -48,7 +48,8 @@ describe("TesterSession", () => {
           release: Effect.sync(() => released.push("released")),
         }),
     }
-    const create: SessionV2.Interface["create"] = () => Effect.succeed({ id: SessionSchema.ID.make("ses_tester") } as never)
+    const create: SessionV2.Interface["create"] = () =>
+      Effect.succeed({ id: SessionSchema.ID.make("ses_tester") } as never)
 
     const exit = await Effect.runPromiseExit(
       TesterSession.withTesterSession({
@@ -75,7 +76,8 @@ describe("TesterSession", () => {
           }),
         }),
     }
-    const create: SessionV2.Interface["create"] = () => Effect.succeed({ id: SessionSchema.ID.make("ses_tester") } as never)
+    const create: SessionV2.Interface["create"] = () =>
+      Effect.succeed({ id: SessionSchema.ID.make("ses_tester") } as never)
 
     await Effect.runPromise(
       TesterSession.withTesterSession({

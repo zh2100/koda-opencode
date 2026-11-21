@@ -49,6 +49,7 @@ describe("message-file", () => {
   test("separates image and file attachment kinds", () => {
     expect(kind(file({ mime: "image/png" }))).toBe("image")
     expect(kind(file({ mime: "application/pdf" }))).toBe("file")
+    expect(kind(file({ mime: undefined }))).toBe("file")
   })
 
   test("labels attachment types from the basename extension", () => {

@@ -1,7 +1,11 @@
 import path from "path"
 import { type ParseError as JsoncParseError, applyEdits, modify, parse as parseJsonc } from "jsonc-parser"
 import { unique } from "remeda"
-import { Option, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
+import { ConfigDocument } from "@opencode-ai/core/config/document"
+import { AtomicDocument } from "@opencode-ai/core/config/atomic-document"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
+import { SettledIO } from "@opencode-ai/core/util/settled-io"
 import { TuiConfig } from "@opencode-ai/tui/config"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Global } from "@opencode-ai/core/global"
@@ -26,45 +30,58 @@ interface MigrateInput {
  * into dedicated tui.json files. Migration is performed per-directory and
  * skips only locations where a tui.json already exists.
  */
-export async function migrateTuiConfig(input: MigrateInput) {
-  const opencode = await opencodeFiles(input)
-  for (const file of opencode) {
-    const source = await Filesystem.readText(file).catch(() => undefined)
-    if (!source) continue
-    const errors: JsoncParseError[] = []
-    const data = parseJsonc(source, errors, { allowTrailingComma: true })
-    if (errors.length || !data || typeof data !== "object" || Array.isArray(data)) continue
-
-    const theme = decodeTheme("theme" in data ? data.theme : undefined)
-    const keybinds = decodeRecord("keybinds" in data ? data.keybinds : undefined)
-    const legacyTui = decodeRecord("tui" in data ? data.tui : undefined)
-    const extracted = {
-      theme: Option.getOrUndefined(theme),
-      keybinds: Option.getOrUndefined(keybinds),
-      tui: Option.getOrUndefined(legacyTui),
+export function migrateTuiConfig(input: MigrateInput) {
+  return Effect.gen(function* () {
+    const flock = yield* EffectFlock.Service
+    const opencode = yield* Effect.promise(() => opencodeFiles(input))
+    for (const file of opencode) {
+      // Optional loader writes never wait on a business writer. Read only after
+      // the shared alias gate and lease, and drain dispatched IO before release.
+      yield* ConfigDocument.tryWithLock(flock, file, Effect.promise(() => migrateFile(file)).pipe(SettledIO.drain))
     }
-    const tui = extracted.tui ? normalizeTui(extracted.tui) : undefined
-    if (extracted.theme === undefined && extracted.keybinds === undefined && !tui) continue
+  }).pipe(
+    Effect.catch(() =>
+      Effect.logWarning("TUI configuration migration skipped because document ownership is unavailable"),
+    ),
+  )
+}
 
-    const target = path.join(path.dirname(file), "tui.json")
-    const targetExists = await Filesystem.exists(target)
-    if (targetExists) continue
+async function migrateFile(file: string) {
+  const source = await Filesystem.readText(file).catch(() => undefined)
+  if (!source) return
+  const errors: JsoncParseError[] = []
+  const data = parseJsonc(source, errors, { allowTrailingComma: true })
+  if (errors.length || !data || typeof data !== "object" || Array.isArray(data)) return
 
-    const payload: Record<string, unknown> = {
-      $schema: TUI_SCHEMA_URL,
-    }
-    if (extracted.theme !== undefined) payload.theme = extracted.theme
-    if (extracted.keybinds !== undefined) payload.keybinds = extracted.keybinds
-    if (tui) Object.assign(payload, tui)
-
-    const wrote = await Filesystem.write(target, JSON.stringify(payload, null, 2))
-      .then(() => true)
-      .catch(() => false)
-    if (!wrote) continue
-
-    const stripped = await backupAndStripLegacy(file, source)
-    if (!stripped) continue
+  const theme = decodeTheme("theme" in data ? data.theme : undefined)
+  const keybinds = decodeRecord("keybinds" in data ? data.keybinds : undefined)
+  const legacyTui = decodeRecord("tui" in data ? data.tui : undefined)
+  const extracted = {
+    theme: Option.getOrUndefined(theme),
+    keybinds: Option.getOrUndefined(keybinds),
+    tui: Option.getOrUndefined(legacyTui),
   }
+  const tui = extracted.tui ? normalizeTui(extracted.tui) : undefined
+  if (extracted.theme === undefined && extracted.keybinds === undefined && !tui) return
+
+  const target = path.join(path.dirname(file), "tui.json")
+  const targetExists = await Filesystem.exists(target)
+  if (targetExists) return
+
+  const payload: Record<string, unknown> = {
+    $schema: TUI_SCHEMA_URL,
+  }
+  if (extracted.theme !== undefined) payload.theme = extracted.theme
+  if (extracted.keybinds !== undefined) payload.keybinds = extracted.keybinds
+  if (tui) Object.assign(payload, tui)
+
+  const wrote = await AtomicDocument.publishCopy(file, target, JSON.stringify(payload, null, 2))
+    .then(() => true)
+    .catch(() => false)
+  if (!wrote) return
+
+  const stripped = await backupAndStripLegacy(file, source)
+  if (!stripped) return
 }
 
 function normalizeTui(data: Record<string, unknown>):
@@ -91,7 +108,7 @@ async function backupAndStripLegacy(file: string, source: string) {
   const hasBackup = await Filesystem.exists(backup)
   const backed = hasBackup
     ? true
-    : await Filesystem.write(backup, source)
+    : await AtomicDocument.publishCopy(file, backup, source)
         .then(() => true)
         .catch(() => false)
   if (!backed) return false
@@ -107,7 +124,7 @@ async function backupAndStripLegacy(file: string, source: string) {
     return applyEdits(acc, edits)
   }, source)
 
-  return Filesystem.write(file, text)
+  return AtomicDocument.publish({ file, before: source, text })
     .then(() => true)
     .catch(() => false)
 }

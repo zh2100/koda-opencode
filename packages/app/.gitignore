@@ -1,3 +1,5 @@
 src/assets/theme.css
 e2e/test-results
 e2e/playwright-report
+src/components/settings-v2/dialog-mcp-v2.compiled.ts
+src/components/settings-v2/dialog-context.compiled.ts

@@ -1,3 +1,4 @@
+import { projectConfigHttpError } from "../config-write-error"
 import { Config } from "@/config/config"
 import { RelayGate } from "@opencode-ai/core/relay-gate"
 import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
@@ -78,7 +79,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
     })
 
     const configUpdate = Effect.fn("GlobalHttpApi.configUpdate")(function* (ctx) {
-      const result = yield* config.updateGlobal(ctx.payload)
+      const result = yield* config.updateGlobal(ctx.payload).pipe(Effect.mapError(projectConfigHttpError))
       if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
       return result.info
     })

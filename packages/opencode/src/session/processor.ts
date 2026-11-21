@@ -14,8 +14,7 @@ import { LLM } from "./llm"
 import { normalizeReasoningDelta } from "./llm/reasoning"
 import { MessageV2 } from "./message-v2"
 import { isOverflow } from "./overflow"
-import { PartID } from "./schema"
-import type { SessionID } from "./schema"
+import { MessageID, PartID, SessionID } from "./schema"
 import { SessionRetry } from "./retry"
 import { SessionStatus } from "./status"
 import { SessionSummary } from "./summary"
@@ -52,6 +51,26 @@ type Input = {
   assistantMessage: SessionV1.Assistant
   sessionID: SessionID
   model: Provider.Model
+}
+
+function imageGenerationAttachment(
+  result: string,
+  sessionID: SessionID,
+  messageID: MessageID,
+): SessionV1.FilePart | undefined {
+  const match = result.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\r\n]+)$/)
+  const mime = match?.[1] ?? "image/png"
+  const data = (match?.[2] ?? result).replaceAll(/\s/g, "")
+  if (!/^[A-Za-z0-9+/=]+$/.test(data)) return
+  return {
+    id: PartID.ascending(),
+    sessionID,
+    messageID,
+    type: "file",
+    mime,
+    url: `data:${mime};base64,${data}`,
+    filename: `generated-image.${mime.slice("image/".length).replace("jpeg", "jpg")}`,
+  }
 }
 
 export interface Interface {
@@ -269,6 +288,25 @@ const layer = Layer.effect(
       const toolResultOutput = (
         value: Extract<StreamEvent, { type: "tool-result" }>,
       ): { title: string; metadata: Record<string, any>; output: string; attachments?: SessionV1.FilePart[] } => {
+        if (
+          value.name === "image_generation" &&
+          isRecord(value.result.value) &&
+          typeof value.result.value.result === "string"
+        ) {
+          const generated = imageGenerationAttachment(
+            value.result.value.result,
+            ctx.assistantMessage.sessionID,
+            ctx.assistantMessage.id,
+          )
+          if (generated) {
+            return {
+              title: value.name,
+              metadata: {},
+              output: "Generated image",
+              attachments: [generated],
+            }
+          }
+        }
         if (isRecord(value.result.value) && typeof value.result.value.output === "string") {
           return {
             title: typeof value.result.value.title === "string" ? value.result.value.title : value.name,
@@ -642,7 +680,6 @@ const layer = Layer.effect(
             return
           }
           ctx.needsCompaction = true
-          yield* events.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
           return
         }
         ctx.assistantMessage.error = error
@@ -679,7 +716,12 @@ const layer = Layer.effect(
             Effect.onInterrupt(() =>
               Effect.gen(function* () {
                 aborted = true
-                if (!ctx.assistantMessage.error) {
+                // `Stream.takeUntil` interrupts the provider stream when the
+                // current turn has crossed the compaction threshold. That is
+                // an intentional handoff to the compaction loop, not a user
+                // cancellation. Treating it as an abort marks the assistant
+                // turn as interrupted and makes the task appear to stop.
+                if (!ctx.assistantMessage.error && !ctx.needsCompaction) {
                   yield* halt(new DOMException("Aborted", "AbortError"))
                 }
               }),

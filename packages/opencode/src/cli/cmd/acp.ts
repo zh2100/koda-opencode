@@ -5,8 +5,9 @@ import { ServerAuth } from "@/server/auth"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
 import { ACPProfile } from "@/acp/profile"
+import { once } from "node:events"
 
-export const AcpCommand = effectCmd({
+const command = effectCmd({
   command: "acp",
   describe: "start ACP (Agent Client Protocol) server",
   builder: (yargs) => {
@@ -71,3 +72,19 @@ export const AcpCommand = effectCmd({
     )
   }),
 })
+
+export const AcpCommand: typeof command = {
+  ...command,
+  async handler(args) {
+    // ACP is client-initiated. Wait in paused mode so the first request stays
+    // buffered and an empty pipe doesn't allocate an instance or HTTP server.
+    const stdin = process.stdin
+    if (!stdin.readableLength && !stdin.readableEnded) {
+      const ready = once(stdin, "readable")
+      stdin.read(0)
+      await ready
+    }
+    if (!stdin.readableLength) return
+    await command.handler(args)
+  },
+}

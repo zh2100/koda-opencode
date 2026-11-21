@@ -24,6 +24,7 @@ import { ProjectCopyGroup } from "./groups/project-copy"
 import { OrchestratorGroup } from "./groups/orchestrator"
 import { RelayGroup } from "./groups/relay"
 import { ScheduledTaskGroup } from "./groups/scheduled-task"
+import { ImageGenerationGroup } from "./groups/image-generation"
 
 // Protocol owns middleware placement, while Server injects concrete keys so Core service identities stay downstream.
 const makeApiFromGroup = <
@@ -49,6 +50,7 @@ const makeApiFromGroup = <
     .add(CredentialGroup.middleware(locationMiddleware))
     .add(RelayGroup.middleware(locationMiddleware))
     .add(ScheduledTaskGroup)
+    .add(ImageGenerationGroup)
     .add(makePermissionGroup(locationMiddleware, sessionLocationMiddleware))
     .add(FileSystemGroup.middleware(locationMiddleware))
     .add(CommandGroup.middleware(locationMiddleware))

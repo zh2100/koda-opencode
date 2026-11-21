@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Npm } from "@opencode-ai/core/npm"
 import { Effect } from "effect"
 import { LSP } from "@/lsp/lsp"
 import * as LSPServer from "@/lsp/server"
 import { TestInstance } from "../fixture/fixture"
+import { NpmTest } from "../fake/npm"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(LayerNode.compile(LSP.node))
+const it = testEffect(LayerNode.compile(LSP.node, [[Npm.node, NpmTest.noop]]))
 
 describe("LSP service lifecycle", () => {
   let spawnSpy: ReturnType<typeof spyOn>

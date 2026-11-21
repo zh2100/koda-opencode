@@ -9,26 +9,50 @@ import { afterAll } from "bun:test"
 // Set XDG env vars FIRST, before any src/ imports
 const dir = path.join(os.tmpdir(), "opencode-test-data-" + process.pid)
 await fs.mkdir(dir, { recursive: true })
+const root = await fs.lstat(dir)
+if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("Invalid test cleanup root")
 afterAll(async () => {
+  console.error("test runtime shutdown", { pid: process.pid, stage: "importing", time: Date.now() })
   const { AppRuntime } = await import("../src/effect/app-runtime")
+  console.error("test runtime shutdown", { pid: process.pid, stage: "quiescing", time: Date.now() })
   await AppRuntime.dispose()
+  console.error("test runtime shutdown", { pid: process.pid, stage: "closed", time: Date.now() })
 
   const busy = (error: unknown) =>
-    typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY"
+    typeof error === "object" && error !== null && "code" in error && (error.code === "EBUSY" || error.code === "EPERM")
   const rm = async (left: number): Promise<void> => {
     Bun.gc(true)
     await sleep(100)
+    const current = await fs.lstat(dir).catch((error) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (!current) return
+    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== root.dev || current.ino !== root.ino) {
+      throw new Error("Test cleanup root identity changed")
+    }
     return fs.rm(dir, { recursive: true, force: true }).catch((error) => {
+      const relative = typeof error.path === "string" ? path.relative(dir, error.path) : undefined
+      if (left === 30 || left === 1 || !busy(error)) console.error("test root cleanup failed", {
+        pid: process.pid,
+        code: error.code,
+        syscall: error.syscall,
+        path: relative === undefined ? undefined : relative === "" ? "." : path.isAbsolute(relative) || relative === ".." || relative.startsWith(".." + path.sep) ? "outside-test-root" : relative,
+        attempts: 31 - left,
+      })
       if (!busy(error)) throw error
-      if (left <= 1 && process.platform !== "win32") throw error
-      if (left <= 1) return
+      if (left <= 1) throw error
       return rm(left - 1)
     })
   }
 
-  // Windows can keep SQLite WAL handles alive until GC finalizers run, so we
-  // force GC and retry teardown to avoid flaky EBUSY in test cleanup.
+  // Only delete after actual runtime shutdown. Bounded retries handle transient
+  // sharing failures; exhausting them fails the batch rather than hiding a leak.
   await rm(30)
+  if (await fs.lstat(dir).then(() => true, (error) => {
+    if (error.code === "ENOENT") return false
+    throw error
+  })) throw new Error("Test cleanup root still exists")
 })
 
 process.env["XDG_DATA_HOME"] = path.join(dir, "share")
@@ -60,7 +84,7 @@ const rgName = process.platform === "win32" ? "rg.exe" : "rg"
 const rgDest = path.join(cacheDir, "bin", rgName)
 await fs.mkdir(path.join(cacheDir, "bin"), { recursive: true })
 const rgSrc = Bun.which(rgName) ?? path.join(os.homedir(), ".cache", "opencode", "bin", rgName)
-if (rgSrc !== rgDest) await fs.copyFile(rgSrc, rgDest).catch(() => undefined)
+if (rgSrc !== rgDest && await Bun.file(rgSrc).exists()) await fs.copyFile(rgSrc, rgDest)
 
 // Clear provider and server auth env vars to ensure clean test state
 delete process.env["ANTHROPIC_API_KEY"]

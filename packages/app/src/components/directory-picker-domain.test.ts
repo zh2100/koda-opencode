@@ -134,7 +134,7 @@ test("resolves directory autocomplete from the current browser root", async () =
   const directories: string[] = []
   const sdk = {
     api: {
-      file: {
+      files: {
         find: (input: { location?: { directory?: string } }) => {
           directories.push(input.location?.directory ?? "")
           return Promise.resolve({ data: [] })
@@ -156,7 +156,7 @@ test("resolves directory autocomplete from the current browser root", async () =
 test("keeps indexed directory results for servers that support empty search", async () => {
   const sdk = {
     api: {
-      file: {
+      files: {
         find: () => Promise.resolve({ data: [{ path: "projects/", type: "directory" }] }),
         list: () => Promise.reject(new Error("listing should not run when search returns results")),
       },
@@ -175,7 +175,7 @@ test("lists the default directory when empty search is unsupported", async () =>
   }))
   const sdk = {
     api: {
-      file: {
+      files: {
         find: () => Promise.resolve({ data: [] }),
         list: (input: { location?: { directory?: string } }) => {
           calls.push(input.location?.directory ?? "")
@@ -197,7 +197,7 @@ test("lists the default directory when empty search is unsupported", async () =>
 test("matches the default directory listing when typed search is unsupported", async () => {
   const sdk = {
     api: {
-      file: {
+      files: {
         find: () => Promise.resolve({ data: [] }),
         list: () =>
           Promise.resolve({
@@ -218,7 +218,7 @@ test("searches from an absolute root without a default base", async () => {
   const directories: string[] = []
   const sdk = {
     api: {
-      file: {
+      files: {
         list: (input: { location?: { directory?: string } }) => {
           directories.push(input.location?.directory ?? "")
           return Promise.resolve({

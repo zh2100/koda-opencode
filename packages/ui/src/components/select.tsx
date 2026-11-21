@@ -1,3 +1,4 @@
+import { useDialogModal } from "../context/dialog"
 import { Select as Kobalte } from "@kobalte/core/select"
 import { createMemo, onCleanup, splitProps, type ComponentProps, type JSX } from "solid-js"
 import { pipe, groupBy, entries, map } from "remeda"
@@ -23,6 +24,7 @@ export type SelectProps<T> = Omit<ComponentProps<typeof Kobalte<T>>, "value" | "
 }
 
 export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">) {
+  const modal = useDialogModal()
   const [local, others] = splitProps(props, [
     "class",
     "classList",
@@ -36,6 +38,7 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
     "onSelect",
     "onHighlight",
     "onOpenChange",
+    "modal",
     "children",
     "triggerStyle",
     "triggerVariant",
@@ -86,6 +89,7 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
     // @ts-ignore
     <Kobalte<T, { category: string; options: T[] }>
       {...others}
+      modal={local.modal ?? modal()}
       data-component="select"
       data-trigger-style={local.triggerVariant}
       placement={local.triggerVariant === "settings" ? "bottom-end" : "bottom-start"}

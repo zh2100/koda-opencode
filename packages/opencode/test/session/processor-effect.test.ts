@@ -413,6 +413,7 @@ it.live("session.processor effect tests stop after token overflow requests compa
         expect(value).toBe("compact")
         expect(parts.some((part) => part.type === "text" && part.text === "after")).toBe(true)
         expect(parts.some((part) => part.type === "step-finish")).toBe(true)
+        expect(handle.message.error).toBeUndefined()
       }),
     { config: (url) => providerCfg(url) },
   ),
@@ -767,6 +768,7 @@ it.live("session.processor effect tests compact on structured context overflow",
     ({ dir, llm }) =>
       Effect.gen(function* () {
         const { processors, session, provider } = yield* boot()
+        const events = yield* EventV2Bridge.Service
 
         yield* llm.error(400, { type: "error", error: { code: "context_length_exceeded" } })
 
@@ -778,6 +780,11 @@ it.live("session.processor effect tests compact on structured context overflow",
           assistantMessage: msg,
           sessionID: chat.id,
           model: mdl,
+        })
+        let errorEvents = 0
+        const off = yield* events.listen((event) => {
+          if (event.type === Session.Event.Error.type) errorEvents++
+          return Effect.void
         })
 
         const value = yield* handle.process({
@@ -796,10 +803,12 @@ it.live("session.processor effect tests compact on structured context overflow",
           messages: [{ role: "user", content: "compact json" }],
           tools: {},
         })
+        yield* off
 
         expect(value).toBe("compact")
         expect(yield* llm.calls).toBe(1)
         expect(handle.message.error).toBeUndefined()
+        expect(errorEvents).toBe(0)
       }),
     { config: (url) => providerCfg(url) },
   ),

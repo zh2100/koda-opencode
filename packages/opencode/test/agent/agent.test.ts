@@ -15,11 +15,13 @@ import { Plugin } from "../../src/plugin"
 import { Provider } from "../../src/provider/provider"
 import { Skill } from "../../src/skill"
 import { Truncate } from "../../src/tool/truncate"
+import { NpmTest } from "../fake/npm"
+import { Npm } from "@opencode-ai/core/npm"
 
 const agentLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
   LayerNode.compile(
     LayerNode.group([Agent.node, Plugin.node, Provider.node, Auth.node, Config.node, Skill.node, RuntimeFlags.node]),
-    [[RuntimeFlags.node, RuntimeFlags.layer(flags)]],
+    [[RuntimeFlags.node, RuntimeFlags.layer(flags)], [Npm.node, NpmTest.noop]],
   )
 
 const it = testEffect(agentLayer())

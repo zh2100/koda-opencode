@@ -299,14 +299,14 @@ export function registerRendererProtocol() {
       return new Response("Not found", { status: 404 })
     }
 
-    const file = resolve(rendererRoot, `.${decodeURIComponent(url.pathname)}`)
-    const rel = relative(rendererRoot, file)
-    if (rel.startsWith("..") || isAbsolute(rel)) {
-      writeLog("protocol", "rejected path", { url: request.url, file }, "warn")
-      return new Response("Not found", { status: 404 })
-    }
-
     try {
+      const file = resolve(rendererRoot, `.${decodeURIComponent(url.pathname)}`)
+      const rel = relative(rendererRoot, file)
+      if (rel.startsWith("..") || isAbsolute(rel)) {
+        writeLog("protocol", "rejected path", { url: request.url, file }, "warn")
+        return new Response("Not found", { status: 404 })
+      }
+
       const range = request.headers.get("range")
       const response = await net.fetch(pathToFileURL(file).toString(), {
         headers: range ? { range } : undefined,
@@ -326,7 +326,7 @@ export function registerRendererProtocol() {
       }
       return addDocumentPolicy(response, file)
     } catch (error) {
-      writeLog("protocol", "fetch error", { url: request.url, file, error }, "error")
+      writeLog("protocol", "fetch error", { url: request.url, error }, "error")
       return new Response("Not found", { status: 404 })
     }
   })

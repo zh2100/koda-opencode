@@ -7,8 +7,158 @@ import {
   type Model,
   type ProviderMetadata,
 } from "@opencode-ai/llm"
+import { Effect } from "effect"
+import path from "path"
+import { fileURLToPath } from "url"
 import { SessionMessage } from "../message"
 import type { FileAttachment } from "../prompt"
+import { extractDocumentText, isReadableDocument } from "../../util/office-text"
+
+const DOCUMENT_ATTACHMENT_EXTENSIONS = new Map([
+  ["application/msword", ".doc"],
+  ["application/vnd.ms-excel", ".xls"],
+  ["application/rtf", ".rtf"],
+  ["text/rtf", ".rtf"],
+  ["application/epub+zip", ".epub"],
+  ["application/vnd.oasis.opendocument.text", ".odt"],
+  ["application/vnd.oasis.opendocument.spreadsheet", ".ods"],
+  ["application/vnd.oasis.opendocument.presentation", ".odp"],
+  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"],
+  ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"],
+  ["application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx"],
+])
+
+const DOCUMENT_ATTACHMENT_MIMES = new Set(DOCUMENT_ATTACHMENT_EXTENSIONS.keys())
+const TEXT_ATTACHMENT_MIMES = new Set(["text/plain", "text/markdown", "text/csv"])
+const TEXT_ATTACHMENT_EXTENSIONS = new Set([".txt", ".md", ".csv"])
+const MAX_TEXT_ATTACHMENT_BYTES = 1024 * 1024
+
+const textAttachment = (file: FileAttachment) => {
+  const filename = attachmentFilename(file)
+  const extension = filename ? path.extname(filename).toLowerCase() : ""
+  return TEXT_ATTACHMENT_MIMES.has(file.mime) || TEXT_ATTACHMENT_EXTENSIONS.has(extension)
+}
+
+const dataUrlBytes = (url: string) => {
+  const index = url.indexOf(",")
+  if (index === -1) return new Uint8Array()
+  const head = url.slice(0, index)
+  const body = url.slice(index + 1)
+  return head.includes(";base64") ? Buffer.from(body, "base64") : Buffer.from(decodeURIComponent(body), "utf8")
+}
+
+const attachmentFilename = (file: FileAttachment) => {
+  if (file.name) return file.name
+  if (URL.canParse(file.uri)) return path.basename(new URL(file.uri).pathname)
+  return DOCUMENT_ATTACHMENT_EXTENSIONS.get(file.mime)
+}
+
+const documentFilename = (file: FileAttachment) => {
+  const filename = attachmentFilename(file)
+  if (filename && isReadableDocument(filename)) return filename
+  return DOCUMENT_ATTACHMENT_EXTENSIONS.get(file.mime) ?? filename
+}
+
+const plainText = Effect.fn("SessionRunner.plainText")(function* (
+  file: FileAttachment,
+  readFile: (path: string) => Effect.Effect<Uint8Array | undefined>,
+) {
+  if (!textAttachment(file)) return
+  const bytes = file.uri.startsWith("data:")
+    ? yield* Effect.try({ try: () => dataUrlBytes(file.uri), catch: (cause) => new Error(String(cause)) }).pipe(
+        Effect.orElseSucceed(() => undefined),
+      )
+    : file.uri.startsWith("file:")
+      ? yield* Effect.gen(function* () {
+          const filepath = yield* Effect.try({
+            try: () => fileURLToPath(file.uri),
+            catch: (cause) => new Error(String(cause)),
+          }).pipe(Effect.orElseSucceed(() => undefined))
+          return filepath === undefined
+            ? undefined
+            : yield* readFile(filepath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        })
+      : undefined
+  if (bytes === undefined || bytes.byteLength > MAX_TEXT_ATTACHMENT_BYTES) return
+  return yield* Effect.try({
+    try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    catch: (cause) => new Error(String(cause)),
+  }).pipe(Effect.orElseSucceed(() => undefined))
+})
+
+const documentText = Effect.fn("SessionRunner.documentText")(function* (
+  file: FileAttachment,
+  readFile: (path: string) => Effect.Effect<Uint8Array | undefined>,
+) {
+  const filename = documentFilename(file)
+  if (!filename || !DOCUMENT_ATTACHMENT_MIMES.has(file.mime) || !isReadableDocument(filename)) return
+  const bytes = file.uri.startsWith("data:")
+    ? yield* Effect.try({ try: () => dataUrlBytes(file.uri), catch: (cause) => new Error(String(cause)) }).pipe(
+        Effect.orElseSucceed(() => undefined),
+      )
+    : file.uri.startsWith("file:")
+      ? yield* Effect.gen(function* () {
+          const filepath = yield* Effect.try({
+            try: () => fileURLToPath(file.uri),
+            catch: (cause) => new Error(String(cause)),
+          }).pipe(Effect.orElseSucceed(() => undefined))
+          return filepath === undefined
+            ? undefined
+            : yield* readFile(filepath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        })
+      : undefined
+  if (bytes === undefined || bytes.byteLength > MAX_TEXT_ATTACHMENT_BYTES) return
+  return yield* Effect.try({
+    try: () => extractDocumentText(filename, bytes),
+    catch: (cause) => new Error(String(cause)),
+  }).pipe(Effect.orElseSucceed(() => undefined))
+})
+
+/** Replace readable document media with text before provider-specific lowering. */
+export const normalizeDocumentAttachments = Effect.fn("SessionRunner.normalizeDocumentAttachments")(function* (
+  messages: readonly SessionMessage.Message[],
+  readFile: (path: string) => Effect.Effect<Uint8Array | undefined>,
+) {
+  return yield* Effect.forEach(messages, (message) => {
+    if (message.type !== "user" || !message.files?.length) return Effect.succeed(message)
+    const attachments = message.files
+    const userMessage = message
+    return Effect.gen(function* () {
+      const documents: string[] = []
+      const files: FileAttachment[] = []
+      for (const file of attachments) {
+        if (textAttachment(file)) {
+          const filename = attachmentFilename(file) ?? file.mime
+          const text = yield* plainText(file, readFile).pipe(Effect.orElseSucceed(() => undefined))
+          if (text === undefined) {
+            documents.push(`Attached text (${filename}) could not be read.`)
+            continue
+          }
+          documents.push(`Attached text (${filename}):\n${text}`)
+          continue
+        }
+        const filename = documentFilename(file)
+        if (!filename || !DOCUMENT_ATTACHMENT_MIMES.has(file.mime) || !isReadableDocument(filename)) {
+          files.push(file)
+          continue
+        }
+        const text = yield* documentText(file, readFile)
+        if (text !== undefined) {
+          documents.push(`Attached document (${filename}):\n${text}`)
+          continue
+        }
+        documents.push(`Attached document (${filename}) could not be read.`)
+      }
+      return SessionMessage.User.make({
+        ...userMessage,
+        text: documents.length
+          ? [userMessage.text, ...documents].filter((value) => value !== undefined && value !== "").join("\n\n")
+          : userMessage.text,
+        files,
+      })
+    })
+  })
+})
 
 const media = (file: FileAttachment): ContentPart => ({
   type: "media",

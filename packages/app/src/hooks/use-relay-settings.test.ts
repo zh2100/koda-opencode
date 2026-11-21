@@ -42,6 +42,9 @@ test("vendor URLs reject credentials, query strings, fragments and malformed URL
 test("maps relay error codes onto settings copy keys", () => {
   expect(relayErrorKey({ message: "KEY_MISSING" })).toBe("settings.relay.error.KEY_MISSING")
   expect(relayErrorKey({ message: "REVISION_CONFLICT" })).toBe("settings.relay.error.REVISION_CONFLICT")
+  expect(relayErrorKey({ message: "SECRET_STORE_UNAVAILABLE", details: "live-owner" })).toBe(
+    "settings.relay.error.LOCK_RECOVERY_REQUIRED",
+  )
   expect(relayErrorKey(new Error("boom"))).toBe("common.requestFailed")
   expect(relayErrorKey(new Error("provider.custom.error.baseURL.format"))).toBe("provider.custom.error.baseURL.format")
 })

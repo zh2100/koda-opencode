@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Global } from "@opencode-ai/core/global"
+import { ImageGenerationSettings } from "@opencode-ai/core/image-generation-settings"
 import { ResourceRoot } from "@opencode-ai/core/resource-root"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { Flock } from "@opencode-ai/core/util/flock"
@@ -25,13 +26,24 @@ function directoryAlias(link: string, target: string) {
 }
 
 describe("resource path resolution", () => {
-  test("a service without explicit paths uses OPENCODE_CONFIG_DIR", () => {
+  test("a service without explicit paths uses OPENCODE_CONFIG_DIR", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "config-dir-"))
     const custom = path.join(root, "Custom Config")
     const previous = process.env.OPENCODE_CONFIG_DIR
     process.env.OPENCODE_CONFIG_DIR = custom
+    fs.mkdirSync(custom, { recursive: true })
+    fs.writeFileSync(path.join(custom, "opencode.json"), JSON.stringify({ model: "custom/model" }))
     try {
-      expect(Global.make().config).toBe(custom)
+      const made = Global.make()
+      expect(made.config).toBe(custom)
+      const layer = AppNodeBuilder.build(ImageGenerationSettings.node, [[Global.node, Global.layerWith({})]])
+      const saved = await Effect.gen(function* () {
+        const settings = yield* ImageGenerationSettings.Service
+        return yield* settings.update({ enabled: true, model: "local/image", api: "openai-images" })
+      }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise)
+      expect(saved.enabled).toBe(true)
+      expect(fs.existsSync(path.join(custom, "opencode.json"))).toBe(true)
+      expect(fs.existsSync(path.join(Global.Path.config, "opencode.json"))).toBe(false)
     } finally {
       if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
       else process.env.OPENCODE_CONFIG_DIR = previous
@@ -45,7 +57,10 @@ describe("resource path resolution", () => {
     const stateHome = path.join(root, "xdg-state")
     const state = path.join(stateHome, "opencode")
     fs.mkdirSync(state, { recursive: true })
-    fs.writeFileSync(LockIdentity.marker(state), JSON.stringify({ generation: "path-identity-v1", status: "migrating" }))
+    fs.writeFileSync(
+      LockIdentity.marker(state),
+      JSON.stringify({ generation: "path-identity-v1", status: "migrating" }),
+    )
     const script = path.join(import.meta.dir, "independent-flock.ts")
     fs.writeFileSync(
       script,
@@ -111,7 +126,10 @@ describe("resource path resolution", () => {
     const context = LockProtocol.registered(registration, LockProtocol.readMarker(state)!)
     const direct = LockProtocol.resolve(`image-generation-settings:${file}`, context)
     const alias = LockProtocol.resolve(`image-generation-settings:${path.join(link, "config.json")}`, context)
-    const cased = LockProtocol.resolve(`image-generation-settings:${process.platform === "win32" ? file.toUpperCase() : file}`, context)
+    const cased = LockProtocol.resolve(
+      `image-generation-settings:${process.platform === "win32" ? file.toUpperCase() : file}`,
+      context,
+    )
     expect(direct.domain).not.toBe("external")
     expect(alias.domain).toBe(direct.domain)
     expect(alias.key).toBe(direct.key)
@@ -203,7 +221,9 @@ describe("resource path resolution", () => {
     expect(again.status).toBe("busy")
     if (sibling.status === "acquired") sibling.release()
     process.env.OPENCODE_NATIVE_LOCK_DIR = moduleA
-    const reacquired = NativeFileLock.tryAcquire(LockProtocol.file(LockProtocol.resolve("relay-auth", selected.context)))
+    const reacquired = NativeFileLock.tryAcquire(
+      LockProtocol.file(LockProtocol.resolve("relay-auth", selected.context)),
+    )
     expect(reacquired.status).toBe("acquired")
     if (reacquired.status === "acquired") reacquired.release()
 

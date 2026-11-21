@@ -194,6 +194,7 @@ export function createChildStoreManager(input: {
           const lspQuery = useQuery(() => ({ ...input.queryOptions.lsp(key), enabled: instanceQueriesEnabled() }))
            const providerQuery = useQuery(() => ({
              ...input.queryOptions.providers(key),
+             enabled: instanceQueriesEnabled(),
              initialData: undefined,
            }))
           const referenceQuery = useQuery(() => ({
@@ -230,8 +231,19 @@ export function createChildStoreManager(input: {
             sessionTotal: 0,
             session_status: {},
             session_working(id: string) {
-              const type = this.session_status[id]?.type
-              return (type ?? "idle") !== "idle"
+              const queue = [id]
+              const seen = new Set<string>()
+              while (queue.length > 0) {
+                const current = queue.shift()
+                if (!current || seen.has(current)) continue
+                seen.add(current)
+                const type = this.session_status[current]?.type
+                if ((type ?? "idle") !== "idle") return true
+                for (const session of this.session) {
+                  if (session.parentID === current) queue.push(session.id)
+                }
+              }
+              return false
             },
             session_diff: {},
             todo: {},

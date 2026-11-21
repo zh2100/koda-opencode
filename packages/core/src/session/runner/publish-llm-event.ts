@@ -1,4 +1,11 @@
-import { ToolOutput, type LLMEvent, type ProviderMetadata, type ToolResultValue, type Usage } from "@opencode-ai/llm"
+import {
+  ToolErrorProjection,
+  ToolOutput,
+  type LLMEvent,
+  type ProviderMetadata,
+  type ToolResultValue,
+  type Usage,
+} from "@opencode-ai/llm"
 import { DateTime, Effect } from "effect"
 import { EventV2 } from "../../event"
 import { ModelV2 } from "../../model"
@@ -48,8 +55,39 @@ type SettledOutput =
   | { readonly structured: Record<string, unknown>; readonly content: ToolOutput["content"] }
   | { readonly error: { readonly type: "unknown"; readonly message: string } }
 
-const settledOutput = (value: ToolOutput | undefined, result: ToolResultValue): SettledOutput => {
-  if (result.type === "error") return { error: { type: "unknown", message: message(result.value) } }
+const imageGenerationContent = (value: unknown): ToolOutput["content"] | undefined => {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !("result" in value)) return
+  if (typeof value.result !== "string") return
+  const match = value.result.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\r\n]+)$/)
+  const mime = match?.[1] ?? "image/png"
+  const data = (match?.[2] ?? value.result).replaceAll(/\s/g, "")
+  if (!data || data.length > 32 * 1024 * 1024 || data.length % 4 !== 0 || /[^A-Za-z0-9+/=]/.test(data)) return
+  const bytes = Buffer.from(data, "base64")
+  if (bytes.toString("base64") !== data) return
+  const detected = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    ? "image/png"
+    : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+      ? "image/jpeg"
+      : bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP"
+        ? "image/webp"
+        : undefined
+  if (!detected || (match && mime !== detected)) return
+  return [
+    {
+      type: "file",
+      uri: `data:${detected};base64,${data}`,
+      mime: detected,
+      name: `generated-image.${detected.slice("image/".length).replace("jpeg", "jpg")}`,
+    },
+  ]
+}
+
+const settledOutput = (name: string, value: ToolOutput | undefined, result: ToolResultValue): SettledOutput => {
+  if (result.type === "error") return { error: { type: "unknown", message: ToolErrorProjection.toolMessage } }
+  if (name === "image_generation" && result.type === "json") {
+    const content = imageGenerationContent(result.value)
+    if (content) return { structured: record(result.value), content }
+  }
   const settled = value ?? ToolOutput.fromResultValue(result)
   if (!settled) throw new Error(`Unsupported tool result: ${message(result)}`)
   return { structured: record(settled.structured), content: settled.content }
@@ -222,15 +260,22 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     for (const [callID, tool] of tools) {
       if (tool.settled || (hostedOnly && !tool.providerExecuted)) continue
       tool.settled = true
+      const projected = ToolErrorProjection.project({
+        id: callID,
+        name: tool.name,
+        executed: tool.providerExecuted,
+        callMetadata: tool.providerMetadata,
+      })
       yield* events.publish(SessionEvent.Tool.Failed, {
         sessionID: input.sessionID,
         timestamp: yield* timestamp,
         assistantMessageID: tool.assistantMessageID,
         callID,
         error: { type: "unknown", message },
+        result: projected.result,
         provider: {
           executed: tool.providerExecuted,
-          ...(tool.providerMetadata === undefined ? {} : { metadata: tool.providerMetadata }),
+          ...(projected.metadata === undefined ? {} : { metadata: projected.metadata }),
         },
       })
     }
@@ -355,20 +400,31 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
           return yield* Effect.die(`Duplicate tool result: ${event.id}`)
         }
         tool.settled = true
-        const result = settledOutput(event.output, event.result)
+        const result = settledOutput(event.name, event.output, event.result)
         const provider = {
           executed: event.providerExecuted === true || tool.providerExecuted,
           ...(event.providerMetadata === undefined ? {} : { metadata: event.providerMetadata }),
         }
         if ("error" in result) {
+          const projected = ToolErrorProjection.project({
+            id: event.id,
+            name: tool.name,
+            executed: provider.executed,
+            result: event.result,
+            callMetadata: tool.providerMetadata,
+            resultMetadata: event.providerMetadata,
+          })
           yield* events.publish(SessionEvent.Tool.Failed, {
             sessionID: input.sessionID,
             timestamp: yield* timestamp,
             assistantMessageID: tool.assistantMessageID,
             callID: event.id,
-            error: result.error,
-            result: event.result,
-            provider,
+            error: projected.error,
+            result: projected.result,
+            provider: {
+              executed: provider.executed,
+              ...(projected.metadata === undefined ? {} : { metadata: projected.metadata }),
+            },
           })
           return
         }
@@ -391,15 +447,23 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
           return yield* Effect.die(`Tool error name changed for ${event.id}: ${tool.name} -> ${event.name}`)
         if (tool.settled) return yield* Effect.die(`Duplicate tool error: ${event.id}`)
         tool.settled = true
+        const projected = ToolErrorProjection.project({
+          id: event.id,
+          name: tool.name,
+          executed: tool.providerExecuted,
+          callMetadata: tool.providerMetadata,
+          resultMetadata: event.providerMetadata,
+        })
         yield* events.publish(SessionEvent.Tool.Failed, {
           sessionID: input.sessionID,
           timestamp: yield* timestamp,
           assistantMessageID: tool.assistantMessageID,
           callID: event.id,
-          error: { type: "unknown", message: event.message },
+          error: projected.error,
+          result: projected.result,
           provider: {
             executed: tool.providerExecuted,
-            ...(event.providerMetadata === undefined ? {} : { metadata: event.providerMetadata }),
+            ...(projected.metadata === undefined ? {} : { metadata: projected.metadata }),
           },
         })
         return
@@ -414,7 +478,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
         return
       case "provider-error":
         providerFailed = true
-        yield* failAssistant(event.message)
+        yield* failAssistant(ToolErrorProjection.providerMessage)
         return
     }
   })

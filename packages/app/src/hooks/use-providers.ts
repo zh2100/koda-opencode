@@ -5,7 +5,7 @@ import { Iterable, pipe } from "effect"
 import { createEffect, createMemo, type Accessor } from "solid-js"
 import { selectProviderCatalog } from "./provider-catalog"
 
-export const popularProviders = ["leidiandonghua", "chatgpt", "grok"]
+export const popularProviders = ["openai", "anthropic", "google"]
 const popularProviderSet = new Set(popularProviders)
 
 export function useProviders(directory: Accessor<string | undefined>) {

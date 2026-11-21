@@ -10,15 +10,14 @@ import * as ConfigMarkdown from "./markdown"
 
 const decodeInfo = Schema.decodeUnknownExit(ConfigCommandV1.Info)
 
-export async function load(dir: string) {
+export async function paths(dir: string) {
+  return Glob.scan("{command,commands}/**/*.md", { cwd: dir, absolute: true, dot: true, symlink: true })
+}
+
+export async function load(dir: string, readText?: (file: string) => Promise<string>) {
   const result: Record<string, ConfigCommandV1.Info> = {}
-  for (const item of await Glob.scan("{command,commands}/**/*.md", {
-    cwd: dir,
-    absolute: true,
-    dot: true,
-    symlink: true,
-  })) {
-    const md = await ConfigMarkdown.parse(item).catch(() => undefined)
+  for (const item of await paths(dir)) {
+    const md = await ConfigMarkdown.parse(item, readText).catch(() => undefined)
     if (!md) continue
 
     const name = configEntryNameFromPath(path.relative(dir, item), ["command/", "commands/"])

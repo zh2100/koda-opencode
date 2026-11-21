@@ -44,5 +44,7 @@ export const migrations = (
     import("./migration/20260907120000_scheduled_task"),
     import("./migration/20261013000000_task_orchestrator"),
     import("./migration/20261021100727_task_orchestrator_parallel"),
+    import("./migration/20261107102331_scheduled-run-owner"),
+    import("./migration/20261110124114_scheduled-cancel-epoch"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

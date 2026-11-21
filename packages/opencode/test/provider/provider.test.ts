@@ -26,7 +26,6 @@ import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { Relay } from "@opencode-ai/schema/relay"
 import { RelayAuth } from "@opencode-ai/core/relay-auth"
 import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
-import { RelayPolicy } from "@opencode-ai/core/relay-policy"
 import { RelaySecretStore } from "@opencode-ai/core/relay-secret-store"
 import {
   anthropicProvider,
@@ -119,8 +118,7 @@ relayTest.instance(
       yield* Effect.gen(function* () {
         const auth = yield* RelayAuth.Service
         const catalog = yield* RelayCatalog.Service
-        let state = yield* auth.setUnifiedKey({ key: "shared-secret", revision: 0 })
-        state = yield* auth.setMode({ unified: true, revision: state.revision })
+        let state = yield* auth.get()
         for (const name of ["first", "second"]) {
           const id = Relay.VendorID.make(name)
           state = yield* auth.setVendor({
@@ -191,6 +189,48 @@ const alphaProviderConfig = {
 }
 
 it.instance(
+  "image target uses model-specific credentials and header precedence without probing",
+  Effect.gen(function* () {
+    yield* setProcessEnv("OPENCODE_AUTH_CONTENT", "{}")
+    expect(yield* Provider.use.getImageTarget(ProviderV2.ID.make("image-test"), ModelV2.ID.make("local-image"))).toEqual({
+      model: "upstream-image",
+      api: "openai-chat",
+      baseURL: "http://127.0.0.1:1/model/v1",
+      headers: { Authorization: "Bearer model-key", "x-source": "model" },
+    })
+  }),
+  { config: { provider: { "image-test": {
+    npm: "@ai-sdk/openai-compatible",
+    api: "http://127.0.0.1:1/provider/v1",
+    options: { apiKey: "provider-key", headers: { "x-source": "provider" } },
+    models: { "local-image": { id: "upstream-image", options: { apiKey: "model-key", baseURL: "http://127.0.0.1:1/model/v1" }, headers: { "x-source": "model" } } },
+  } } } },
+)
+
+it.instance(
+  "image target rejects chat OAuth even when the provider has an explicit API key",
+  Effect.gen(function* () {
+    yield* setProcessEnv("OPENCODE_AUTH_CONTENT", JSON.stringify({ "custom-provider": { type: "oauth", access: "chat-access", refresh: "chat-refresh", expires: Date.now() + 3600000 } }))
+    const error = yield* Provider.use.getImageTarget(ProviderV2.ID.make("custom-provider"), ModelV2.ID.make("active-model")).pipe(Effect.flip)
+    expect(error.message).toContain("OAuth credentials are not supported")
+  }),
+  { config: alphaProviderConfig },
+)
+
+it.instance(
+  "image target rejects blank authentication headers",
+  Effect.gen(function* () {
+    yield* setProcessEnv("OPENCODE_AUTH_CONTENT", "{}")
+    const error = yield* Provider.use.getImageTarget(ProviderV2.ID.make("image-test"), ModelV2.ID.make("local-image")).pipe(Effect.flip)
+    expect(error.message).toContain("no API-key credentials")
+  }),
+  { config: { provider: { "image-test": {
+    npm: "@ai-sdk/openai-compatible", api: "http://127.0.0.1:1/v1",
+    options: { apiKey: "", headers: { authorization: "  " } }, models: { "local-image": {} },
+  } } } },
+)
+
+it.instance(
   "provider loaded from env variable",
   () =>
     Effect.gen(function* () {
@@ -253,10 +293,10 @@ it.instance(
       low: { reasoning_effort: "low" },
       medium: { reasoning_effort: "medium" },
       high: { reasoning_effort: "high" },
-      xhigh: { reasoning_effort: "xhigh" },
+      ultra: { reasoning_effort: "xhigh" },
     })
     expect(relay.models["gpt-5.2"]?.variants?.high?.reasoning_effort).toBe("high")
-    expect(relay.options.baseURL).toBe(RelayPolicy.BaseURL)
+    expect(relay.options).not.toHaveProperty("baseURL")
     expect(relay.models["hidden"]).toBeUndefined()
     expect(relay.models["gpt-5.2"]?.options.apiKey).toBe("chatgpt-key")
     expect(relay.models["grok-4"]?.options.apiKey).toBe("grok-key")
@@ -295,7 +335,7 @@ it.instance(
           resolve: (vendorId) =>
             Effect.succeed({
               key: vendorId === Relay.VendorID.grok ? "grok-key" : "chatgpt-key",
-              baseURL: RelayPolicy.BaseURL,
+              baseURL: "https://provider.test/v1",
             }),
         }),
       ),

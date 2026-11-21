@@ -1,0 +1,47 @@
+.settings-provider-summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-provider-summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-provider-summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: none;
+  margin-inline-start: auto;
+  margin-inline-end: 4px;
+  border-inline-end: 1.5px solid currentColor;
+  border-block-end: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+details[open] > .settings-provider-summary::after {
+  transform: rotate(45deg);
+}
+
+.settings-provider-models {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.settings-provider-model-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  overflow-wrap: anywhere;
+}
+
+.settings-provider-model-grid > * {
+  min-width: 0;
+  position: relative;
+}
+
+@container (min-width: 30rem) {
+  .settings-provider-model-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

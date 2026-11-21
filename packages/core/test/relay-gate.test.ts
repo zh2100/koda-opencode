@@ -10,7 +10,17 @@ const fromConfig = (input: Record<string, unknown>) =>
 
 const readFlags = RelayGate.Service.useSync((flags) => flags)
 
-const officialProviders = ["anthropic", "openai", "google", "openrouter", "github-copilot", "amazon-bedrock", "opencode", "openai-compatible", "xai"]
+const officialProviders = [
+  "anthropic",
+  "openai",
+  "google",
+  "openrouter",
+  "github-copilot",
+  "amazon-bedrock",
+  "opencode",
+  "openai-compatible",
+  "xai",
+]
 
 describe("RelayGate", () => {
   it.effect("defaults all five gates closed", () =>
@@ -143,7 +153,7 @@ describe("RelayPolicy", () => {
 
       expect(RelayPolicy.allowsProvider("openai")).toBe(false)
       expect(RelayPolicy.allowsProvider("leidiandonghua")).toBe(true)
-      expect(RelayPolicy.BaseURL).toBe("https://api.leidiandonghua.cn/v1")
+      expect(RelayPolicy).not.toHaveProperty("BaseURL")
     }),
   )
 })

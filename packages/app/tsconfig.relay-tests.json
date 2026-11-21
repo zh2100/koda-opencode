@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "types": ["vite/client", "bun", "node"]
+  },
+  "include": [
+    "test-browser/relay-settings-refresh.test.ts",
+    "test-browser/relay-settings-http.test.ts",
+    "test-browser/relay-settings-state.test.ts",
+    "test-browser/relay-settings-completion.test.ts",
+    "test/relay-refresh-transport.test.ts",
+    "src/env.d.ts"
+  ]
+}

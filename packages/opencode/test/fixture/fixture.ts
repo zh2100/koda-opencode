@@ -207,7 +207,8 @@ export const withTmpdirInstance =
   <A, E, R>(self: Effect.Effect<A, E, R>) =>
     Effect.gen(function* () {
       const directory = yield* tmpdirScoped(options)
-      return yield* self.pipe(Effect.provideService(TestInstance, { directory }), provideInstanceEffect(directory))
+      // Release resources acquired by the test while their instance store is still live.
+      return yield* self.pipe(Effect.scoped, Effect.provideService(TestInstance, { directory }), provideInstanceEffect(directory))
     }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(AppNodeBuilder.build(CrossSpawnSpawner.node)))
 
 export function provideTmpdirServer<A, E, R>(

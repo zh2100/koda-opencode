@@ -40,6 +40,34 @@ const expectToolOutput = (body: OpenAIResponses.OpenAIResponsesBody): OpenAITool
 }
 
 describe("OpenAI Responses route", () => {
+  it.effect("advertises hosted image generation only when explicitly enabled", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare(
+        LLM.updateRequest(request, {
+          providerOptions: { openai: { imageGeneration: true } },
+          tools: [{ name: "read", description: "Read a file", inputSchema: { type: "object" } }],
+        }),
+      )
+      expect(prepared.body).toMatchObject({
+        tools: [{ type: "function", name: "read" }, { type: "image_generation" }],
+      })
+      const disabled = yield* LLMClient.prepare(request)
+      expect(disabled.body).toHaveProperty("tools", undefined)
+    }),
+  )
+
+  it.effect("does not advertise hosted image generation alongside the independent tool", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare(
+        LLM.updateRequest(request, {
+          providerOptions: { openai: { imageGeneration: true } },
+          tools: [{ name: "image_generation", description: "Independent image generation", inputSchema: { type: "object" } }],
+        }),
+      )
+      expect(prepared.body).toMatchObject({ tools: [{ type: "function", name: "image_generation" }] })
+    }),
+  )
+
   it.effect("prepares OpenAI Responses target", () =>
     Effect.gen(function* () {
       const prepared = yield* LLMClient.prepare(request)

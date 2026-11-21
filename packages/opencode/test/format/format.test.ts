@@ -5,12 +5,16 @@ import { Effect, Layer } from "effect"
 import { provideTmpdirInstance, testInstanceStoreLayer, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { Npm } from "@opencode-ai/core/npm"
+import { NpmTest } from "../fake/npm"
 import { Format } from "../../src/format"
 import * as Formatter from "../../src/format/formatter"
 
-const it = testEffect(
-  Layer.mergeAll(LayerNode.compile(LayerNode.group([Format.node, CrossSpawnSpawner.node])), NodeFileSystem.layer),
+const formatLayer = Layer.mergeAll(
+  LayerNode.compile(LayerNode.group([Format.node, CrossSpawnSpawner.node]), [[Npm.node, NpmTest.noop]]),
+  NodeFileSystem.layer,
 )
+const it = testEffect(formatLayer)
 
 describe("Format", () => {
   it.instance("status() returns empty list when no formatters are configured", () =>
@@ -108,13 +112,7 @@ describe("Format", () => {
     { config: { formatter: false } },
   )
 
-  testEffect(
-    Layer.mergeAll(
-      LayerNode.compile(LayerNode.group([Format.node, CrossSpawnSpawner.node])),
-      NodeFileSystem.layer,
-      testInstanceStoreLayer,
-    ),
-  ).live("status() initializes formatter state per directory", () =>
+  testEffect(Layer.mergeAll(formatLayer, testInstanceStoreLayer)).live("status() initializes formatter state per directory", () =>
     Effect.gen(function* () {
       const a = yield* provideTmpdirInstance(() => Format.use.status(), {
         config: { formatter: false },

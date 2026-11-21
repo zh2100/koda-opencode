@@ -1,5 +1,5 @@
-import { type Accessor, createMemo, createResource } from "solid-js"
-import { createStore } from "solid-js/store"
+import { type Accessor, createMemo, createResource, onCleanup } from "solid-js"
+import { createStore, type SetStoreFunction } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
@@ -17,9 +17,19 @@ type Store = {
 }
 
 const RECENT_LIMIT = 5
+const modelStores = new Map<string, { store: Store; setStore: SetStoreFunction<Store>; listeners: Set<() => void> }>()
 
 function modelKey(model: ModelKey) {
   return `${model.providerID}:${model.modelID}`
+}
+
+function sharedModelStore(key: string) {
+  const existing = modelStores.get(key)
+  if (existing) return existing
+  const [store, setStore] = createStore<Store>({ user: [], recent: [], variant: {} })
+  const created = { store, setStore, listeners: new Set<() => void>() }
+  modelStores.set(key, created)
+  return created
 }
 
 export const { use: useModels, provider: ModelsProvider } = createSimpleContext({
@@ -28,14 +38,27 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
   init: (props: { directory?: Accessor<string | undefined> } = {}) => {
     const providers = useProviders(() => props.directory?.())
 
-    const [store, setStore, _, ready] = persisted(
-      Persist.global("model", ["model.v1"]),
-      createStore<Store>({
-        user: [],
-        recent: [],
-        variant: {},
-      }),
-    )
+    const preferenceKey = Persist.global("model", ["model.v1"]).key
+    const shared = sharedModelStore(preferenceKey)
+    const [, setPersistedStore, _, ready] = persisted(Persist.global("model", ["model.v1"]), [
+      shared.store,
+      shared.setStore,
+    ])
+    const store = shared.store
+    const setStore = shared.setStore
+    const writePreference = () =>
+      setPersistedStore({
+        user: [...shared.store.user],
+        recent: [...shared.store.recent],
+        variant: { ...shared.store.variant },
+      })
+    const publish = () => {
+      for (const listener of shared.listeners) listener()
+    }
+    shared.listeners.add(writePreference)
+    onCleanup(() => {
+      shared.listeners.delete(writePreference)
+    })
 
     const available = createMemo(() =>
       providers.connected().flatMap((p) =>
@@ -106,9 +129,11 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       const index = store.user.findIndex((x) => x.modelID === model.modelID && x.providerID === model.providerID)
       if (index >= 0) {
         setStore("user", index, (current) => ({ ...current, visibility: state }))
+        publish()
         return
       }
       setStore("user", store.user.length, { ...model, visibility: state })
+      publish()
     }
 
     const visible = (model: ModelKey) => {
@@ -131,6 +156,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       const uniq = uniqueBy([model, ...store.recent], (x) => `${x.providerID}:${x.modelID}`)
       if (uniq.length > RECENT_LIMIT) uniq.pop()
       setStore("recent", uniq)
+      publish()
     }
 
     const variantKey = (model: ModelKey) => `${model.providerID}/${model.modelID}`
@@ -140,9 +166,11 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       const key = variantKey(model)
       if (!store.variant) {
         setStore("variant", { [key]: value })
+        publish()
         return
       }
       setStore("variant", key, value)
+      publish()
     }
 
     const [recentModels] = createResource(

@@ -32,7 +32,15 @@ describe("TaskOrchestratorPostCommit", () => {
     const result = await Effect.runPromiseExit(
       TaskOrchestratorPostCommit.applyAndSchedule({
         transition: revision,
-        persist: () => Effect.fail(new TaskOrchestratorRetryPersistence.StateConflictError({ taskID: "t", stepID: "s", runID: "r", message: "stale" })),
+        persist: () =>
+          Effect.fail(
+            new TaskOrchestratorRetryPersistence.StateConflictError({
+              taskID: "t",
+              stepID: "s",
+              runID: "r",
+              message: "stale",
+            }),
+          ),
         scheduler: { schedule: () => Effect.sync(() => calls.push("schedule")) },
       }),
     )
@@ -75,7 +83,13 @@ describe("TaskOrchestratorPostCommit", () => {
   test("rejects direct scheduling of a non-revision transition", async () => {
     const result = await Effect.runPromiseExit(
       TaskOrchestratorWorkerScheduler.schedule({
-        transition: { action: "continue", stepStatus: "completed", taskStatus: "pending", runStatus: "completed", retryCount: 0 },
+        transition: {
+          action: "continue",
+          stepStatus: "completed",
+          taskStatus: "pending",
+          runStatus: "completed",
+          retryCount: 0,
+        },
         scheduler: { schedule: () => Effect.succeed(undefined) },
       }),
     )

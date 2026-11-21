@@ -48,7 +48,9 @@ describe("LocationServiceMap", () => {
             expect((yield* Location.Service).directory).toBe(AbsolutePath.make(missing))
             expect(Array.isArray(yield* (yield* AgentV2.Service).all())).toBe(true)
           }).pipe(
-            Effect.provide(LocationServiceMap.Service.get(Location.Ref.make({ directory: AbsolutePath.make(missing) }))),
+            Effect.provide(
+              LocationServiceMap.Service.get(Location.Ref.make({ directory: AbsolutePath.make(missing) })),
+            ),
           ),
         )
       }),
@@ -128,6 +130,7 @@ describe("LocationServiceMap", () => {
             "edit",
             "glob",
             "grep",
+            "image_generation",
             "question",
             "read",
             "skill",
@@ -145,6 +148,7 @@ describe("LocationServiceMap", () => {
             "edit",
             "glob",
             "grep",
+            "image_generation",
             "question",
             "read",
             "skill",

@@ -27,6 +27,9 @@ export default [
         },
         define: {
           "import.meta.env.VITE_OPENCODE_CHANNEL": JSON.stringify(channel),
+          "import.meta.env.VITE_KODA_VERSION": JSON.stringify(
+            JSON.parse(readFileSync(new URL("../desktop/package.json", import.meta.url), "utf8")).version,
+          ),
         },
         worker: {
           format: "es",

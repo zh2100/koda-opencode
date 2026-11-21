@@ -50,6 +50,16 @@ type ErrorNotification = NotificationBase & {
 
 export type Notification = TurnCompleteNotification | ErrorNotification
 
+export function sessionIdleSessionID(event: { type: string; properties?: unknown }) {
+  if (event.type !== "session.idle" && event.type !== "session.status") return
+  if (!event.properties || typeof event.properties !== "object") return
+
+  const properties = event.properties as { sessionID?: unknown; status?: { type?: unknown } }
+  if (typeof properties.sessionID !== "string") return
+  if (event.type === "session.status" && properties.status?.type !== "idle") return
+  return properties.sessionID
+}
+
 type NotificationIndex = {
   session: {
     all: Record<string, Notification[]>
@@ -419,12 +429,18 @@ function createServerNotificationState(input: {
       const sessionID = run.sessionId
       const href = sessionID ? `/${base64Encode(directory)}/session/${sessionID}` : `/${base64Encode(directory)}`
       if (run.status === "failed") {
+        if (settings.sounds.errorsEnabled()) {
+          void playSoundById(settings.sounds.errors())
+        }
         if (settings.notifications.errors()) {
           void platform.notify(language.t("notification.session.error.title"), scheduled.task.name, () =>
             input.navigate(href),
           )
         }
         return
+      }
+      if (settings.sounds.agentEnabled()) {
+        void playSoundById(settings.sounds.agent())
       }
       if (settings.notifications.agent()) {
         void platform.notify(language.t("notification.session.responseReady.title"), scheduled.task.name, () =>
@@ -433,14 +449,14 @@ function createServerNotificationState(input: {
       }
       return
     }
-    if (event.type !== "session.idle" && event.type !== "session.error") return
-
     const directory = e.name
     const time = Date.now()
-    if (event.type === "session.idle") {
-      handleSessionIdle(directory, event, time)
+    const sessionID = sessionIdleSessionID(event)
+    if (sessionID) {
+      handleSessionIdle(directory, { properties: { sessionID } }, time)
       return
     }
+    if (event.type !== "session.error") return
     handleSessionError(directory, event, time)
   })
   onCleanup(() => {

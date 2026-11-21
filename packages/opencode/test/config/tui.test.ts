@@ -1,20 +1,73 @@
-import { expect } from "bun:test"
+import { expect, spyOn } from "bun:test"
 import path from "path"
 import { pathToFileURL } from "url"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { Effect, Layer } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
+import { Npm } from "@opencode-ai/core/npm"
+import { NpmTest } from "../fake/npm"
 import { Config } from "@/config/config"
 import { ConfigPlugin } from "@/config/plugin"
 import { CurrentWorkingDirectory } from "@/config/tui-cwd"
 import { TuiConfig } from "../../src/config/tui"
+import fsNode from "node:fs/promises"
+import { Flock } from "@opencode-ai/core/util/flock"
+import { ConfigDocument } from "@opencode-ai/core/config/document"
+import { AtomicDocument } from "@opencode-ai/core/config/atomic-document"
 import { TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(LayerNode.compile(LayerNode.group([Config.node, FSUtil.node])))
+const it = testEffect(LayerNode.compile(LayerNode.group([Config.node, FSUtil.node]), [[Npm.node, NpmTest.noop]]))
 const winIt = process.platform === "win32" ? it.instance : it.instance.skip
+
+it.instance("F13/F29 optional TUI migration cannot overwrite an independently locked config", () => withCleanState(Effect.gen(function* () {
+  const fs = yield* FSUtil.Service, instance = yield* TestInstance
+  const file = path.join(instance.directory, "opencode.json"), before = '{"theme":"kept","username":"before"}'
+  yield* fs.writeFileString(file, before)
+  yield* Effect.acquireRelease(Effect.promise(() => Flock.acquire(ConfigDocument.key(file))), (lease) => Effect.promise(() => lease.release()))
+  yield* getTuiConfig(instance.directory)
+  expect(yield* fs.readFileString(file)).toBe(before)
+  expect(yield* fs.existsSafe(path.join(instance.directory, "tui.json"))).toBe(false)
+  expect(yield* fs.existsSafe(file + ".tui-migration.bak")).toBe(false)
+})))
+
+it.instance("F29 optional TUI migration skips a legacy config directory alias", () => withCleanState(Effect.gen(function* () {
+  const fs = yield* FSUtil.Service, instance = yield* TestInstance
+  const physical = path.join(instance.directory, "physical"), alias = path.join(instance.directory, "alias")
+  const file = path.join(physical, "opencode.json"), before = '{"theme":"kept"}'
+  yield* fs.makeDirectory(physical)
+  yield* fs.writeFileString(file, before)
+  yield* Effect.promise(() => fsNode.symlink(physical, alias, process.platform === "win32" ? "junction" : "dir"))
+  yield* getTuiConfig(alias)
+  expect(yield* fs.readFileString(file)).toBe(before)
+  expect(yield* fs.existsSafe(path.join(physical, "tui.json"))).toBe(false)
+  expect(yield* fs.existsSafe(file + ".tui-migration.bak")).toBe(false)
+})))
+
+it.instance("F13 TUI migration cancellation retains the lease until dispatched publication settles", () => withCleanState(Effect.gen(function* () {
+  const fs = yield* FSUtil.Service, instance = yield* TestInstance
+  const file = path.join(instance.directory, "opencode.json")
+  yield* fs.writeFileString(file, '{"theme":"kept","username":"before"}')
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+  const original = AtomicDocument.publish
+  const spy = spyOn(AtomicDocument, "publish").mockImplementation(async (input) => {
+    if (input.file === file) { entered.resolve(); await release.promise }
+    return original(input)
+  })
+  yield* Effect.addFinalizer(() => Effect.sync(() => { release.resolve(); spy.mockRestore() }))
+  const running = yield* getTuiConfig(instance.directory).pipe(Effect.forkScoped)
+  yield* Effect.promise(() => entered.promise).pipe(Effect.timeout("10 seconds"))
+  const cancelled = yield* Fiber.interrupt(running).pipe(Effect.forkScoped)
+  const contender = yield* Effect.tryPromise(() => Flock.acquire(ConfigDocument.key(file), { timeoutMs: 50 })).pipe(Effect.exit)
+  expect(contender._tag).toBe("Failure")
+  expect(cancelled.pollUnsafe()).toBeUndefined()
+  release.resolve()
+  yield* Fiber.join(cancelled)
+  yield* Effect.acquireRelease(Effect.promise(() => Flock.acquire(ConfigDocument.key(file), { timeoutMs: 1000 })), (lease) => Effect.promise(() => lease.release()))
+  expect(JSON.parse(yield* fs.readFileString(file))).toEqual({ username: "before" })
+})))
 
 const globalConfigFiles = ["opencode.json", "opencode.jsonc", "tui.json", "tui.jsonc"].map((file) =>
   path.join(Global.Path.config, file),

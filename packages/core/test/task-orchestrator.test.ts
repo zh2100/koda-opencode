@@ -23,7 +23,10 @@ describe("TaskOrchestrator", () => {
   })
 
   test("parses configured provider/model references", () => {
-    expect(ModelV2.parse("openai/gpt-6-astra")).toEqual({ providerID: ProviderV2.ID.make("openai"), modelID: ModelV2.ID.make("gpt-6-astra") })
+    expect(ModelV2.parse("openai/gpt-6-astra")).toEqual({
+      providerID: ProviderV2.ID.make("openai"),
+      modelID: ModelV2.ID.make("gpt-6-astra"),
+    })
   })
 
   test("uses the canonical workspace key for a session location", () => {
@@ -33,10 +36,16 @@ describe("TaskOrchestrator", () => {
   })
 
   test("turns structured reviewer output into a bounded revision decision", () => {
-    const decision = TaskOrchestrator.review('{"approved":false,"findings":[{"message":"Add a test","path":"src/a.ts","line":4}]}', 0, 1)
+    const decision = TaskOrchestrator.review(
+      '{"approved":false,"findings":[{"message":"Add a test","path":"src/a.ts","line":4}]}',
+      0,
+      1,
+    )
     expect(decision.action).toBe("revise")
     expect(TaskOrchestrator.revisionPrompt(decision.findings)).toContain("src/a.ts:4")
-    expect(TaskOrchestrator.review('{"approved":false,"findings":[{"message":"Still broken"}]}', 1, 1).action).toBe("fail")
+    expect(TaskOrchestrator.review('{"approved":false,"findings":[{"message":"Still broken"}]}', 1, 1).action).toBe(
+      "fail",
+    )
   })
 
   test("exposes safe retry state transitions", () => {

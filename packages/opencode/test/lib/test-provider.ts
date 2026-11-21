@@ -10,6 +10,8 @@ export function testProviderConfig(llmUrl: string) {
   return {
     formatter: false,
     lsp: false,
+    // Fake-provider prompts should discover only local tools, not contact the public docs server.
+    mcp: { openaiDeveloperDocs: { enabled: false } },
     provider: {
       test: {
         name: "Test",

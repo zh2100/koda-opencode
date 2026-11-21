@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { $ } from "bun"
+import { existsSync } from "node:fs"
 import { copyFile } from "node:fs/promises"
 import { join } from "node:path"
 
@@ -25,4 +26,11 @@ if (channel === "dev") {
     join(import.meta.dirname, `../../cli/dist/cli-${cliName}-${cli.cpu}/bin/${binary}`),
     cli.os === "win32" ? "resources/opencode-cli.exe" : "resources/opencode-cli",
   )
+  const nativeDir = join(import.meta.dirname, "../../core/native/dist")
+  const nativeName = `process-lock-${process.platform}-${process.arch}.node`
+  const nativeSource = join(nativeDir, nativeName)
+  if (existsSync(nativeSource)) {
+    await copyFile(nativeSource, join("resources", nativeName))
+    await copyFile(join(nativeDir, "process-lock-manifest.json"), join("resources", "process-lock-manifest.json"))
+  }
 }

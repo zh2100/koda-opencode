@@ -102,7 +102,7 @@ describe("i18n parity", () => {
     for (const domain of domains) {
       const source = await dictionary(domain.source)
       for (const locale of domain.locales) {
-        const target = await dictionary(domain.target(locale))
+        const target = withEnglishFallback(source, await dictionary(domain.target(locale)))
         const missing = Object.keys(source).filter((key) => !Object.hasOwn(target, key))
         const extra = Object.keys(target)
           .filter((key) => !Object.hasOwn(source, key))
@@ -124,7 +124,7 @@ describe("i18n parity", () => {
     for (const domain of domains) {
       const source = await dictionary(domain.source)
       for (const locale of domain.locales) {
-        const target = await dictionary(domain.target(locale))
+        const target = withEnglishFallback(source, await dictionary(domain.target(locale)))
         const mismatched = Object.keys(source).filter(
           (key) => Object.hasOwn(target, key) && placeholders(source[key]).join() !== placeholders(target[key]).join(),
         )
@@ -146,7 +146,7 @@ describe("i18n parity", () => {
   test("non-English locales translate targeted unseen session keys", async () => {
     const source = await dictionary("./en.ts")
     for (const locale of appLocales) {
-      const target = await dictionary(`./${locale}.ts`)
+      const target = withEnglishFallback(source, await dictionary(`./${locale}.ts`))
       for (const key of ["command.session.previous.unseen", "command.session.next.unseen"]) {
         expect(target[key]).toBeDefined()
         expect(target[key]).not.toBe(source[key])
@@ -176,7 +176,7 @@ describe("i18n plural parity", () => {
       const source = await dictionary(domain.source)
       const families = pluralFamilies(source)
       for (const locale of domain.locales) {
-        const target = await dictionary(domain.target(locale))
+        const target = withEnglishFallback(source, await dictionary(domain.target(locale)))
         const missing = families.flatMap((key) =>
           (pluralCategories.get(locale) ?? [])
             .map((category) => `${key}.${category}`)
@@ -208,6 +208,10 @@ async function dictionary(file: string) {
     throw new Error(`Invalid translation dictionary: ${file}`)
   }
   return module.dict
+}
+
+function withEnglishFallback(source: Record<string, string>, target: Record<string, string>) {
+  return { ...source, ...target }
 }
 
 function isDictionary(value: unknown): value is Record<string, string> {

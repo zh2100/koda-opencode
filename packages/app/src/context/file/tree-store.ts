@@ -26,9 +26,15 @@ export function createFileTreeStore(options: TreeStoreOptions) {
   })
 
   const inflight = new Map<string, Promise<void>>()
+  const forceAgain = new Set<string>()
+  const generation = new Map<string, number>()
+  let lifetime = 0
 
   const reset = () => {
+    lifetime += 1
     inflight.clear()
+    forceAgain.clear()
+    generation.clear()
     setTree("node", reconcile({}))
     setTree("dir", reconcile({}))
     setTree("dir", "", { expanded: true })
@@ -39,7 +45,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     setTree("dir", path, { expanded: false })
   }
 
-  const listDir = (input: string, opts?: { force?: boolean }) => {
+  const listDir = (input: string, opts?: { force?: boolean }): Promise<void> => {
     const dir = options.normalizeDir(input)
     ensureDir(dir)
 
@@ -47,7 +53,12 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     if (!opts?.force && current?.loaded) return Promise.resolve()
 
     const pending = inflight.get(dir)
-    if (pending) return pending
+    if (pending && !opts?.force) return pending
+    if (opts?.force) {
+      generation.set(dir, (generation.get(dir) ?? 0) + 1)
+      inflight.delete(dir)
+      forceAgain.delete(dir)
+    }
 
     setTree(
       "dir",
@@ -59,56 +70,48 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     )
 
     const directory = options.scope()
+    const requestLifetime = lifetime
+    const requestGeneration = (generation.get(dir) ?? 0) + 1
+    generation.set(dir, requestGeneration)
 
     const promise = options
       .list(dir)
       .then((nodes) => {
-        if (options.scope() !== directory) return
+        if (options.scope() !== directory || requestLifetime !== lifetime || generation.get(dir) !== requestGeneration) return
         const prevChildren = tree.dir[dir]?.children ?? []
-        const nextChildren = nodes.map((node) => node.path)
+        const nextChildren = nodes.map((node) => options.normalizeDir(node.path))
         const nextSet = new Set(nextChildren)
+        const removedDirs = prevChildren.filter((child) => {
+          if (nextSet.has(child)) {
+            const next = nodes.find((node) => options.normalizeDir(node.path) === child)
+            return tree.node[child]?.type === "directory" && next?.type !== "directory"
+          }
+          return tree.node[child]?.type === "directory"
+        })
 
         setTree(
-          "node",
           produce((draft) => {
-            const removedDirs: string[] = []
-
+            for (const removed of removedDirs) dropDirectory(draft, removed)
             for (const child of prevChildren) {
-              if (nextSet.has(child)) continue
-              const existing = draft[child]
-              if (existing?.type === "directory") removedDirs.push(child)
-              delete draft[child]
+              if (nextSet.has(child) || removedDirs.includes(child)) continue
+              delete draft.node[child]
             }
-
-            if (removedDirs.length > 0) {
-              const keys = Object.keys(draft)
-              for (const key of keys) {
-                for (const removed of removedDirs) {
-                  if (!key.startsWith(removed + "/")) continue
-                  delete draft[key]
-                  break
-                }
-              }
-            }
-
             for (const node of nodes) {
-              draft[node.path] = node
+              draft.node[options.normalizeDir(node.path)] = { ...node, path: options.normalizeDir(node.path) }
             }
-          }),
-        )
-
-        setTree(
-          "dir",
-          dir,
-          produce((draft) => {
-            draft.loaded = true
-            draft.loading = false
-            draft.children = nextChildren
+            const current = draft.dir[dir] ?? { expanded: false }
+            draft.dir[dir] = {
+              ...current,
+              loaded: true,
+              loading: false,
+              error: undefined,
+              children: nextChildren,
+            }
           }),
         )
       })
       .catch((e) => {
-        if (options.scope() !== directory) return
+        if (options.scope() !== directory || requestLifetime !== lifetime || generation.get(dir) !== requestGeneration) return
         setTree(
           "dir",
           dir,
@@ -120,7 +123,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
         options.onError(e.message)
       })
       .finally(() => {
-        inflight.delete(dir)
+        if (requestLifetime === lifetime && generation.get(dir) === requestGeneration) inflight.delete(dir)
       })
 
     inflight.set(dir, promise)
@@ -161,8 +164,35 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     return out
   }
 
+  const invalidateDir = (dir: string) => {
+    forceAgain.delete(dir)
+    generation.set(dir, (generation.get(dir) ?? 0) + 1)
+    inflight.delete(dir)
+  }
+
+  const dropDirectory = (
+    draft: { node: Record<string, FileNode>; dir: Record<string, DirectoryState> },
+    dir: string,
+  ) => {
+    invalidateDir(dir)
+    delete draft.node[dir]
+    delete draft.dir[dir]
+    for (const key of [...Object.keys(draft.node), ...Object.keys(draft.dir)]) {
+      if (!key.startsWith(`${dir}/`)) continue
+      invalidateDir(key)
+      delete draft.node[key]
+      delete draft.dir[key]
+    }
+  }
+
+  const removeDir = (input: string) => {
+    const dir = options.normalizeDir(input)
+    setTree(produce((draft) => dropDirectory(draft, dir)))
+  }
+
   return {
     listDir,
+    removeDir,
     expandDir,
     collapseDir,
     dirState,

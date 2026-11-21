@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "./regression/relay-settings-consistency.spec.ts",
+    "./regression/scheduled-task-acceptance.spec.ts",
+    "./regression/relay-settings-completion.spec.ts",
+    "./regression/relay-settings-busy.spec.ts",
+    "./regression/relay-settings-followup.spec.ts",
+    "./regression/relay-settings-refresh-interleave.spec.ts",
+    "./regression/relay-settings-refresh-obligations.spec.ts"
+  ]
+}

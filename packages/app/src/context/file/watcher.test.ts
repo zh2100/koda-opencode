@@ -106,6 +106,28 @@ describe("file watcher invalidation", () => {
     expect(refresh).toEqual(["src"])
   })
 
+  test("clears a deleted directory before refreshing its parent", () => {
+    const removed: string[] = []
+    const refresh: string[] = []
+    invalidateFromWatcher(
+      { type: "file.watcher.updated", properties: { file: "src/old", event: "unlink" } },
+      {
+        normalize: (input) => input,
+        hasFile: () => false,
+        loadFile: () => {},
+        node: (path) =>
+          path === "src/old"
+            ? { path, type: "directory", name: "old", absolute: "/repo/src/old", ignored: false }
+            : undefined,
+        isDirLoaded: () => true,
+        refreshDir: (path) => refresh.push(path),
+        removeDir: (path) => removed.push(path),
+      },
+    )
+    expect(removed).toEqual(["src/old"])
+    expect(refresh).toEqual(["src"])
+  })
+
   test("ignores invalid or git watcher updates", () => {
     const refresh: string[] = []
 

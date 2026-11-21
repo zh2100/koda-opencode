@@ -1,5 +1,6 @@
 import { Relay } from "@opencode-ai/schema/relay"
 import { RelayModel } from "@opencode-ai/schema/relay-model"
+import { RelaySync } from "@opencode-ai/schema/relay-sync"
 import { Model } from "@opencode-ai/schema/model"
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
@@ -9,7 +10,13 @@ import { LocationQuery, locationQueryOpenApi } from "./location"
 const RevisionPayload = Schema.Struct({
   revision: Schema.Number,
   operationId: Schema.optional(Schema.String),
+  expectedEntityId: Schema.optional(Schema.String),
 })
+
+const ExpectedVendor = {
+  expectedEntityId: Schema.optional(Schema.String),
+  expectedVendorRevision: Schema.optional(Schema.Number),
+}
 
 const errors = [ConflictError, InvalidRequestError, ServiceUnavailableError, UnauthorizedError]
 
@@ -25,61 +32,7 @@ export const RelayGroup = HttpApiGroup.make("server.relay")
         OpenApi.annotations({
           identifier: "v2.relay.auth.get",
           summary: "Get relay auth",
-          description: "Retrieve Relay vendor and unified key status without secret values.",
-        }),
-      ),
-  )
-  .add(
-    HttpApiEndpoint.put("relay.auth.mode", "/api/relay/auth/mode", {
-      query: LocationQuery,
-      payload: Schema.Struct({
-        unified: Schema.Boolean,
-        ...RevisionPayload.fields,
-      }),
-      success: Relay.AuthState,
-      error: errors,
-    })
-      .annotateMerge(locationQueryOpenApi)
-      .annotateMerge(
-        OpenApi.annotations({
-          identifier: "v2.relay.auth.mode",
-          summary: "Set relay auth mode",
-          description: "Enable or disable unified Relay API key mode.",
-        }),
-      ),
-  )
-  .add(
-    HttpApiEndpoint.put("relay.auth.unified", "/api/relay/auth/unified", {
-      query: LocationQuery,
-      payload: Schema.Struct({
-        key: Schema.optional(Schema.String),
-        ...RevisionPayload.fields,
-      }),
-      success: Relay.AuthState,
-      error: errors,
-    })
-      .annotateMerge(locationQueryOpenApi)
-      .annotateMerge(
-        OpenApi.annotations({
-          identifier: "v2.relay.auth.unified",
-          summary: "Set unified relay key",
-          description: "Save the unified Relay API key. Omit key to keep the existing secret.",
-        }),
-      ),
-  )
-  .add(
-    HttpApiEndpoint.delete("relay.auth.unified.clear", "/api/relay/auth/unified", {
-      query: LocationQuery,
-      payload: RevisionPayload,
-      success: Relay.AuthState,
-      error: errors,
-    })
-      .annotateMerge(locationQueryOpenApi)
-      .annotateMerge(
-        OpenApi.annotations({
-          identifier: "v2.relay.auth.unified.clear",
-          summary: "Clear unified relay key",
-          description: "Remove the unified Relay API key without deleting vendor keys.",
+          description: "Retrieve Relay independent vendor key status without secret values.",
         }),
       ),
   )
@@ -88,6 +41,7 @@ export const RelayGroup = HttpApiGroup.make("server.relay")
       params: { vendorId: Relay.VendorID },
       query: LocationQuery,
       payload: Schema.Struct({
+        createOnly: Schema.optional(Schema.Boolean),
         name: Schema.optional(Schema.String),
         baseURL: Schema.optional(Relay.VendorBaseURL),
         key: Schema.optional(Schema.String),
@@ -102,7 +56,7 @@ export const RelayGroup = HttpApiGroup.make("server.relay")
           identifier: "v2.relay.auth.vendor",
           summary: "Create or update a relay vendor",
           description:
-            "Create a custom vendor or update its name, key, and independent OpenAI-compatible baseURL. Omitted fields are preserved. Built-in endpoints cannot be changed.",
+            "Create a custom vendor or update its name, key, and independent OpenAI-compatible baseURL. Omitted fields are preserved. An independent baseURL is required.",
         }),
       ),
   )
@@ -136,30 +90,30 @@ export const RelayGroup = HttpApiGroup.make("server.relay")
         OpenApi.annotations({
           identifier: "v2.relay.auth.vendor.delete",
           summary: "Delete a custom relay vendor",
-          description: "Delete a user-added vendor. Built-in vendors cannot be deleted.",
+          description: "Delete an independent vendor and retire its credential.",
         }),
       ),
   )
   .add(
-    HttpApiEndpoint.post("relay.auth.rollback", "/api/relay/auth/rollback", {
+    HttpApiEndpoint.post("relay.models.sync", "/api/relay/models/sync", {
       query: LocationQuery,
-      payload: RevisionPayload,
-      success: Relay.AuthState,
+      payload: Schema.Struct({ retryNotice: Schema.optional(Schema.Boolean) }),
+      success: RelaySync.Snapshot,
       error: errors,
     })
       .annotateMerge(locationQueryOpenApi)
       .annotateMerge(
         OpenApi.annotations({
-          identifier: "v2.relay.auth.rollback",
-          summary: "Roll back relay auth migration",
-          description: "Clear imported Relay keys and keep the original auth.json. Requires a redacted backup.",
+          identifier: "v2.relay.models.sync",
+          summary: "Synchronize relay catalog",
+          description: "Adopt the shared catalog and return an atomic auth/catalog snapshot without upstream requests.",
         }),
       ),
   )
   .add(
     HttpApiEndpoint.post("relay.models.probe", "/api/relay/models/probe", {
       query: LocationQuery,
-      payload: Schema.Struct({ vendorId: Relay.VendorID }),
+      payload: Schema.Struct({ vendorId: Relay.VendorID, ...ExpectedVendor }),
       success: Schema.Struct({ count: Schema.Number }),
       error: errors,
     })
@@ -175,7 +129,7 @@ export const RelayGroup = HttpApiGroup.make("server.relay")
   .add(
     HttpApiEndpoint.post("relay.models.refresh", "/api/relay/models/refresh", {
       query: LocationQuery,
-      payload: Schema.Struct({ vendorId: Relay.VendorID }),
+      payload: Schema.Struct({ vendorId: Relay.VendorID, ...ExpectedVendor }),
       success: Schema.Array(RelayModel.Candidate),
       error: errors,
     })
@@ -228,6 +182,7 @@ export const RelayGroup = HttpApiGroup.make("server.relay")
         vendorId: Relay.VendorID,
         modelId: Model.ID,
         visible: Schema.Boolean,
+        expectedEntityId: Schema.optional(Schema.String),
       }),
       success: Schema.Array(RelayModel.Managed),
       error: errors,

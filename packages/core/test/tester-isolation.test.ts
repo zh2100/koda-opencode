@@ -21,7 +21,9 @@ describe("TesterIsolation", () => {
         }),
     }
 
-    await Effect.runPromise(TesterIsolation.withIsolation(service, { source: serviceLocation(), name: "test" }, () => Effect.succeed("ok")))
+    await Effect.runPromise(
+      TesterIsolation.withIsolation(service, { source: serviceLocation(), name: "test" }, () => Effect.succeed("ok")),
+    )
     expect(released).toEqual(["released"])
   })
 })

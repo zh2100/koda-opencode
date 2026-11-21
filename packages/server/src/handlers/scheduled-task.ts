@@ -3,7 +3,7 @@ import { ScheduledTaskStore } from "@opencode-ai/core/scheduled-task"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { ServiceUnavailableError } from "@opencode-ai/protocol/errors"
-import { ScheduledTaskNotFoundError } from "@opencode-ai/protocol/groups/scheduled-task"
+import { ScheduledTaskConflictError, ScheduledTaskDisabledError, ScheduledTaskNotFoundError } from "@opencode-ai/protocol/groups/scheduled-task"
 import { Api } from "../api"
 
 export const ScheduledTaskHandler = HttpApiBuilder.group(Api, "server.scheduledTask", (handlers) =>
@@ -35,6 +35,22 @@ export const ScheduledTaskHandler = HttpApiBuilder.group(Api, "server.scheduledT
                 new ScheduledTaskNotFoundError({
                   taskID: error.taskID,
                   message: `Scheduled task not found: ${error.taskID}`,
+                }),
+            ),
+            Effect.catchTag(
+              "ScheduledTask.DisabledError",
+              (error) =>
+                new ScheduledTaskDisabledError({
+                  taskID: error.taskID,
+                  message: `Scheduled task is disabled: ${error.taskID}`,
+                }),
+            ),
+            Effect.catchTag(
+              "ScheduledTask.ConflictError",
+              (error) =>
+                new ScheduledTaskConflictError({
+                  taskID: error.taskID,
+                  message: `Scheduled task run conflicts: ${error.taskID}`,
                 }),
             ),
           )

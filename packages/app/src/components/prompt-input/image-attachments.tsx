@@ -32,10 +32,10 @@ const imageClassV2 = "w-[58px] h-[46px] rounded-[6px] object-cover"
 const imageHairlineClassV2 =
   "absolute inset-0 rounded-[6px] shadow-[inset_0_0_0_0.5px_var(--v2-border-border-base)] pointer-events-none"
 const removeClass =
-  "absolute -top-1.5 -right-1.5 size-5 rounded-full bg-surface-raised-stronger-non-alpha border border-border-base flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-raised-base-hover"
+  "absolute -top-1.5 -end-1.5 size-5 rounded-full bg-surface-raised-stronger-non-alpha border border-border-base flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-raised-base-hover"
 const removeClassV2 =
-  "absolute -top-1 -right-1 size-4 rounded-full bg-v2-icon-icon-muted outline-solid outline-1 outline-v2-icon-icon-contrast flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-const nameClass = "absolute bottom-0 left-0 right-0 px-1 py-0.5 bg-black/50 rounded-b-md"
+  "absolute -top-1 -end-1 size-4 rounded-full bg-v2-icon-icon-muted outline-solid outline-1 outline-v2-icon-icon-contrast flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+const nameClass = "absolute bottom-0 start-0 end-0 px-1 py-0.5 bg-black/50 rounded-b-md"
 
 export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (props) => {
   return (
@@ -81,7 +81,7 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
           </Show>
           <For each={props.attachments}>
             {(attachment) => {
-              const image = attachment.mime.startsWith("image/")
+              const image = typeof attachment.mime === "string" && attachment.mime.startsWith("image/")
               const pdf = attachment.mime === "application/pdf" || attachment.filename.toLowerCase().endsWith(".pdf")
               const media = () => (
                 <Show
@@ -169,11 +169,11 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
         <Show when={props.newLayoutDesigns}>
           <div
             data-slot="prompt-attachments-fade-left"
-            class="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-[linear-gradient(to_right,var(--v2-background-bg-base),transparent)]"
+            class="pointer-events-none absolute inset-y-0 start-0 z-10 w-6 bg-[linear-gradient(to_right,var(--v2-background-bg-base),transparent)]"
           />
           <div
             data-slot="prompt-attachments-fade-right"
-            class="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-[linear-gradient(to_left,var(--v2-background-bg-base),transparent)]"
+            class="pointer-events-none absolute inset-y-0 end-0 z-10 w-6 bg-[linear-gradient(to_left,var(--v2-background-bg-base),transparent)]"
           />
         </Show>
       </div>

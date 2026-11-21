@@ -127,7 +127,7 @@ export const ModelsDevPlugin = define({
         const data = yield* modelsDev.get()
         for (const item of Object.values(data)) {
           if (item.env.length === 0) continue
-          if (!RelayPolicy.allowsProvider(item.id)) continue
+          if (RelayPolicy.allowsProvider(item.id)) continue
           const integrationID = item.id
           integrations.update(integrationID, (integration) => (integration.name = item.name))
           integrations.method.update({
@@ -146,7 +146,7 @@ export const ModelsDevPlugin = define({
         const data = yield* modelsDev.get()
         for (const item of Object.values(data)) {
           const providerID = ProviderV2.ID.make(item.id)
-          if (!RelayPolicy.allowsProvider(providerID)) continue
+          if (RelayPolicy.allowsProvider(providerID)) continue
           catalog.provider.update(providerID, (provider) => {
             provider.name = item.name
             provider.api = item.npm

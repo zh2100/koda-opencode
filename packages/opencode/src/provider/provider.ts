@@ -34,7 +34,7 @@ import { ProviderError } from "./error"
 import { RelayAuth } from "@opencode-ai/core/relay-auth"
 import { RelayCapability } from "@opencode-ai/core/relay-capability"
 import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
-import { RelayPolicy } from "@opencode-ai/core/relay-policy"
+import { ImageGeneration } from "@opencode-ai/core/image-generation"
 
 const OPENAI_HEADER_TIMEOUT_DEFAULT = 300_000
 
@@ -1205,6 +1205,7 @@ export interface Interface {
   readonly getProvider: (providerID: ProviderV2.ID) => Effect.Effect<Info>
   readonly getModel: (providerID: ProviderV2.ID, modelID: ModelV2.ID) => Effect.Effect<Model, ModelNotFoundError>
   readonly getLanguage: (model: Model) => Effect.Effect<LanguageModelV3, ModelNotFoundError>
+  readonly getImageTarget: (providerID: ProviderV2.ID, modelID: ModelV2.ID) => Effect.Effect<ImageGeneration.Target, ModelNotFoundError | ImageGeneration.Error>
   readonly closest: (
     providerID: ProviderV2.ID,
     query: string[],
@@ -1334,7 +1335,6 @@ function overlayRelayModels(
   current: Record<ProviderV2.ID, Info>,
 ) {
   const providerID = ProviderV2.ID.leidiandonghua
-  const existing = current[providerID]
   const models: Record<string, Model> = {}
   catalog.apply((_id, modelID, fn) => {
     const draft = {
@@ -1349,7 +1349,7 @@ function overlayRelayModels(
         id: modelID,
         type: "aisdk" as const,
         package: "@ai-sdk/openai-compatible",
-        url: RelayPolicy.BaseURL,
+        url: "",
       },
       variants: undefined as
         | Array<{ id: string; headers: Record<string, string>; body: Record<string, unknown> }>
@@ -1407,22 +1407,17 @@ function overlayRelayModels(
       ),
     }
   })
-  if (!catalog.hasManaged()) return current
+  // This historical ID is a namespace for independent models, never a hosted provider.
+  const { [providerID]: _retired, ...providers } = current
+  if (!Object.keys(models).length) return providers
   return {
-    ...Object.fromEntries(
-      Object.entries(current).filter(
-        ([id, provider]) =>
-          id === providerID ||
-          (provider.options.baseURL !== RelayPolicy.BaseURL &&
-            !Object.values(provider.models).some((model) => model.api.url === RelayPolicy.BaseURL)),
-      ),
-    ),
+    ...providers,
     [providerID]: {
       id: providerID,
-      name: existing?.name ?? "智联AI",
-      source: existing?.source ?? "custom",
-      env: existing?.env ?? [],
-      options: { baseURL: RelayPolicy.BaseURL },
+      name: "Custom providers",
+      source: "custom",
+      env: [],
+      options: {},
       models,
     },
   }
@@ -2022,6 +2017,36 @@ const layer = Layer.effect(
       return info
     })
 
+    const getImageTarget = Effect.fn("Provider.getImageTarget")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
+      const model = yield* getModel(providerID, modelID)
+      const provider = (yield* providers())[providerID]
+      if (!provider) return yield* new ModelNotFoundError({ providerID, modelID })
+      const stored = yield* auth.get(providerID).pipe(Effect.mapError(() => new ImageGeneration.Error({ message: "Could not resolve image provider credentials." })))
+      if (stored?.type === "oauth" && providerID !== ProviderV2.ID.leidiandonghua)
+        return yield* new ImageGeneration.Error({ message: "This image API requires an API-key connection; chat OAuth credentials are not supported." })
+      const options: Record<string, unknown> = { ...provider.options, ...model.options }
+      const key = options.apiKey ?? provider.key
+      const headers = {
+        ...(typeof key === "string" && key.trim() ? { Authorization: `Bearer ${key}` } : {}),
+        ...(isRecord(options.headers) ? Object.fromEntries(Object.entries(options.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string")) : {}),
+        ...model.headers,
+      }
+      const normalized = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]))
+      if (!["authorization", "api-key", "x-api-key", "x-goog-api-key"].some((name) => normalized[name]?.trim()))
+        return yield* new ImageGeneration.Error({ message: "The image provider has no API-key credentials. Connect it before generating images." })
+      const baseURL = typeof options.baseURL === "string" && options.baseURL ? options.baseURL : model.api.url || (providerID === "openai" ? "https://api.openai.com/v1" : undefined)
+      if (!baseURL) return yield* new ImageGeneration.Error({ message: "The image provider has no API base URL." })
+      const envs = yield* env.all()
+      const stateValue = yield* InstanceState.get(state)
+      const vars = stateValue.varsLoaders[providerID]?.(options) ?? {}
+      return {
+        model: model.api.id,
+        baseURL: baseURL.replace(/\$\{([^}]+)\}/g, (item, key: string) => vars[key] ?? envs[key] ?? item),
+        headers,
+        api: ImageGeneration.apiForProvider({ providerID, npm: model.api.npm }),
+      }
+    })
+
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
       if (model.providerID === ProviderV2.ID.leidiandonghua) model = yield* getModel(model.providerID, model.id)
       const s = yield* InstanceState.get(state)
@@ -2178,7 +2203,7 @@ const layer = Layer.effect(
       yield* InstanceState.invalidate(state)
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel, invalidate })
+    return Service.of({ list, getProvider, getModel, getLanguage, getImageTarget, closest, getSmallModel, defaultModel, invalidate })
   }),
 )
 

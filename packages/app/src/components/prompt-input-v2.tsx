@@ -31,6 +31,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { showToast } from "@/utils/toast"
+import { ACCEPTED_FILE_EXTENSIONS, ACCEPTED_FILE_TYPES } from "@/constants/file-picker"
 import { recognizeSpeech, speechSupported } from "@/components/prompt-input/speech"
 import { PromptInputV2, type PromptInputV2Suggestion } from "@opencode-ai/session-ui/v2/prompt-input"
 import {
@@ -407,6 +408,8 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     },
     attachments: {
       picker: platform.openAttachmentPickerDialog,
+      accept: ACCEPTED_FILE_TYPES,
+      extensions: ACCEPTED_FILE_EXTENSIONS,
       directory: () => sdk().directory,
       isDialogActive: () => !!dialog.active,
       warn: () =>

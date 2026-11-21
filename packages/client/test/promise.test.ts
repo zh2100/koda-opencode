@@ -16,6 +16,7 @@ test("exposes every standard HTTP API group", () => {
     "credentials",
     "server.relay",
     "server.scheduledTask",
+    "imageGeneration",
     "permissions",
     "files",
     "commands",
@@ -256,3 +257,53 @@ const modelSwitchedEvent = {
     model: { id: "claude", providerID: "anthropic" },
   },
 }
+
+test("relay clients encode creation/identity guards and preserve sync null versus zero", async () => {
+  const requests: Array<{ url: string; body: unknown }> = []
+  let revision: number | null = null
+  const client = OpenCode.make({
+    baseUrl: "http://localhost:3000",
+    fetch: async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
+      requests.push({ url, body })
+      if (url.endsWith("/sync"))
+        return Response.json({
+          auth: { vendors: [], revision: 0 },
+          candidates: [],
+          managed: [],
+          catalogRevision: revision,
+          notice: { status: "idle" },
+        })
+      return Response.json({
+        vendors: [],
+        revision: 1,
+        catalogSync: { status: "pending", retryable: true },
+        operationReceipt: {
+          operationId: "create",
+          kind: "vendor-create",
+          vendorId: "review",
+          entityId: "entity",
+          committedRevision: 1,
+        },
+      })
+    },
+  })
+  const relay = client["server.relay"]
+  const created = await relay.vendor({
+    vendorId: "review",
+    revision: 0,
+    createOnly: true,
+    operationId: "create",
+    name: "Review",
+  })
+  expect(created.operationReceipt?.operationId).toBe("create")
+  expect(created.catalogSync).toEqual({ status: "pending", retryable: true })
+  expect(requests[0]?.body).toMatchObject({ createOnly: true, operationId: "create" })
+  await relay.probe({ vendorId: "review", expectedEntityId: "entity", expectedVendorRevision: 1 })
+  expect(requests[1]?.body).toMatchObject({ expectedEntityId: "entity", expectedVendorRevision: 1 })
+  expect((await relay.sync({ retryNotice: true })).catalogRevision).toBeNull()
+  revision = 0
+  expect((await relay.sync()).catalogRevision).toBe(0)
+  expect(requests[2]).toEqual({ url: "http://localhost:3000/api/relay/models/sync", body: { retryNotice: true } })
+})

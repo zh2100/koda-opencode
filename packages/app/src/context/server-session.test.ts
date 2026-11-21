@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { retry } from "@opencode-ai/core/util/retry"
 import type { OpenCodeEvent } from "@opencode-ai/client/promise"
-import type { Message, OpencodeClient, Part, Session } from "@opencode-ai/sdk/v2/client"
+import type { Message, OpencodeClient, Part, Session, Todo } from "@opencode-ai/sdk/v2/client"
 import { createServerSession } from "./server-session"
 import type { ServerApi } from "@/utils/server"
 
@@ -163,6 +163,62 @@ function setup(sessions: Record<string, Session>) {
 }
 
 describe("server session", () => {
+  test("projects attachments from admitted V2 prompts without losing URI or mention data", () => {
+    const ctx = setup({ child: session("child") })
+    const files = [
+      { uri: "data:image/png;base64,AAA", mime: "image/png", name: "image.png" },
+      { data: "aGVsbG8=", mime: "text/plain", name: "legacy.txt" },
+      { uri: "file:///repo/note.txt", mime: "text/plain", source: { text: "@note.txt", start: 0, end: 9 } },
+      { mime: "image/png", name: "missing.png" },
+      null,
+    ]
+    ctx.store.applyV2({
+      id: "evt_admitted",
+      type: "session.input.admitted",
+      data: {
+        sessionID: "child",
+        inputID: "msg_user",
+        input: { type: "user", delivery: "steer", data: { text: "@note.txt", files } },
+      },
+    } as unknown as OpenCodeEvent)
+    expect(() => ctx.store.applyV2({
+      id: "evt_promoted",
+      type: "session.input.promoted",
+      data: { sessionID: "child", inputID: "msg_user" },
+    } as unknown as OpenCodeEvent)).not.toThrow()
+    expect(ctx.store.data.part.msg_user?.filter((part) => part.type === "file")).toMatchObject([
+      { url: "data:image/png;base64,AAA", filename: "image.png" },
+      { url: "data:text/plain;base64,aGVsbG8=", filename: "legacy.txt" },
+      { url: "file:///repo/note.txt", source: { text: { value: "@note.txt", start: 0, end: 9 }, path: "note.txt" } },
+    ])
+  })
+
+  test("hydrates mixed attachment formats through the V2 message endpoint", async () => {
+    const store = createServerSession({} as OpencodeClient, {} as SessionApi, {
+      list: async () => ({ data: [{
+        id: "msg_user",
+        type: "user",
+        text: "hello",
+        time: { created: 1 },
+        files: [
+          { uri: "data:text/plain,hello,world", mime: "text/plain" },
+          { data: "AAA", mime: "image/png", name: "legacy.png" },
+          { mime: "image/png" },
+          null,
+        ],
+      }], cursor: { previous: null, next: null } }),
+    } as unknown as MessageApi, { protocol: Promise.resolve("v2") })
+    store.remember(session("child"))
+
+    await store.sync("child")
+
+    expect(store.data.part.msg_user?.filter((part) => part.type === "file")).toMatchObject([
+      { url: "data:text/plain,hello,world", filename: "" },
+      { url: "data:image/png;base64,AAA", filename: "legacy.png" },
+    ])
+    expect(store.get("child")?.id).toBe("child")
+  })
+
   test("projects V2 session events into current and legacy message state", () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
@@ -184,6 +240,7 @@ describe("server session", () => {
       location: { directory: "/repo" },
       data: {
         sessionID: "child",
+        timestamp: 2,
         assistantMessageID: "msg_2_assistant",
         agent: "build",
         model: { id: "model", providerID: "provider" },
@@ -192,26 +249,26 @@ describe("server session", () => {
     apply({
       id: "evt_text_start",
       created: 3,
-      type: "session.text.started",
+      type: "session.next.text.started",
       durable: { aggregateID: "child", seq: 2, version: 1 },
       location: { directory: "/repo" },
-      data: { sessionID: "child", assistantMessageID: "msg_2_assistant", ordinal: 0 },
+      data: { sessionID: "child", timestamp: 3, assistantMessageID: "msg_2_assistant", textID: "text_1" },
     })
     apply({
       id: "evt_text_delta",
       created: 4,
-      type: "session.text.delta",
+      type: "session.next.text.delta",
       location: { directory: "/repo" },
-      data: { sessionID: "child", assistantMessageID: "msg_2_assistant", ordinal: 0, delta: "world" },
+      data: { sessionID: "child", timestamp: 4, assistantMessageID: "msg_2_assistant", textID: "text_1", delta: "world" },
     })
 
-    expect(ctx.store.data.session_message.child?.at(-1)).toMatchObject({
-      id: "msg_2_assistant",
-      type: "assistant",
-      content: [{ type: "text", text: "world" }],
-    })
+    const assistantMessage = ctx.store.data.session_message.child?.at(-1)
+    expect(assistantMessage).toMatchObject({ id: "msg_2_assistant", type: "assistant" })
+    expect(assistantMessage?.type === "assistant" ? assistantMessage.content : undefined).toEqual([
+      { type: "text", id: "text_1", text: "world" },
+    ])
     expect(ctx.store.data.message.child?.map((message) => message.id)).toEqual(["msg_1_user", "msg_2_assistant"])
-    expect(ctx.store.data.part.msg_2_assistant).toMatchObject([{ type: "text", text: "world" }])
+    expect(ctx.store.data.part.msg_2_assistant?.[0]).toMatchObject({ type: "text", text: "world" })
   })
 
   test("resolves lineage by session ID without directory", async () => {
@@ -332,10 +389,9 @@ describe("server session", () => {
     await store.sync("root")
 
     expect(store.data.message.root.map((message) => message.id)).toEqual([user.id, assistant.id])
-    expect(store.data.session_message.root).toMatchObject([
-      { id: user.id, type: "user", text: "text" },
-      { id: assistant.id, type: "assistant" },
-    ])
+    expect(store.data.session_message.root[0]).toMatchObject({ id: user.id, type: "user", text: "text" })
+    expect(store.data.session_message.root[1]?.id).toBe(assistant.id)
+    expect(store.data.session_message.root[1]?.type).toBe("assistant")
 
     const next = userMessage("message-3", { sessionID: "root" })
     store.apply({ type: "message.updated", properties: { info: next } })
@@ -381,6 +437,23 @@ describe("server session", () => {
     expect(client.rootRequests).toEqual([{ sessionID: "child", messageID: "message-missing" }])
     expect(store.data.message.child).toEqual([assistant])
     expect(store.history.more("child")).toBe(true)
+  })
+
+  test("finishes a force requested while the first sync is still reading", async () => {
+    const first = Promise.withResolvers<MessageResponse>()
+    const second = Promise.withResolvers<MessageResponse>()
+    const oldMessage = userMessage("message-old")
+    const nextMessage = userMessage("message-new")
+    const client = messageClient(first.promise, second.promise)
+    const store = createServerSession(client)
+    const loading = store.sync("child")
+    await client.requested(1)
+    const forced = store.sync("child", { force: true })
+    first.resolve(response([{ info: oldMessage, parts: [] }]))
+    await client.requested(2)
+    second.resolve(response([{ info: oldMessage, parts: [] }, { info: nextMessage, parts: [] }]))
+    await Promise.all([loading, forced])
+    expect(store.data.message.child?.map((item) => item.id)).toEqual([nextMessage.id, oldMessage.id])
   })
 
   test("drops a cached parent when a forced refresh confirms it was deleted", async () => {
@@ -1417,8 +1490,9 @@ describe("server session", () => {
     guard.active = true
 
     await store.history.loadMore("child")
+    guard.active = false
 
-    expect(store.data.message.child).toEqual([older, latest])
+    expect(store.data.message.child?.map((message) => message.id)).toEqual([older.id, latest.id])
   })
 
   test("preserves loaded history during an incomplete refresh", async () => {
@@ -1607,6 +1681,53 @@ describe("server session", () => {
     expect(ctx.get).toEqual([])
   })
 
+  test("counts running child sessions as working for their parent", () => {
+    const ctx = setup({})
+    ctx.store.apply({ type: "session.created", properties: { info: session("root") } })
+    ctx.store.apply({ type: "session.created", properties: { info: session("child", "root") } })
+
+    ctx.store.apply({ type: "session.status", properties: { sessionID: "child", status: { type: "busy" } } })
+    expect(ctx.store.data.session_working("root")).toBe(true)
+    expect(ctx.store.data.session_working("child")).toBe(true)
+
+    ctx.store.apply({ type: "session.status", properties: { sessionID: "child", status: { type: "idle" } } })
+    expect(ctx.store.data.session_working("root")).toBe(false)
+  })
+
+  test("keeps a parent working across a child V2 step", () => {
+    const ctx = setup({})
+    ctx.store.remember(session("root"))
+    ctx.store.remember(session("child", "root"))
+    const apply = (input: object) => ctx.store.applyV2(input as OpenCodeEvent)
+
+    apply({
+      id: "child-step-start",
+      created: 1,
+      type: "session.step.started",
+      data: {
+        sessionID: "child",
+        assistantMessageID: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+      },
+    })
+    expect(ctx.store.data.session_working("root")).toBe(true)
+
+    apply({
+      id: "child-step-ended",
+      created: 2,
+      type: "session.step.ended",
+      data: {
+        sessionID: "child",
+        assistantMessageID: "assistant",
+        finish: "stop",
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      },
+    })
+    expect(ctx.store.data.session_working("root")).toBe(false)
+  })
+
   test("preserves pinned session content under server-wide cache pressure", () => {
     const ctx = setup({})
     ctx.store.pin("active")
@@ -1648,6 +1769,7 @@ describe("server session", () => {
       { content: "done", status: "completed", priority: "low" },
     ]
     const sessionApi = {
+      get: async () => session("root"),
       todo: async () => todos,
     } as unknown as SessionApi
     const store = createServerSession({} as OpencodeClient, sessionApi, {} as MessageApi, {
@@ -1665,5 +1787,66 @@ describe("server session", () => {
       },
     })
     expect(store.data.todo.root).toEqual([{ content: "next", status: "pending", priority: "high" }])
+  })
+
+  test("does not let a todo refresh overwrite a newer todo event", async () => {
+    const pending = Promise.withResolvers<Todo[]>()
+    const sessionApi = {
+      get: async () => session("root"),
+      todo: async () => pending.promise,
+    } as unknown as SessionApi
+    const store = createServerSession({} as OpencodeClient, sessionApi, {} as MessageApi, {
+      protocol: Promise.resolve("v2"),
+    })
+
+    const loading = store.todo("root")
+    const current = [{ content: "current", status: "in_progress", priority: "high" }] as Todo[]
+    store.apply({ type: "todo.updated", properties: { sessionID: "root", todos: current } })
+    pending.resolve([{ content: "stale", status: "pending", priority: "low" }])
+    await loading
+
+    expect(store.data.todo.root).toEqual(current)
+  })
+
+  test("retries a todo refresh requested while the initial load is pending", async () => {
+    const initial = Promise.withResolvers<Todo[]>()
+    const refreshed = Promise.withResolvers<Todo[]>()
+    let calls = 0
+    const sessionApi = {
+      get: async () => session("root"),
+      todo: async () => (calls++ === 0 ? initial.promise : refreshed.promise),
+    } as unknown as SessionApi
+    const store = createServerSession({} as OpencodeClient, sessionApi, {} as MessageApi, {
+      protocol: Promise.resolve("v2"),
+    })
+
+    const loading = store.todo("root")
+    const refreshing = store.todo("root", { force: true })
+    initial.resolve([{ content: "initial", status: "pending", priority: "low" }])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(calls).toBe(2)
+
+    refreshed.resolve([{ content: "current", status: "in_progress", priority: "high" }])
+    await Promise.all([loading, refreshing])
+
+    expect(store.data.todo.root).toEqual([{ content: "current", status: "in_progress", priority: "high" }])
+  })
+
+  test("loads a standalone forced todo refresh once", async () => {
+    let calls = 0
+    const sessionApi = {
+      get: async () => session("root"),
+      todo: async () => {
+        calls++
+        return [{ content: "current", status: "in_progress", priority: "high" }] as Todo[]
+      },
+    } as unknown as SessionApi
+    const store = createServerSession({} as OpencodeClient, sessionApi, {} as MessageApi, {
+      protocol: Promise.resolve("v2"),
+    })
+
+    await store.todo("root", { force: true })
+
+    expect(calls).toBe(1)
   })
 })

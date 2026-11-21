@@ -14,7 +14,10 @@
   },
   "scripts": {
     "typecheck": "tsgo -b",
+    "typecheck:relay-tests": "tsgo -p tsconfig.relay-tests.json",
     "typecheck:e2e": "tsgo -p e2e/tsconfig.json",
+    "typecheck:e2e:dialog": "tsgo -p e2e/tsconfig.dialog-lifecycle.json",
+    "typecheck:e2e:relay": "tsgo -p e2e/tsconfig.relay-settings.json",
     "start": "vite",
     "dev": "vite",
     "build": "vite build",

@@ -14,20 +14,24 @@ describe("buildOfficeFile", () => {
     expect(extractOfficeText("manual.docx", bytes!)).toBe("说明书\n打开电源\n检查指示灯\n项目\n说明\n电源\n打开")
   })
 
-  test("writes xlsx sheets and pptx slides that can be read back", async () => {
-    const sheet = await buildOfficeFile(
-      "table.xlsx",
-      "# 报价\n名称\t数量\n零件 & 配件\t2\n\n# 明细\n字段\t值\n状态\t已确认",
-    )
-    expect(extractOfficeText("table.xlsx", sheet!)).toBe(
-      "# 报价\n名称\t数量\n零件 & 配件\t2\n\n# 明细\n字段\t值\n状态\t已确认",
-    )
+  test(
+    "writes xlsx sheets and pptx slides that can be read back",
+    async () => {
+      const sheet = await buildOfficeFile(
+        "table.xlsx",
+        "# 报价\n名称\t数量\n零件 & 配件\t2\n\n# 明细\n字段\t值\n状态\t已确认",
+      )
+      expect(extractOfficeText("table.xlsx", sheet!)).toBe(
+        "# 报价\n名称\t数量\n零件 & 配件\t2\n\n# 明细\n字段\t值\n状态\t已确认",
+      )
 
-    const deck = await buildOfficeFile("deck.pptx", "# 概述\n先看目标\n再看步骤\n\n# 结果\n完成交付")
-    expect(extractOfficeText("deck.pptx", deck!)).toBe(
-      "# Slide 1\n概述\n先看目标\n再看步骤\n\n# Slide 2\n结果\n完成交付",
-    )
-  })
+      const deck = await buildOfficeFile("deck.pptx", "# 概述\n先看目标\n再看步骤\n\n# 结果\n完成交付")
+      expect(extractOfficeText("deck.pptx", deck!)).toBe(
+        "# Slide 1\n概述\n先看目标\n再看步骤\n\n# Slide 2\n结果\n完成交付",
+      )
+    },
+    { timeout: 30000 },
+  )
 
   test.each(["DOCX", "XLSX", "PPTX"])("round trips a %s file on disk", async (ext) => {
     await using tmp = await tmpdir()

@@ -9,6 +9,7 @@ import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
 import { SettingsList } from "./settings-list"
 import { SettingsServerPicker, SettingsServerScope } from "./settings-server-picker"
+import { SettingsImageGeneration } from "./settings-image-generation"
 
 type ModelItem = ReturnType<ReturnType<typeof useModels>["list"]>[number]
 
@@ -82,6 +83,7 @@ const SettingsModelsContent: Component = () => {
       </div>
 
       <div class="flex flex-col gap-8 max-w-[720px]">
+        <SettingsImageGeneration />
         <Show
           when={!list.grouped.loading}
           fallback={

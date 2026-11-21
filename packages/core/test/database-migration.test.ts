@@ -1,3 +1,4 @@
+import scheduledRunOwnerMigration from "@opencode-ai/core/database/migration/20261107102331_scheduled-run-owner"
 import { describe, expect, test } from "bun:test"
 import { $ } from "bun"
 import { fileURLToPath } from "url"
@@ -704,4 +705,21 @@ describe("DatabaseMigration", () => {
       }),
     )
   })
+})
+
+test("scheduled run owner migration preserves legacy runs and is journal-idempotent", async () => {
+  await run(
+    Effect.gen(function* () {
+      const db = yield* makeDb
+      yield* db.run(sql`CREATE TABLE scheduled_task_run (id text PRIMARY KEY, status text NOT NULL)`)
+      yield* db.run(sql`INSERT INTO scheduled_task_run (id, status) VALUES ('legacy', 'pending')`)
+      yield* DatabaseMigration.applyOnly(db, [scheduledRunOwnerMigration])
+      yield* DatabaseMigration.applyOnly(db, [scheduledRunOwnerMigration])
+      expect(yield* db.get(sql`SELECT id, status, owner FROM scheduled_task_run`)).toEqual({
+        id: "legacy",
+        status: "pending",
+        owner: null,
+      })
+    }),
+  )
 })

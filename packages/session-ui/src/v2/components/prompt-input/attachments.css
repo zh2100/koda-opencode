@@ -16,6 +16,10 @@
   }
 }
 
+.prompt-input-v2-editor:empty::before {
+  content: "\200B";
+}
+
 [data-component="prompt-input-v2-attachments"] {
   timeline-scope: --prompt-input-v2-attachments-scroll;
 
@@ -40,5 +44,14 @@
     animation: prompt-input-v2-attachments-fade-right linear both;
     animation-timeline: --prompt-input-v2-attachments-scroll;
     animation-range: calc(100% - 1.1px) calc(100% - 1px);
+  }
+
+  /* The inline scroll timeline runs in the opposite physical direction in RTL. */
+  [data-component="prompt-input-v2-attachments"]:dir(rtl) [data-slot="prompt-attachments-fade-left"] {
+    animation-name: prompt-input-v2-attachments-fade-right;
+  }
+
+  [data-component="prompt-input-v2-attachments"]:dir(rtl) [data-slot="prompt-attachments-fade-right"] {
+    animation-name: prompt-input-v2-attachments-fade-left;
   }
 }

@@ -114,7 +114,7 @@ export const loaderLayer = Layer.effect(
 
     return Loader.of({
       load: Effect.fn("ACPDirectoryLoader.load")(function* (directory) {
-        const ctx = yield* store.load({ directory })
+        const ctx = yield* store.load({ directory }).pipe(Effect.orDie)
         return yield* Effect.gen(function* () {
           const providers = yield* provider.list()
           const [agents, defaultAgent, commands, defaultModel] = yield* Effect.all(

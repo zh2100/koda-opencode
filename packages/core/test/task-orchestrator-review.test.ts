@@ -11,7 +11,7 @@ describe("TaskOrchestratorReview", () => {
       approved: true,
       findings: [{ message: "Missing a regression test" }],
     })
-    expect(TaskOrchestratorReview.parse("```json\n{\"approved\":true,\"findings\":[]}\n```")).toEqual({
+    expect(TaskOrchestratorReview.parse('```json\n{"approved":true,"findings":[]}\n```')).toEqual({
       approved: true,
       findings: [],
     })
@@ -28,7 +28,10 @@ describe("TaskOrchestratorReview", () => {
   })
 
   test("approved review continues without changing retry count", () => {
-    expect(TaskOrchestratorReview.decision({ approved: true, findings: [] }, 1, 2)).toEqual({ action: "continue", retryCount: 1 })
+    expect(TaskOrchestratorReview.decision({ approved: true, findings: [] }, 1, 2)).toEqual({
+      action: "continue",
+      retryCount: 1,
+    })
   })
 
   test("creates an auditable worker revision plan", () => {

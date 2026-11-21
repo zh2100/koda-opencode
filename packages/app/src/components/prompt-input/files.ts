@@ -1,4 +1,4 @@
-import { ACCEPTED_FILE_TYPES } from "@/constants/file-picker"
+import { ACCEPTED_FILE_EXTENSIONS, ACCEPTED_FILE_TYPES } from "@/constants/file-picker"
 
 export { ACCEPTED_FILE_TYPES }
 
@@ -7,6 +7,7 @@ type AttachmentPicker = (
     defaultPath?: string
     multiple?: boolean
     accept?: string[]
+    extensions?: string[]
   },
   onFile: (file: File) => Promise<unknown>,
 ) => Promise<void>
@@ -27,6 +28,8 @@ export function pickAttachmentFiles(input: {
       {
         defaultPath: input.directory(),
         multiple: true,
+        accept: ACCEPTED_FILE_TYPES,
+        extensions: ACCEPTED_FILE_EXTENSIONS,
       },
       input.onFile,
     )
@@ -53,6 +56,19 @@ const TEXT_MIMES = new Set([
   "application/xml",
   "application/yaml",
 ])
+const DOCUMENT_EXTS = new Map([
+  ["doc", "application/msword"],
+  ["xls", "application/vnd.ms-excel"],
+  ["docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  ["xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  ["pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+  ["odt", "application/vnd.oasis.opendocument.text"],
+  ["ods", "application/vnd.oasis.opendocument.spreadsheet"],
+  ["odp", "application/vnd.oasis.opendocument.presentation"],
+  ["rtf", "application/rtf"],
+  ["epub", "application/epub+zip"],
+])
+const DOCUMENT_MIMES = new Set(DOCUMENT_EXTS.values())
 
 const SAMPLE = 4096
 
@@ -93,6 +109,11 @@ export async function attachmentMime(file: File) {
   const suffix = ext(file.name)
   const fallback = IMAGE_EXTS.get(suffix) ?? (suffix === "pdf" ? "application/pdf" : undefined)
   if ((!type || type === "application/octet-stream") && fallback) return fallback
+  if ((!type || type === "application/octet-stream" || type === "application/zip") && DOCUMENT_EXTS.has(suffix)) {
+    return DOCUMENT_EXTS.get(suffix)
+  }
+
+  if (DOCUMENT_MIMES.has(type) || type === "text/rtf") return type
 
   if (textMime(type)) return "text/plain"
   const bytes = new Uint8Array(await file.slice(0, SAMPLE).arrayBuffer())

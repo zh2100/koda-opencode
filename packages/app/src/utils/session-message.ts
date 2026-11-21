@@ -213,7 +213,7 @@ function userParts(sessionID: string, message: SessionMessageUser): Part[] {
         type: "file",
         mime: file.mime,
         filename: file.name,
-         url: file.data.startsWith("data:") ? file.data : `data:${file.mime};base64,${file.data}`,
+        url: file.uri ?? (file.data.startsWith("data:") ? file.data : `data:${file.mime};base64,${file.data}`),
         source: file.mention
           ? {
               type: "file",

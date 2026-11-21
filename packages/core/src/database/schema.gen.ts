@@ -131,6 +131,8 @@ export default {
           \`task_id\` text NOT NULL,
           \`scheduled_at\` integer NOT NULL,
           \`revision\` integer NOT NULL,
+          \`owner\` text,
+          \`cancel_epoch\` integer,
           \`status\` text NOT NULL,
           \`session_id\` text,
           \`prompt_message_id\` text,
@@ -156,6 +158,7 @@ export default {
           \`effort\` text,
           \`approval_mode\` text NOT NULL,
           \`enabled\` integer NOT NULL,
+          \`cancel_epoch\` integer DEFAULT 0 NOT NULL,
           \`revision\` integer NOT NULL,
           \`next_run\` integer,
           \`last_run\` integer,
@@ -329,7 +332,7 @@ export default {
           \`created_at\` integer NOT NULL,
           \`updated_at\` integer NOT NULL,
           \`failure_reason\` text,
-          \`timeout_ms\` integer DEFAULT 300000 NOT NULL,
+          \`timeout_ms\` integer DEFAULT 900000 NOT NULL,
           \`max_retries\` integer DEFAULT 1 NOT NULL,
           \`fallback_model\` text
         );

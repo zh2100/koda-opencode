@@ -25,6 +25,7 @@ import { AppProcess } from "@opencode-ai/core/process"
 import { Deferred, Duration, Effect, Layer, Queue, Schedule, Scope, Stream } from "effect"
 import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { ChildProcess } from "effect/unstable/process"
+import files from "node:fs/promises"
 import path from "node:path"
 import { TestLLMServer } from "./llm-server"
 import { testProviderConfig } from "./test-provider"
@@ -57,6 +58,18 @@ function forkStderrDrain(stream: ReadableStream<Uint8Array>, into: string[]) {
       Effect.ignore({ log: true }),
     ),
   )
+}
+
+// CLI contract tests use an installed workspace plugin, not the public registry.
+async function installWorkspacePlugin(home: string) {
+  const dir = path.join(home, ".config", "opencode")
+  const scope = path.join(dir, "node_modules", "@opencode-ai")
+  const plugin = path.resolve(import.meta.dir, "../../../plugin")
+  await files.mkdir(scope, { recursive: true })
+  await files.symlink(plugin, path.join(scope, "plugin"), process.platform === "win32" ? "junction" : "dir")
+  const dependencies = { "@opencode-ai/plugin": `file:${plugin}` }
+  await Bun.write(path.join(dir, "package.json"), JSON.stringify({ private: true, dependencies }))
+  await Bun.write(path.join(dir, "package-lock.json"), JSON.stringify({ lockfileVersion: 3, packages: { "": { dependencies } } }))
 }
 
 function isolatedEnv(home: string, configJson: string): Record<string, string> {
@@ -201,6 +214,7 @@ export function withCliFixture<A, E>(
         .pipe(Effect.retry(Schedule.spaced("50 millis").pipe(Schedule.both(Schedule.recurs(20)))), Effect.ignore),
     )
 
+    yield* Effect.promise(() => installWorkspacePlugin(home))
     const configJson = JSON.stringify(testProviderConfig(llm.url))
     const env = isolatedEnv(home, configJson)
 

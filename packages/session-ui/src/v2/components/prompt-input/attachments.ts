@@ -10,7 +10,7 @@ type PromptTarget = {
 
 export type PromptInputV2AttachmentConfig = {
   picker?: (
-    options: { defaultPath?: string; multiple?: boolean; accept?: string[] },
+    options: { defaultPath?: string; multiple?: boolean; accept?: string[]; extensions?: string[] },
     onFile: (file: File) => Promise<unknown>,
   ) => Promise<void>
   directory: () => string
@@ -21,6 +21,8 @@ export type PromptInputV2AttachmentConfig = {
   readClipboardImage?: () => Promise<File | null>
   getPathForFile?: (file: File) => string
   store?: (file: File) => Promise<{ id: string; url: string }>
+  accept?: string[]
+  extensions?: string[]
 }
 
 export function createPromptInputV2Attachments(
@@ -136,7 +138,7 @@ export function createPromptInputV2Attachments(
     makeEventListener(document, "dragover", (event) => {
       if (input.isDialogActive()) return
       event.preventDefault()
-       if (event.dataTransfer?.types.includes("Files")) input.setDraggingType("file")
+      if (event.dataTransfer?.types.includes("Files")) input.setDraggingType("file")
       else if (event.dataTransfer?.types.includes("text/plain")) input.setDraggingType("@mention")
     })
     makeEventListener(document, "dragleave", (event) => {
@@ -155,7 +157,15 @@ export function createPromptInputV2Attachments(
         return
       }
       void input
-        .picker({ defaultPath: input.directory(), multiple: true }, (file) => add(file))
+        .picker(
+          {
+            defaultPath: input.directory(),
+            multiple: true,
+            accept: input.accept,
+            extensions: input.extensions,
+          },
+          (file) => add(file),
+        )
         .catch(input.onError)
     },
   }
@@ -187,6 +197,22 @@ const textMimes = new Set([
   "application/xml",
   "application/yaml",
 ])
+const officeExtensions = new Map([
+  ["doc", "application/msword"],
+  ["xls", "application/vnd.ms-excel"],
+  ["docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  ["xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  ["pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+])
+const documentExtensions = new Map([
+  ["odt", "application/vnd.oasis.opendocument.text"],
+  ["ods", "application/vnd.oasis.opendocument.spreadsheet"],
+  ["odp", "application/vnd.oasis.opendocument.presentation"],
+  ["rtf", "application/rtf"],
+  ["epub", "application/epub+zip"],
+])
+const officeMimes = new Set(officeExtensions.values())
+const documentMimes = new Set(documentExtensions.values())
 
 async function attachmentMime(file: File) {
   const type = file.type.split(";", 1)[0]?.trim().toLowerCase() ?? ""
@@ -197,6 +223,13 @@ async function attachmentMime(file: File) {
   const suffix = index === -1 ? "" : file.name.slice(index + 1).toLowerCase()
   const fallback = imageExtensions.get(suffix) ?? (suffix === "pdf" ? "application/pdf" : undefined)
   if ((!type || type === "application/octet-stream") && fallback) return fallback
+  if ((!type || type === "application/octet-stream" || type === "application/zip") && officeExtensions.has(suffix)) {
+    return officeExtensions.get(suffix)
+  }
+  if ((!type || type === "application/octet-stream" || type === "application/zip") && documentExtensions.has(suffix)) {
+    return documentExtensions.get(suffix)
+  }
+  if (officeMimes.has(type) || documentMimes.has(type) || type === "text/rtf") return type
   if (type.startsWith("text/") || textMimes.has(type) || type.endsWith("+json") || type.endsWith("+xml")) {
     return "text/plain"
   }

@@ -34,12 +34,12 @@ describe("ModelsDevPlugin", () => {
       const models = ModelsDev.Service.of({
         get: () =>
           Effect.succeed({
-            leidiandonghua: {
-              id: "leidiandonghua",
-              name: "雷电动画",
+            openai: {
+              id: "openai",
+              name: "OpenAI",
               env: [],
               npm: "@ai-sdk/openai-compatible",
-              api: "https://api.leidiandonghua.cn/v1",
+              api: "https://api.openai.com/v1",
               models: {
                 "gpt-5.4": {
                   id: "gpt-5.4",
@@ -89,7 +89,7 @@ describe("ModelsDevPlugin", () => {
         }),
       ).pipe(Effect.provideService(ModelsDev.Service, models))
 
-      const providerID = ProviderV2.ID.leidiandonghua
+      const providerID = ProviderV2.ID.openai
       const base = yield* catalog.model.get(providerID, ModelV2.ID.make("gpt-5.4"))
       const fast = yield* catalog.model.get(providerID, ModelV2.ID.make("gpt-5.4-fast"))
 
@@ -97,7 +97,7 @@ describe("ModelsDevPlugin", () => {
       expect(base?.request.body).toEqual({})
       expect(fast).toMatchObject({
         id: "gpt-5.4-fast",
-        providerID: "leidiandonghua",
+        providerID: "openai",
         name: "GPT-5.4 Fast",
         api: { id: "gpt-5.4" },
         request: {
@@ -145,7 +145,7 @@ describe("ModelsDevPlugin", () => {
               integration: integrationHost(integrations),
             }),
           )
-          expect(yield* integrations.list()).toEqual([])
+          expect((yield* integrations.list()).map((item) => String(item.id))).toEqual(["acme"])
         }).pipe(Effect.provide(AppNodeBuilder.build(ModelsDev.node))),
       (previous) =>
         Effect.sync(() => {
@@ -155,3 +155,36 @@ describe("ModelsDevPlugin", () => {
     ),
   )
 })
+
+it.effect("does not regenerate retired hosted credentials or catalog models", () =>
+  Effect.gen(function* () {
+    const integrations = yield* Integration.Service
+    const catalog = yield* Catalog.Service
+    yield* ModelsDevPlugin.effect(
+      host({
+        catalog: catalogHost(catalog),
+        integration: integrationHost(integrations),
+      }),
+    ).pipe(
+      Effect.provideService(
+        ModelsDev.Service,
+        ModelsDev.Service.of({
+          refresh: () => Effect.void,
+          get: () =>
+            Effect.succeed({
+              leidiandonghua: {
+                id: "leidiandonghua",
+                name: "Retired",
+                env: ["RETIRED_SHARED_KEY"],
+                npm: "@ai-sdk/openai-compatible",
+                api: "https://retired.invalid/v1",
+                models: {},
+              },
+            }),
+        }),
+      ),
+    )
+    expect(yield* integrations.list()).toEqual([])
+    expect(yield* catalog.provider.get(ProviderV2.ID.leidiandonghua)).toBeUndefined()
+  }),
+)

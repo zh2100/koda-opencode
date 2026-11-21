@@ -10,12 +10,14 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SystemContext } from "@opencode-ai/core/system-context"
 import { SystemContextBuiltIns } from "@opencode-ai/core/system-context/builtins"
 import { SystemContextRegistry } from "@opencode-ai/core/system-context/registry"
+import path from "node:path"
+import os from "node:os"
 import { location } from "../fixture/location"
 import { testEffect } from "../lib/effect"
 
-const directory = AbsolutePath.make(FSUtil.resolve("/repo/packages/core"))
-const projectDirectory = AbsolutePath.make(FSUtil.resolve("/repo"))
-const instructionFile = FSUtil.resolve("/repo/AGENTS.md")
+const projectDirectory = AbsolutePath.make(FSUtil.resolve(path.join(os.tmpdir(), `context-${crypto.randomUUID()}`)))
+const directory = AbsolutePath.make(path.join(projectDirectory, "packages", "core"))
+const instructionFile = path.join(projectDirectory, "AGENTS.md")
 const timestamp = Date.parse("2026-06-03T12:00:00.000Z")
 const localDate = (time: number) => new Date(time).toDateString()
 const locationLayer = Layer.succeed(
@@ -23,7 +25,7 @@ const locationLayer = Layer.succeed(
   Location.Service.of(
     location(
       { directory },
-      { projectDirectory, vcs: { type: "git", store: AbsolutePath.make(FSUtil.resolve("/repo/.git")) } },
+      { projectDirectory, vcs: { type: "git", store: AbsolutePath.make(path.join(projectDirectory, ".git")) } },
     ),
   ),
 )
@@ -31,7 +33,7 @@ const builtInsNode = LayerNode.group([SystemContextBuiltIns.node, SystemContextR
 const it = testEffect(
   AppNodeBuilder.build(builtInsNode, [
     [Location.node, locationLayer],
-    [Global.node, Global.layerWith({ config: "/global" })],
+    [Global.node, Global.layerWith({ config: path.join(projectDirectory, "config") })],
   ]),
 )
 const instructionFS = Layer.effect(
@@ -50,7 +52,7 @@ const itWithInstructions = testEffect(
   AppNodeBuilder.build(builtInsNode, [
     [Location.node, locationLayer],
     [FSUtil.node, instructionFS],
-    [Global.node, Global.layerWith({ config: "/global" })],
+    [Global.node, Global.layerWith({ config: path.join(projectDirectory, "config") })],
   ]),
 )
 

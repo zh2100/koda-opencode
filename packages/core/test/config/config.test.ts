@@ -11,6 +11,7 @@ import { ConfigMigrateV1 } from "@opencode-ai/core/v1/config/migrate"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
+import { ImageGenerationSettings } from "@opencode-ai/core/image-generation-settings"
 import { Location } from "@opencode-ai/core/location"
 import { Policy } from "@opencode-ai/core/policy"
 import { Project } from "@opencode-ai/core/project"
@@ -52,6 +53,62 @@ const provider = {
 }
 
 describe("Config", () => {
+  it.live("observes saved image settings immediately while preserving project overrides", () =>
+    Effect.acquireRelease(Effect.promise(tmpdir), (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]())).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const globalDirectory = path.join(tmp.path, "global")
+          yield* Effect.promise(() => fs.mkdir(globalDirectory))
+          const image = { enabled: true, model: "local/image", api: "openai-images" } as const
+          yield* Effect.promise(() =>
+            fs.writeFile(
+              path.join(globalDirectory, "opencode.jsonc"),
+              '\uFEFF{\r\n // global\r\n "model": "chat/model"\r\n}\r\n',
+            ),
+          )
+          const replacements = [
+            [Global.node, Global.layerWith({ config: globalDirectory, state: path.join(tmp.path, "state") })],
+            [
+              Location.node,
+              Layer.succeed(
+                Location.Service,
+                Location.Service.of(location({ directory: AbsolutePath.make(tmp.path) })),
+              ),
+            ],
+          ] as const
+          const services = AppNodeBuilder.build(
+            LayerNode.group([Config.node, ImageGenerationSettings.node]),
+            replacements,
+          )
+          yield* Effect.gen(function* () {
+            const config = yield* Config.Service
+            const settings = yield* ImageGenerationSettings.Service
+            expect(Config.latest(yield* config.entries(), "image_generation")).toBeUndefined()
+            yield* settings.update(image)
+            expect(Config.latest(yield* config.entries(), "image_generation")).toEqual(image)
+            expect(Config.latest(yield* config.entries(), "model")).toBe("chat/model")
+            yield* settings.update({ enabled: false })
+            expect(Config.latest(yield* config.entries(), "image_generation")).toEqual({ enabled: false })
+          }).pipe(Effect.provide(services))
+
+          yield* Effect.promise(() =>
+            fs.writeFile(
+              path.join(tmp.path, "opencode.json"),
+              JSON.stringify({ image_generation: { enabled: false } }),
+            ),
+          )
+          yield* Effect.gen(function* () {
+            const config = yield* Config.Service
+            const settings = yield* ImageGenerationSettings.Service
+            yield* settings.update(image)
+            expect(Config.latest(yield* config.entries(), "image_generation")).toEqual({ enabled: false })
+            expect(yield* settings.get()).toEqual(image)
+          }).pipe(Effect.provide(services))
+        }),
+      ),
+    ),
+  )
+
   it.effect("returns the latest defined scalar from priority-ordered documents", () =>
     Effect.sync(() => {
       const entries = [

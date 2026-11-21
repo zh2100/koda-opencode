@@ -5,6 +5,7 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Credential } from "@opencode-ai/core/credential"
 import { RelayAuth } from "@opencode-ai/core/relay-auth"
+import { ImageGenerationSettings } from "@opencode-ai/core/image-generation-settings"
 import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
 import { RelayGate } from "@opencode-ai/core/relay-gate"
 import { ScheduledTaskStore } from "@opencode-ai/core/scheduled-task"
@@ -41,6 +42,7 @@ const applicationServices = LayerNode.group([
   PtyTicket.node,
   Credential.node,
   RelayAuth.node,
+  ImageGenerationSettings.node,
   RelayCatalog.node,
   RelayGate.node,
   ScheduledTaskStore.node,

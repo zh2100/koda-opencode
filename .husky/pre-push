@@ -17,4 +17,34 @@ if (process.versions.bun !== expectedBunVersion) {
   console.warn(`Warning: Bun version ${process.versions.bun} differs from expected ${expectedBunVersion}`);
 }
 '
-bun typecheck
+
+# Keep the hook output short. The full workspace typecheck can produce enough
+# output to make an agent session look interrupted even when the push is still
+# running. Preserve the complete log locally and only print it when validation
+# fails.
+log_file=".git/pre-push-typecheck.$$.log"
+trap 'rm -f "$log_file"' 0 1 2 3 15
+
+echo "Running pre-push typecheck (progress is reported every 30 seconds)..."
+bun typecheck >"$log_file" 2>&1 &
+typecheck_pid=$!
+elapsed=0
+while kill -0 "$typecheck_pid" 2>/dev/null; do
+  sleep 5
+  elapsed=$((elapsed + 5))
+  if [ $((elapsed % 30)) -eq 0 ] && kill -0 "$typecheck_pid" 2>/dev/null; then
+    echo "Pre-push typecheck still running (${elapsed}s elapsed)..."
+  fi
+done
+
+if wait "$typecheck_pid"; then
+  status=0
+  echo "Pre-push typecheck passed."
+  exit 0
+else
+  status=$?
+fi
+
+echo "Pre-push typecheck failed (exit $status). Last 120 lines:"
+tail -n 120 "$log_file"
+exit "$status"

@@ -2,7 +2,9 @@ import { test, expect, describe, afterEach, beforeEach, spyOn } from "bun:test"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
-import { Cause, Effect, Exit, Layer, Logger, Option } from "effect"
+import { Cause, Effect, Exit, Layer, Logger, ManagedRuntime, Option } from "effect"
+import { InstanceWork } from "@/effect/instance-work"
+import { McpEditError } from "@/config/mcp-edit"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { Config } from "@/config/config"
@@ -33,9 +35,16 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { testEffect } from "../lib/effect"
 import path from "path"
 import fs from "fs/promises"
+import { symlinkSync } from "fs"
 import os from "os"
 import { pathToFileURL } from "url"
+import { spawnSync } from "child_process"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
+import { ConfigDocument } from "@opencode-ai/core/config/document"
+import { Hash } from "@opencode-ai/core/util/hash"
+import { LockIdentity } from "@opencode-ai/core/util/lock-identity"
 import { Global } from "@opencode-ai/core/global"
+
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { Filesystem } from "@/util/filesystem"
 import { ConfigPlugin } from "@/config/plugin"
@@ -69,9 +78,10 @@ function remoteConfigClient(input: {
   wellKnown: unknown
   remote?: unknown
   remoteHtml?: string
-  seen: { wellKnown?: string; remote?: string; authorization?: string }
+  seen: { wellKnown?: string; remote?: string; authorization?: string; fetches: number }
 }) {
   return HttpClient.make((request) => {
+    input.seen.fetches += 1
     if (request.url.includes(".well-known/opencode")) {
       input.seen.wellKnown = request.url
       return Effect.succeed(json(request, input.wellKnown))
@@ -100,7 +110,7 @@ const configLayer = (
     client?: HttpClient.HttpClient
   } = {},
 ) =>
-  LayerNode.compile(LayerNode.group([Config.node, FSUtil.node, Env.node, CrossSpawnSpawner.node]), [
+  LayerNode.compile(LayerNode.group([Config.node, FSUtil.node, Env.node, CrossSpawnSpawner.node, EffectFlock.node]), [
     [Auth.node, options.auth ?? AuthTest.empty],
     [Account.node, options.account ?? AccountTest.empty],
     [Npm.node, NpmTest.noop],
@@ -219,7 +229,7 @@ const wellKnown = (input: {
   remoteHtml?: string
   wellKnown?: unknown
 }) => {
-  const seen: { wellKnown?: string; remote?: string; authorization?: string } = {}
+  const seen: { wellKnown?: string; remote?: string; authorization?: string; fetches: number } = { fetches: 0 }
   const client = remoteConfigClient({
     seen,
     wellKnown: input.wellKnown ?? {
@@ -261,6 +271,28 @@ function withProcessEnvs<A, E, R>(entries: Record<string, string | undefined>, e
   )
 }
 
+for (const source of ["OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG"]) {
+  it.instance(`environment refresh remains independent for each directory: ${source}`, () => Effect.gen(function* () {
+    const second = yield* tmpdirScoped()
+    const test = yield* TestInstance
+    const firstFile = path.join(test.directory, "before.json")
+    const secondFile = path.join(test.directory, "after.json")
+    yield* Effect.promise(() => fs.writeFile(firstFile, JSON.stringify({ username: "before-env" })))
+    yield* Effect.promise(() => fs.writeFile(secondFile, JSON.stringify({ username: "after-env" })))
+    const config = yield* Config.Service
+    yield* withProcessEnvs({
+      OPENCODE_CONFIG: source === "OPENCODE_CONFIG" ? firstFile : undefined,
+      OPENCODE_CONFIG_CONTENT: source === "OPENCODE_CONFIG_CONTENT" ? JSON.stringify({ username: "before-env" }) : undefined,
+    }, Effect.gen(function* () {
+      expect((yield* config.get()).username).toBe("before-env")
+      expect((yield* config.get().pipe(provideInstanceEffect(second))).username).toBe("before-env")
+      process.env[source] = source === "OPENCODE_CONFIG" ? secondFile : JSON.stringify({ username: "after-env" })
+      expect((yield* config.get()).username).toBe("after-env")
+      expect((yield* config.get().pipe(provideInstanceEffect(second))).username).toBe("after-env")
+    }))
+  }))
+}
+
 async function check(map: (dir: string) => string) {
   if (process.platform !== "win32") return
   await using globalTmp = await tmpdir()
@@ -273,6 +305,12 @@ async function check(map: (dir: string) => string) {
       $schema: "https://opencode.ai/config.json",
       snapshot: false,
     })
+    // These path-resolution samples fully bootstrap the real runtime. Supply a
+    // settled dependency fixture rather than leaving a network install running.
+    await fs.mkdir(path.join(globalTmp.path, "node_modules"), { recursive: true })
+    await fs.writeFile(path.join(globalTmp.path, "package-lock.json"), JSON.stringify({ lockfileVersion: 3, packages: {
+      "": { dependencies: { "@opencode-ai/plugin": "workspace:*" } },
+    } }))
     await withTestInstance({
       directory: map(tmp.path),
       fn: async (ctx) => {
@@ -363,12 +401,12 @@ it.instance("updates config and preserves empty shell sentinel", () =>
     yield* writeConfigEffect(
       test.directory,
       { $schema: "https://opencode.ai/config.json", shell: "bash" },
-      "config.json",
+      "opencode.jsonc",
     )
 
     yield* Config.Service.use((svc) => svc.update(ConfigParse.schema(ConfigV1.Info, { shell: "" }, "test:config")))
 
-    const writtenConfig = yield* FSUtil.use.readJson(path.join(test.directory, "config.json"))
+    const writtenConfig = yield* FSUtil.use.readJson(path.join(test.directory, "opencode.jsonc"))
     expect(writtenConfig).toMatchObject({ shell: "" })
   }),
 )
@@ -398,6 +436,33 @@ it.effect("updates global config and omits empty shell key in jsonc", () =>
     }),
   ),
 )
+
+for (const name of ["opencode.json", "opencode.jsonc"]) {
+  it.live(`replaces global image settings in ${name} without retaining cleared model or API acknowledgment`, () =>
+    withGlobalConfig(
+      {
+        name,
+        config: {
+          model: "chat/model",
+          image_generation: { enabled: true, model: "image/model", api: "openai-images" },
+        },
+      },
+      ({ dir }) =>
+        Effect.gen(function* () {
+          const result = yield* Config.use.updateGlobal({ image_generation: { enabled: false } })
+          const file = path.join(dir, name)
+          const written = ConfigParse.schema(
+            ConfigV1.Info,
+            ConfigParse.jsonc(yield* FSUtil.use.readFileString(file), file),
+            file,
+          )
+          expect(result.info.image_generation).toEqual({ enabled: false })
+          expect(written.image_generation).toEqual({ enabled: false })
+          expect(written.model).toBe("chat/model")
+        }),
+    ),
+  )
+}
 
 it.effect("logs global update diagnostics once without exposing values", () =>
   withGlobalConfig(
@@ -468,7 +533,7 @@ for (const input of projectInputs) {
     Effect.gen(function* () {
       const instance = yield* TestInstance
       const fs = yield* FSUtil.Service
-      const file = path.join(instance.directory, "config.json")
+      const file = path.join(instance.directory, "opencode.jsonc")
       yield* fs.writeFileString(file, yield* fs.readFileString(path.join(updateFixtures, input)))
       const patch = ConfigParse.schema(ConfigV1.Info, yield* fs.readJson(`${prefix}-patch.json`), input)
       yield* Config.use.update(patch)
@@ -511,15 +576,13 @@ it.instance("rejects a project update with native agent permissions without writ
   Effect.gen(function* () {
     const instance = yield* TestInstance
     const fs = yield* FSUtil.Service
-    const file = path.join(instance.directory, "config.json")
+    const file = path.join(instance.directory, "opencode.jsonc")
     const before = JSON.stringify({ agents: { reviewer: { permissions: [] } } })
     yield* fs.writeFileString(file, before)
     const exit = yield* Effect.exit(Config.use.update({ username: "changed" }))
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit))
-      expect(Cause.squash(exit.cause)).toMatchObject({
-        data: { path: file, issues: [{ path: ["agents", "reviewer", "permissions"] }] },
-      })
+      expect(Cause.squash(exit.cause)).toMatchObject({ code: "CONFIG_DOCUMENT_INVALID" })
     expect(yield* fs.readFileString(file)).toBe(before)
   }),
 )
@@ -1084,7 +1147,7 @@ it.instance("updates config and writes to file", () =>
       svc.update(ConfigParse.schema(ConfigV1.Info, { model: "updated/model" }, "test:config")),
     )
 
-    const writtenConfig = yield* FSUtil.use.readJson(path.join(test.directory, "config.json"))
+    const writtenConfig = yield* FSUtil.use.readJson(path.join(test.directory, "opencode.jsonc"))
     expect(writtenConfig).toMatchObject({ model: "updated/model" })
   }),
 )
@@ -1627,7 +1690,192 @@ it.instance("MCP config deep merges preserving base config properties", () =>
         "X-Custom-Header": "value",
       },
     })
+    const source = yield* Config.use.mcpSource("myserver")
+    expect(source?.writable).toBe(true)
+    expect(source?.config).toMatchObject({
+      type: "remote",
+      url: "https://myserver.example.com/mcp",
+      enabled: true,
+      headers: { "X-Custom-Header": "value" },
+    })
+    yield* writeConfigEffect(test.directory, {
+      $schema: "https://opencode.ai/config.json",
+      mcp: {
+        layered: {
+          type: "remote",
+          url: "https://base.example.com/mcp",
+          headers: { "X-Base": "{file:./review-token.txt}", "X-Shared": "base" },
+        },
+      },
+    })
+    yield* FSUtil.use.writeWithDirs(path.join(test.directory, "review-token.txt"), "secret-token")
+    yield* writeConfigEffect(
+      test.directory,
+      {
+        $schema: "https://opencode.ai/config.json",
+        mcp: {
+          layered: {
+            type: "remote",
+            url: "https://project.example.com/mcp",
+            headers: { "X-Project": "project", "X-Shared": "project" },
+          },
+        },
+      },
+      "opencode.jsonc",
+    )
+    yield* Config.use.invalidate()
+    const layered = yield* Config.use.mcpSource("layered")
+    expect(layered?.config).toMatchObject({
+      url: "https://project.example.com/mcp",
+      headers: { "X-Base": "{file:./review-token.txt}", "X-Project": "project", "X-Shared": "project" },
+    })
+    expect(JSON.stringify(layered?.config)).not.toContain("secret-token")
+    if (!layered) return yield* Effect.die("layered source missing")
+    yield* Config.use.updateMcp({
+      name: "layered",
+      source: layered.source,
+      version: layered.version,
+      patch: { url: "https://edited.example.com/mcp" },
+    })
+    const projectFile = path.join(test.directory, "opencode.jsonc")
+    const written = yield* FSUtil.use.readFileString(projectFile)
+    expect(written).toContain("https://edited.example.com/mcp")
+    expect(written).not.toContain("secret-token")
+    expect(written).not.toContain("{file:./review-token.txt}")
+    expect(written).not.toContain("X-Base")
+    yield* writeConfigEffect(test.directory, { $schema: "https://opencode.ai/config.json", mcp: {} }, "opencode.jsonc")
+    expect(yield* Config.use.mcpSource("myserver")).toBeUndefined()
   }),
+)
+
+it.instance("mcp source aliases share one lock", () =>
+  Effect.gen(function* () {
+    const test = yield* TestInstance
+    const source = path.join(test.directory, "opencode.json")
+    const link = path.join(test.directory, "junction-project")
+    if (process.platform === "win32") {
+      const linked = spawnSync("cmd", ["/c", "mklink", "/J", link, test.directory], { encoding: "utf8" })
+      expect(linked.status).toBe(0)
+    } else symlinkSync(test.directory, link, "dir")
+    const marker = LockIdentity.marker(Global.Path.state)
+    const previousMarker = yield* Effect.promise(() => fs.readFile(marker).catch(() => undefined))
+    yield* Effect.addFinalizer(() => Effect.promise(async () => { if (previousMarker) await fs.writeFile(marker, previousMarker); else await fs.rm(marker, { force: true }) }))
+    yield* Effect.promise(() =>
+      fs.writeFile(LockIdentity.marker(Global.Path.state), JSON.stringify({ generation: LockIdentity.generation })),
+    )
+    const alias = path.join(link, "opencode.json")
+    yield* FSUtil.use.writeFileString(
+      source,
+      JSON.stringify({
+        $schema: "https://opencode.ai/config.json",
+        mcp: { sample: { type: "local", command: ["echo"] } },
+      }),
+    )
+    yield* Config.use.invalidate()
+    const current = yield* Config.use.mcpSource("sample")
+    if (!current) return yield* Effect.die("sample source missing")
+    expect(LockIdentity.same(ConfigDocument.key(source), ConfigDocument.key(alias))).toBe(true)
+    const runtime = ManagedRuntime.make(layer)
+    const held = yield* Effect.promise(() =>
+      runtime.runPromise(
+        Effect.gen(function* () {
+          const config = yield* Config.Service
+          const flock = yield* EffectFlock.Service
+          const identity = yield* flock.key(ConfigDocument.key(source))
+          const aliased = yield* flock.key(ConfigDocument.key(alias))
+          const locks = path.join(Global.Path.state, "locks")
+          yield* flock.acquire(ConfigDocument.key(source), locks)
+          const busy = yield* config
+            .updateMcp({
+              name: "sample",
+              source: alias,
+              version: current.version,
+              patch: { command: ["alias"] },
+            })
+            .pipe(
+              Effect.provideService(InstanceRef, {
+                directory: test.directory,
+                worktree: test.directory,
+                project: {
+                  id: ProjectV2.ID.global,
+                  worktree: test.directory,
+                  time: { created: 0, updated: 0 },
+                  sandboxes: [],
+                },
+              }),
+              Effect.timeoutOption("400 millis"),
+            )
+          const names = yield* Effect.promise(() => fs.readdir(locks))
+          return { identity, aliased, busy, names }
+        }).pipe(Effect.scoped),
+      ),
+    )
+    yield* Effect.promise(() => runtime.dispose())
+    expect(held.identity).toBe(held.aliased)
+    expect(Option.isNone(held.busy)).toBe(true)
+    expect(held.names).toContain(`${Hash.fast(held.identity)}.lock`)
+    expect(held.names).not.toContain(`${Hash.fast(ConfigDocument.key(alias))}.lock`)
+    const text = yield* FSUtil.use.readFileString(source)
+    expect(text).not.toContain("alias")
+  }),
+)
+
+it.instance(
+  "mcp source keeps an intervening header when OPENCODE_CONFIG reloads the winning file",
+  () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const nested = path.join(test.directory, "nested")
+      const project = path.join(nested, "opencode.jsonc")
+      yield* FSUtil.use.ensureDir(nested)
+      yield* writeConfigEffect(
+        nested,
+        {
+          $schema: "https://opencode.ai/config.json",
+          mcp: {
+            layered: {
+              type: "remote",
+              url: "https://project.example.com/mcp",
+              headers: { "X-Project": "project" },
+            },
+          },
+        },
+        "opencode.jsonc",
+      )
+      yield* writeConfigEffect(test.directory, {
+        $schema: "https://opencode.ai/config.json",
+        mcp: {
+          layered: {
+            type: "remote",
+            url: "https://base.example.com/mcp",
+            enabled: true,
+            headers: { "X-Base": "{file:./review-token.txt}" },
+          },
+        },
+      })
+      yield* FSUtil.use.writeWithDirs(path.join(test.directory, "review-token.txt"), "secret-token")
+      yield* withProcessEnv(
+        "OPENCODE_CONFIG",
+        project,
+        Effect.gen(function* () {
+          yield* Config.use.invalidate()
+          const config = yield* Config.use.get().pipe(provideInstanceEffect(nested))
+          expect(config.mcp_origins?.layered).toBe(project)
+          expect(config.mcp?.layered).toMatchObject({
+            url: "https://project.example.com/mcp",
+            headers: { "X-Base": "secret-token", "X-Project": "project" },
+          })
+          const source = yield* Config.use.mcpSource("layered").pipe(provideInstanceEffect(nested))
+          expect(path.resolve(source?.source ?? "")).toBe(path.resolve(project))
+          expect(source?.config).toMatchObject({
+            url: "https://project.example.com/mcp",
+            headers: { "X-Base": "{file:./review-token.txt}", "X-Project": "project" },
+          })
+          expect(JSON.stringify(source?.config)).not.toContain("secret-token")
+        }),
+      )
+    }),
+  { git: true },
 )
 
 it.instance("local .opencode config can override MCP from project config", () =>
@@ -1661,6 +1909,13 @@ it.instance("local .opencode config can override MCP from project config", () =>
 
     const config = yield* Config.use.get()
     expect(config.mcp?.docs?.enabled).toBe(true)
+    const source = yield* Config.use.mcpSource("docs")
+    expect(source?.source).toBe(path.join(test.directory, ".opencode", "opencode.json"))
+    expect(source?.config).toMatchObject({
+      type: "remote",
+      url: "https://docs.example.com/mcp",
+      enabled: true,
+    })
   }),
 )
 
@@ -1681,6 +1936,49 @@ remoteProjectOverride.it.instance(
   {
     git: true,
     config: { mcp: { jira: { type: "remote", url: "https://jira.example.com/mcp", enabled: true } } },
+  },
+)
+
+const remoteInherited = wellKnown({
+  config: {
+    mcp: {
+      sample: {
+        type: "remote",
+        url: "https://remote.example.com/mcp",
+        enabled: false,
+        headers: { "X-Base": "remote", Authorization: "Bearer {env:TEST_TOKEN}" },
+      },
+    },
+  },
+})
+
+remoteInherited.it.instance(
+  "mcp source keeps raw remote connection details under a local enabled override",
+  () =>
+    withProcessEnv(
+      "TEST_TOKEN",
+      "secret-token",
+      Effect.gen(function* () {
+        const config = yield* Config.use.get()
+        expect(config.mcp?.sample).toMatchObject({
+          type: "remote",
+          url: "https://remote.example.com/mcp",
+          enabled: true,
+        })
+        const source = yield* Config.use.mcpSource("sample")
+        expect(source?.writable).toBe(true)
+        expect(source?.config).toMatchObject({
+          type: "remote",
+          url: "https://remote.example.com/mcp",
+          enabled: true,
+          headers: { "X-Base": "remote", Authorization: "Bearer {env:TEST_TOKEN}" },
+        })
+        expect(JSON.stringify(source?.config)).not.toContain("secret-token")
+      }),
+    ),
+  {
+    git: true,
+    config: { mcp: { sample: { enabled: true } } },
   },
 )
 
@@ -2119,6 +2417,592 @@ describe("OPENCODE_PERMISSION env var", () => {
   )
 })
 
+describe("MCP source raw references", () => {
+  const reviewDocument = (name: string, file = false) =>
+    JSON.stringify({
+      $schema: "https://opencode.ai/config.json",
+      mcp: {
+        [name]: {
+          type: "remote",
+          url: "https://review.example/mcp",
+          enabled: false,
+          headers: {
+            Authorization: "Bearer {env:REVIEW_MCP_TOKEN}",
+            ...(file ? { "X-File": "{file:./review-token.txt}" } : {}),
+          },
+        },
+      },
+    })
+
+  const expectRaw = (
+    source: { writable?: boolean; source?: string; config?: unknown } | undefined,
+    id: string,
+    file = false,
+  ) => {
+    const encoded = JSON.stringify(source)
+    expect(source?.writable).toBe(false)
+    expect(source?.source).toBe(id)
+    expect(source?.config).toMatchObject({
+      headers: {
+        Authorization: "Bearer {env:REVIEW_MCP_TOKEN}",
+        ...(file ? { "X-File": "{file:./review-token.txt}" } : {}),
+      },
+    })
+    expect(encoded).not.toContain("review-token-value")
+    expect(encoded).not.toContain("review-file-secret")
+  }
+
+  it.instance("returns a typed document error when the first load is invalid", () =>
+    withProcessEnv(
+      "OPENCODE_CONFIG_CONTENT",
+      '{ mcp: { review: { type: "remote", headers: { Authorization: "Bearer review-token-value" } } }',
+      Effect.gen(function* () {
+        const exit = yield* Config.use.mcpSource("review").pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (!Exit.isFailure(exit)) return
+        const error = Cause.findErrorOption(exit.cause)
+        expect(Option.isSome(error)).toBe(true)
+        if (Option.isNone(error)) return
+        expect(error.value.code).toBe("MCP_DOCUMENT_INVALID")
+        expect(error.value.ref.length).toBeGreaterThan(0)
+        expect(JSON.stringify(error.value)).not.toContain("review-token-value")
+        expect(JSON.stringify(error.value)).not.toContain("JSONC Input")
+      }),
+    ),
+  )
+
+  it.instance("keeps inherited connection fields when environment config only disables the entry", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const filename = path.join(test.directory, "opencode.json")
+      yield* FSUtil.use.writeWithDirs(
+        filename,
+        JSON.stringify({
+          mcp: {
+            review: {
+              type: "remote",
+              url: "https://project.example/mcp",
+              headers: { "X-Project": "project", "X-Shared": "base" },
+            },
+          },
+        }),
+      )
+      yield* withProcessEnv(
+        "OPENCODE_CONFIG_CONTENT",
+        JSON.stringify({ mcp: { review: { enabled: false, headers: { "X-Shared": "env" } } } }),
+        Effect.gen(function* () {
+          yield* Config.use.invalidate()
+          const source = yield* Config.use.mcpSource("review")
+          expect(source?.source).toBe("OPENCODE_CONFIG_CONTENT")
+          expect(source?.writable).toBe(false)
+          expect(source?.config).toMatchObject({
+            type: "remote",
+            url: "https://project.example/mcp",
+            enabled: false,
+            headers: { "X-Project": "project", "X-Shared": "env" },
+          })
+        }),
+      )
+    }),
+  )
+
+  it.instance("returns an empty source after the winning file is deleted", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const filename = path.join(test.directory, "opencode.json")
+      yield* FSUtil.use.writeWithDirs(
+        filename,
+        JSON.stringify({ mcp: { review: { type: "local", command: ["node", "kept.js"] } } }),
+      )
+      const loaded = yield* Config.use.mcpSource("review")
+      expect(loaded?.writable).toBe(true)
+      yield* Effect.promise(() => fs.unlink(filename))
+      const missing = yield* Config.use.mcpSource("review")
+      expect(missing).toBeUndefined()
+    }),
+  )
+
+  it.instance("retries a repaired document without keeping the invalid load", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const filename = path.join(test.directory, "opencode.json")
+      const broken = '{ mcp: { review: { type: "remote", headers: { Authorization: "Bearer review-schema-secret" }'
+      yield* FSUtil.use.writeWithDirs(filename, broken)
+      const failed = yield* Config.use.mcpSource("review").pipe(Effect.exit)
+      expect(Exit.isFailure(failed)).toBe(true)
+      yield* FSUtil.use.writeWithDirs(
+        filename,
+        JSON.stringify({ mcp: { review: { type: "remote", url: "https://repaired.example/mcp" } } }),
+      )
+      yield* Config.use.invalidate()
+      const source = yield* Config.use.mcpSource("review")
+      expect(source?.config).toMatchObject({ url: "https://repaired.example/mcp" })
+      expect(JSON.stringify(source)).not.toContain("review-schema-secret")
+    }),
+  )
+
+  it.instance("fails when a required inherited source can no longer be read", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const ancestor = path.join(test.directory, "opencode.json")
+      const winner = path.join(test.directory, ".opencode", "opencode.json")
+      yield* FSUtil.use.writeWithDirs(
+        ancestor,
+        JSON.stringify({
+          mcp: { review: { type: "remote", url: "https://base.example/mcp", headers: { "X-Base": "base" } } },
+        }),
+      )
+      yield* FSUtil.use.writeWithDirs(
+        winner,
+        JSON.stringify({ mcp: { review: { enabled: false, headers: { "X-Project": "project" } } } }),
+      )
+      yield* Config.use.invalidate()
+      const loaded = yield* Config.use.mcpSource("review")
+      expect(loaded?.source).toBe(winner)
+      expect(loaded?.writable).toBe(true)
+      expect(loaded?.config).toMatchObject({
+        url: "https://base.example/mcp",
+        enabled: false,
+        headers: { "X-Base": "base", "X-Project": "project" },
+      })
+      yield* Effect.promise(() => fs.rm(ancestor, { force: true }))
+      const missing = yield* Config.use.mcpSource("review").pipe(Effect.exit)
+      expect(Exit.isFailure(missing)).toBe(true)
+      if (!Exit.isFailure(missing)) return
+      const error = Cause.findErrorOption(missing.cause)
+      expect(Option.isSome(error)).toBe(true)
+      if (Option.isNone(error)) return
+      expect(error.value.code).toBe("MCP_SOURCE_READ_FAILED")
+      expect(error.value.ref.length).toBeGreaterThan(0)
+      expect(JSON.stringify(error.value)).not.toContain("https://base.example/mcp")
+    }),
+  )
+
+  it.instance("returns a typed document error when the first schema is invalid", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* FSUtil.use.writeWithDirs(
+        path.join(test.directory, "opencode.json"),
+        JSON.stringify({
+          mcp: { review: { type: "remote", headers: { Authorization: "Bearer review-schema-secret" } } },
+        }),
+      )
+      yield* Config.use.invalidate()
+      const failed = yield* Config.use.mcpSource("review").pipe(Effect.exit)
+      expect(Exit.isFailure(failed)).toBe(true)
+      if (!Exit.isFailure(failed)) return
+      const error = Cause.findErrorOption(failed.cause)
+      expect(Option.isSome(error)).toBe(true)
+      if (Option.isNone(error)) return
+      expect(error.value.code).toBe("MCP_DOCUMENT_INVALID")
+      expect(error.value.ref.length).toBeGreaterThan(0)
+      expect(JSON.stringify(error.value)).not.toContain("review-schema-secret")
+    }),
+  )
+
+  it.instance("keeps a source when an optional non-contributing file is missing", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const filename = path.join(test.directory, "opencode.json")
+      yield* FSUtil.use.writeWithDirs(
+        filename,
+        JSON.stringify({ mcp: { review: { type: "remote", url: "https://project.example/mcp" } } }),
+      )
+      yield* FSUtil.use.writeWithDirs(
+        path.join(test.directory, ".opencode", "opencode.json"),
+        JSON.stringify({ model: "optional/model" }),
+      )
+      yield* Config.use.invalidate()
+      yield* Effect.promise(() => fs.rm(path.join(test.directory, ".opencode", "opencode.json"), { force: true }))
+      const source = yield* Config.use.mcpSource("review")
+      expect(source?.source).toBe(filename)
+      expect(source?.config).toMatchObject({ url: "https://project.example/mcp" })
+    }),
+  )
+
+  it.instance("returns an empty source after a winning managed file is deleted", () =>
+    Effect.gen(function* () {
+      yield* writeManagedSettingsEffect({
+        mcp: { review: { type: "remote", url: "https://managed.example/mcp", enabled: true } },
+      })
+      yield* Config.use.invalidate()
+      const loaded = yield* Config.use.mcpSource("review")
+      expect(loaded?.source).toBe(path.join(managedConfigDir, "opencode.json"))
+      expect(loaded?.writable).toBe(false)
+      yield* Effect.promise(() => fs.rm(path.join(managedConfigDir, "opencode.json"), { force: true }))
+      expect(yield* Config.use.mcpSource("review")).toBeUndefined()
+    }),
+  )
+
+  it.instance("returns unexpanded references when environment config wins directly", () =>
+    withProcessEnv(
+      "REVIEW_MCP_TOKEN",
+      "review-token-value",
+      withProcessEnv(
+        "OPENCODE_CONFIG_CONTENT",
+        reviewDocument("review", true),
+        Effect.gen(function* () {
+          const test = yield* TestInstance
+          yield* FSUtil.use.writeWithDirs(path.join(test.directory, "review-token.txt"), "review-file-secret")
+          const runtime = yield* Config.use.get()
+          expect(runtime.mcp?.review).toMatchObject({
+            headers: { Authorization: "Bearer review-token-value", "X-File": "review-file-secret" },
+          })
+          expectRaw(yield* Config.use.mcpSource("review"), "OPENCODE_CONFIG_CONTENT", true)
+        }),
+      ),
+    ),
+  )
+
+  const wellKnownReview = wellKnown({
+    config: JSON.parse(reviewDocument("review")),
+  })
+
+  wellKnownReview.it.instance("returns unexpanded references when a well-known source wins directly", () =>
+    withProcessEnv(
+      "REVIEW_MCP_TOKEN",
+      "review-token-value",
+      Effect.gen(function* () {
+        const runtime = yield* Config.use.get()
+        expect(runtime.mcp?.review).toMatchObject({
+          headers: { Authorization: "Bearer review-token-value" },
+        })
+        const fetches = wellKnownReview.seen.fetches
+        expectRaw(yield* Config.use.mcpSource("review"), "https://example.com/.well-known/opencode")
+        expect(wellKnownReview.seen.fetches).toBe(fetches + 1)
+        expect(wellKnownReview.seen.wellKnown).toBe("https://example.com/.well-known/opencode")
+      }),
+    ),
+  )
+
+  it.instance("returns unexpanded references when a managed file wins directly", () =>
+    withProcessEnv(
+      "REVIEW_MCP_TOKEN",
+      "review-token-value",
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        yield* FSUtil.use.writeWithDirs(path.join(managedConfigDir, "review-token.txt"), "review-file-secret")
+        yield* writeManagedSettingsEffect(JSON.parse(reviewDocument("review", true)))
+        yield* Config.use.invalidate()
+        const runtime = yield* Config.use.get()
+        expect(runtime.mcp?.review).toMatchObject({
+          headers: { Authorization: "Bearer review-token-value", "X-File": "review-file-secret" },
+        })
+        void test
+        const rejected = yield* Config.use
+          .updateMcp({
+            name: "review",
+            source: path.join(managedConfigDir, "opencode.json"),
+            version: "",
+            patch: { url: "https://edited.example/mcp" },
+          })
+          .pipe(Effect.exit)
+        expect(Exit.isFailure(rejected)).toBe(true)
+        if (Exit.isFailure(rejected))
+          expect(Cause.squash(rejected.cause)).toMatchObject({ code: "MCP_SOURCE_READ_ONLY" })
+        expectRaw(yield* Config.use.mcpSource("review"), path.join(managedConfigDir, "opencode.json"), true)
+        expect(yield* FSUtil.use.readFileString(path.join(managedConfigDir, "opencode.json"))).toContain(
+          "{env:REVIEW_MCP_TOKEN}",
+        )
+      }),
+    ),
+  )
+
+  const orgReview = {
+    it: configIt({
+      account: Layer.mock(Account.Service)({
+        active: () =>
+          Effect.succeed(
+            Option.some(
+              new Account.Info({
+                id: AccountID.make("account"),
+                email: "review@example.com",
+                url: "https://org.example",
+                active_org_id: OrgID.make("org"),
+              }),
+            ),
+          ),
+        activeOrg: () => Effect.succeed(Option.none()),
+        config: () => Effect.succeed(Option.some(JSON.parse(reviewDocument("review")) as Record<string, unknown>)),
+        token: () => Effect.succeed(Option.none()),
+      }),
+    }),
+  }
+
+  orgReview.it.instance("returns unexpanded references when organization config wins directly", () =>
+    withProcessEnv(
+      "REVIEW_MCP_TOKEN",
+      "review-token-value",
+      Effect.gen(function* () {
+        const runtime = yield* Config.use.get()
+        expect(runtime.mcp?.review).toMatchObject({
+          headers: { Authorization: "Bearer review-token-value" },
+        })
+        expectRaw(yield* Config.use.mcpSource("review"), "https://org.example/api/config")
+      }),
+    ),
+  )
+
+  it.instance("returns unexpanded references when managed preferences win directly", () =>
+    withProcessEnv(
+      "REVIEW_MCP_TOKEN",
+      "review-token-value",
+      withProcessEnv(
+        "OPENCODE_TEST_MANAGED_PREFERENCES",
+        reviewDocument("review"),
+        Effect.gen(function* () {
+          yield* Config.use.invalidate()
+          const runtime = yield* Config.use.get()
+          expect(runtime.mcp?.review).toMatchObject({
+            headers: { Authorization: "Bearer review-token-value" },
+          })
+          expectRaw(yield* Config.use.mcpSource("review"), "mobileconfig:review")
+        }),
+      ),
+    ),
+  )
+})
+
+describe("disabled project config MCP sources", () => {
+  const envDocument = JSON.stringify({
+    mcp: {
+      review: {
+        type: "remote",
+        url: "https://env.example/mcp",
+        enabled: false,
+        headers: { Authorization: "Bearer {env:REVIEW_MCP_TOKEN}" },
+      },
+    },
+  })
+
+  const expectEnvSource = (source: { source?: string; writable?: boolean; config?: unknown } | undefined) => {
+    expect(source?.source).toBe("OPENCODE_CONFIG_CONTENT")
+    expect(source?.writable).toBe(false)
+    expect(source?.config).toMatchObject({
+      type: "remote",
+      url: "https://env.example/mcp",
+      enabled: false,
+      headers: { Authorization: "Bearer {env:REVIEW_MCP_TOKEN}" },
+    })
+    expect(JSON.stringify(source)).not.toContain("review-token-value")
+    expect(JSON.stringify(source)).not.toContain("ignored-project")
+  }
+
+  it.instance("ignores a corrupt project file when project config is disabled", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* FSUtil.use.writeWithDirs(path.join(test.directory, "opencode.json"), "{ invalid project ")
+      yield* withProcessEnvs(
+        {
+          OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+          OPENCODE_CONFIG_CONTENT: envDocument,
+          REVIEW_MCP_TOKEN: "review-token-value",
+        },
+        Effect.gen(function* () {
+          yield* Config.use.invalidate()
+          const config = yield* Config.use.get()
+          const review = config.mcp?.review
+          expect(review && "url" in review ? review.url : undefined).toBe("https://env.example/mcp")
+          expectEnvSource(yield* Config.use.mcpSource("review"))
+        }),
+      )
+    }),
+  )
+
+  it.instance("ignores corrupt project jsonc and .opencode files when project config is disabled", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      for (const file of ["opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"]) {
+        yield* FSUtil.use.writeWithDirs(path.join(test.directory, file), "{ invalid project ")
+      }
+      yield* withProcessEnvs(
+        {
+          OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+          OPENCODE_CONFIG_CONTENT: envDocument,
+          REVIEW_MCP_TOKEN: "review-token-value",
+        },
+        Effect.gen(function* () {
+          yield* Config.use.invalidate()
+          expectEnvSource(yield* Config.use.mcpSource("review"))
+        }),
+      )
+    }),
+  )
+
+  it.instance(
+    "ignores a corrupt ancestor inside the worktree when project config is disabled",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const nested = path.join(test.directory, "nested")
+        yield* FSUtil.use.writeWithDirs(path.join(test.directory, "opencode.json"), "{ invalid project ")
+        yield* Effect.promise(() => fs.mkdir(nested, { recursive: true }))
+        yield* withProcessEnvs(
+          {
+            OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+            OPENCODE_CONFIG_CONTENT: envDocument,
+            REVIEW_MCP_TOKEN: "review-token-value",
+          },
+          Effect.gen(function* () {
+            yield* Config.use.invalidate()
+            expectEnvSource(yield* Config.use.mcpSource("review").pipe(provideInstanceEffect(nested)))
+          }),
+        )
+      }),
+    { git: true },
+  )
+
+  it.instance("still rejects a corrupt project file when project config is enabled", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* FSUtil.use.writeWithDirs(path.join(test.directory, "opencode.json"), "{ invalid project ")
+      yield* withProcessEnvs(
+        {
+          OPENCODE_DISABLE_PROJECT_CONFIG: undefined,
+          OPENCODE_CONFIG_CONTENT: envDocument,
+          REVIEW_MCP_TOKEN: "review-token-value",
+        },
+        Effect.gen(function* () {
+          yield* Config.use.invalidate()
+          const failed = yield* Config.use.mcpSource("review").pipe(Effect.exit)
+          expect(Exit.isFailure(failed)).toBe(true)
+          if (!Exit.isFailure(failed)) return
+          const error = Cause.findErrorOption(failed.cause)
+          expect(Option.isSome(error)).toBe(true)
+          if (Option.isNone(error)) return
+          expect(error.value.code).toBe("MCP_DOCUMENT_INVALID")
+          expect(error.value.ref.length).toBeGreaterThan(0)
+          expect(JSON.stringify(error.value)).not.toContain("review-token-value")
+        }),
+      )
+    }),
+  )
+
+  it.instance("still rejects an explicit corrupt OPENCODE_CONFIG when project discovery is disabled", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const filename = path.join(test.directory, "opencode.json")
+      yield* FSUtil.use.writeWithDirs(filename, "{ invalid project ")
+      yield* withProcessEnvs(
+        {
+          OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+          OPENCODE_CONFIG: filename,
+          OPENCODE_CONFIG_CONTENT: envDocument,
+          REVIEW_MCP_TOKEN: "review-token-value",
+        },
+        Effect.gen(function* () {
+          yield* Config.use.invalidate()
+          const failed = yield* Config.use.mcpSource("review").pipe(Effect.exit)
+          expect(Exit.isFailure(failed)).toBe(true)
+          if (!Exit.isFailure(failed)) return
+          const error = Cause.findErrorOption(failed.cause)
+          expect(Option.isSome(error)).toBe(true)
+          if (Option.isNone(error)) return
+          expect(error.value.code).toBe("MCP_DOCUMENT_INVALID")
+          expect(error.value.ref.length).toBeGreaterThan(0)
+        }),
+      )
+    }),
+  )
+
+  it.instance("keeps an explicit config directory when project discovery is disabled", () =>
+    Effect.gen(function* () {
+      const configDir = yield* tmpdirScoped()
+      yield* FSUtil.use.writeWithDirs(
+        path.join(configDir, "opencode.json"),
+        JSON.stringify({
+          mcp: {
+            review: {
+              type: "remote",
+              url: "https://dir.example/mcp",
+              enabled: false,
+              headers: { Authorization: "Bearer {env:REVIEW_MCP_TOKEN}" },
+            },
+          },
+        }),
+      )
+      yield* withProcessEnvs(
+        {
+          OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+          OPENCODE_CONFIG_DIR: configDir,
+          OPENCODE_CONFIG_CONTENT: undefined,
+          REVIEW_MCP_TOKEN: "review-token-value",
+        },
+        Effect.gen(function* () {
+          const test = yield* TestInstance
+          yield* FSUtil.use.writeWithDirs(path.join(test.directory, "opencode.json"), "{ invalid project ")
+          yield* Config.use.invalidate()
+          const source = yield* Config.use.mcpSource("review")
+          expect(source?.source).toBe(path.join(configDir, "opencode.json"))
+          expect(source?.config).toMatchObject({
+            url: "https://dir.example/mcp",
+            headers: { Authorization: "Bearer {env:REVIEW_MCP_TOKEN}" },
+          })
+          expect(JSON.stringify(source)).not.toContain("review-token-value")
+        }),
+      )
+    }),
+  )
+
+  it.instance("keeps the isolated home .opencode source when project discovery is disabled", () =>
+    Effect.gen(function* () {
+      const home = process.env.OPENCODE_TEST_HOME
+      if (!home) return yield* Effect.die(new Error("OPENCODE_TEST_HOME is not set"))
+      const filename = path.join(home, ".opencode", "opencode.json")
+      const directory = path.dirname(filename)
+      const existed = yield* Effect.promise(() => fs.stat(directory).then(() => true, () => false))
+      yield* Effect.addFinalizer(() => Effect.promise(async () => {
+        await fs.rm(filename, { force: true })
+        if (!existed) await fs.rmdir(directory)
+      }))
+      yield* FSUtil.use.writeWithDirs(
+        filename,
+        JSON.stringify({
+          mcp: {
+            review: {
+              type: "remote",
+              url: "https://home.example/mcp",
+              enabled: false,
+              headers: { Authorization: "Bearer {env:REVIEW_MCP_TOKEN}" },
+            },
+          },
+        }),
+      )
+      yield* withProcessEnvs(
+        {
+          OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+          OPENCODE_CONFIG_CONTENT: undefined,
+          REVIEW_MCP_TOKEN: "review-token-value",
+        },
+        Effect.gen(function* () {
+          const test = yield* TestInstance
+          yield* FSUtil.use.writeWithDirs(
+            path.join(test.directory, "opencode.json"),
+            JSON.stringify({ mcp: { review: { url: "https://ignored-project.example/mcp" } } }),
+          )
+          yield* Config.use.invalidate()
+          const source = yield* Config.use.mcpSource("review")
+          expect(source?.source).toBe(filename)
+          expect(source?.config).toMatchObject({
+            url: "https://home.example/mcp",
+            headers: { Authorization: "Bearer {env:REVIEW_MCP_TOKEN}" },
+          })
+          expect(JSON.stringify(source)).not.toContain("ignored-project")
+          yield* FSUtil.use.writeWithDirs(filename, "{ invalid home ")
+          yield* Config.use.invalidate()
+          const failed = yield* Config.use.mcpSource("review").pipe(Effect.exit)
+          expect(Exit.isFailure(failed)).toBe(true)
+          if (!Exit.isFailure(failed)) return
+          const error = Cause.findErrorOption(failed.cause)
+          expect(Option.isSome(error)).toBe(true)
+          if (Option.isNone(error)) return
+          expect(error.value.code).toBe("MCP_DOCUMENT_INVALID")
+        }),
+      )
+    }),
+  )
+})
+
 describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
   it.instance("substitutes {env:} tokens in OPENCODE_CONFIG_CONTENT", () =>
     withProcessEnv(
@@ -2265,3 +3149,148 @@ test("parseManagedPlist handles empty config", async () => {
   )
   expect(config.$schema).toBe("https://opencode.ai/config.json")
 })
+
+for (const native of [false, true]) {
+  it.instance(
+    `MCP source editing preserves project representation and raw fields (${native ? "V2" : "V1"})`,
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const filename = path.join(test.directory, "opencode.jsonc")
+        const entry = {
+          type: "local",
+          command: ["node", "C:\\Program Files\\server.js", "hello world", ""],
+          environment: { TOKEN: "{env:TEST_TOKEN}" },
+          cwd: ".",
+          ...(native ? { disabled: true } : { enabled: false }),
+        }
+        const text = JSON.stringify(
+          { mcp: native ? { servers: { sample: entry } } : { sample: entry } },
+          null,
+          2,
+        ).replace("{\n", "{\n  // keep this comment\n")
+        yield* FSUtil.use.writeWithDirs(filename, text)
+        yield* Config.use.invalidate()
+        const source = yield* Config.use.mcpSource("sample")
+        expect(source?.source).toBe(filename)
+        expect(source?.config).toMatchObject({ type: "local", command: entry.command, environment: entry.environment })
+        if (!source) return yield* Effect.die("source missing")
+        yield* Config.use.updateMcp({
+          name: "sample",
+          source: source.source,
+          version: source.version,
+          patch: { command: ["node", "new.js"] },
+        })
+        const fs = yield* FSUtil.Service
+        const updated = yield* fs.readFileString(filename)
+        expect(updated).toContain("// keep this comment")
+        expect(updated).toContain("{env:TEST_TOKEN}")
+        const raw = ConfigParse.jsonc(updated, filename) as { mcp: Record<string, unknown> }
+        expect(native ? raw.mcp.servers : raw.mcp.sample).toBeDefined()
+        const reload = yield* Config.use.mcpSource("sample")
+        expect(reload?.config).toMatchObject({ command: ["node", "new.js"], environment: entry.environment })
+        const stale = yield* Config.use
+          .updateMcp({ name: "sample", source: source.source, version: source.version, patch: { command: ["bad"] } })
+          .pipe(provideInstanceEffect(test.directory), Effect.exit)
+        expect(Exit.isFailure(stale)).toBe(true)
+        if (Exit.isFailure(stale)) expect(Cause.squash(stale.cause)).toMatchObject({ code: "MCP_VERSION_CONFLICT" })
+        expect(yield* fs.readFileString(filename)).toBe(updated)
+        yield* fs.writeFileString(filename, JSON.stringify({ mcp: native ? { servers: {} } : {} }, null, 2))
+        const gone = yield* Config.use.mcpSource("sample")
+        expect(gone).toBeUndefined()
+      }),
+    { git: true },
+  )
+}
+
+it.instance(
+  "MCP source editing respects managed overrides as read-only",
+  () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* writeConfigEffect(test.directory, {
+        mcp: { sample: { type: "local", command: ["node", "project.js"], enabled: false } },
+      })
+      yield* writeManagedSettingsEffect({
+        mcp: { sample: { type: "local", command: ["node", "managed.js"], enabled: false } },
+      })
+      yield* Config.use.invalidate()
+      const source = yield* Config.use.mcpSource("sample")
+      expect(source?.source).toBe(path.join(managedConfigDir, "opencode.json"))
+      expect(source?.writable).toBe(false)
+      expect(source?.config).toMatchObject({ command: ["node", "managed.js"] })
+      if (!source) return yield* Effect.die("source missing")
+      const rejected = yield* Config.use
+        .updateMcp({ name: "sample", source: source.source, version: source.version, patch: { command: ["bad"] } })
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(rejected)).toBe(true)
+      if (Exit.isFailure(rejected)) expect(Cause.squash(rejected.cause)).toMatchObject({ code: "MCP_SOURCE_READ_ONLY" })
+      const current = yield* Config.use.mcpSource("sample")
+      expect(current?.config).toMatchObject({ command: ["node", "managed.js"] })
+    }),
+  { git: true },
+)
+
+it.instance("MCP source editing treats built-in defaults as read-only", () =>
+  Effect.gen(function* () {
+    const source = yield* Config.use.mcpSource("openaiDeveloperDocs")
+    expect(source?.source).toBe("builtin:openaiDeveloperDocs")
+    expect(source?.writable).toBe(false)
+    expect(source?.config).toMatchObject({ type: "remote", url: "https://developers.openai.com/mcp" })
+  }),
+)
+
+for (const failure of ["html", "array"] as const) {
+  const remote = wellKnown({ remoteConfig: { url: "https://config.example.com/PRIVATE-REMOTE/opencode.json" }, ...(failure === "html" ? { remoteHtml: "<html>PRIVATE-REMOTE</html>" } : { remote: [] }) })
+  remote.it.instance(`F35 remote ${failure} preflight returns a safe typed error`, () => Effect.gen(function* () {
+    const result = yield* Config.use.update({ username: "after" }).pipe(Effect.exit)
+    expect(Exit.isFailure(result)).toBe(true)
+    if (Exit.isFailure(result)) {
+      expect(Cause.squash(result.cause)).toMatchObject({ code: failure === "html" ? "CONFIG_SOURCE_READ_FAILED" : "CONFIG_DOCUMENT_INVALID" })
+      expect(JSON.stringify(Cause.squash(result.cause))).not.toContain("PRIVATE-REMOTE")
+    }
+  }))
+}
+const discovery = { file: "", locked: false, requests: 0 }
+const discoveryIt = configIt({ auth: wellKnownAuth("https://example.com"), client: HttpClient.make((request) => {
+  expect(discovery.locked).toBe(false)
+  discovery.requests++
+  return Effect.succeed(json(request, request.url.includes(".well-known/") ? { remote_config: { url: "https://config.example.com/opencode.json", headers: { Authorization: `{file:${discovery.file}}` } } } : { config: {} }))
+}) })
+discoveryIt.instance("F35 changing a protected discovery input requires a new lock-free prefetch", () => Effect.gen(function* () {
+  const instance = yield* TestInstance
+  const file = path.join(instance.directory, "opencode.jsonc"), before = '{"username":"before"}'
+  discovery.file = file; discovery.locked = false; discovery.requests = 0
+  yield* FSUtil.use.writeFileString(file, before)
+  const { ProjectConfig } = yield* Effect.promise(() => import("@/config/project-write"))
+  const off = ProjectConfig.observe(instance.directory, (phase) => { if (phase === "selection-wait") discovery.locked = true })
+  yield* Effect.addFinalizer(() => Effect.sync(() => { off(); discovery.locked = false }))
+  const result = yield* Config.use.update({ username: "after" }).pipe(Effect.exit)
+  expect(Exit.isFailure(result)).toBe(true)
+  if (Exit.isFailure(result)) expect(Cause.squash(result.cause)).toMatchObject({ code: "CONFIG_SOURCE_CHANGED" })
+  expect(discovery.requests).toBe(2)
+  expect(yield* FSUtil.use.readFileString(file)).toBe(before)
+}))
+
+for (const mode of ["override", "sibling", "equal", "token-equal"] as const) {
+  const account = configIt({ account: Layer.mock(Account.Service)({
+    active: () => Effect.succeed(Option.some(new Account.Info({ id: AccountID.make("patch-account"), email: "review@example.invalid", url: "https://org.example.invalid", active_org_id: OrgID.make("patch-org") }))),
+    config: () => Effect.succeed(Option.some((mode === "sibling" || mode === "token-equal") ? { model: "local/org", provider: { sample: { options: { apiKey: "{env:OPENCODE_CONSOLE_TOKEN}" } } } } : { username: mode === "equal" ? "after" : "higher" })),
+    token: () => Effect.succeed(Option.some(AccessToken.make("PRIVATE-ORG-TOKEN"))),
+  }) })
+  account.instance(`F07 organization PATCH ${mode} uses local token projection`, () => Effect.gen(function* () {
+    const instance = yield* TestInstance, file = path.join(instance.directory, "opencode.jsonc")
+    const before = '{"username":"before"}'
+    yield* FSUtil.use.writeFileString(file, before)
+    const previousToken = process.env.OPENCODE_CONSOLE_TOKEN
+    const result = yield* Config.use.update(mode === "token-equal" ? { provider: { sample: { options: { apiKey: "PRIVATE-ORG-TOKEN" } } } } : { username: "after" }).pipe(Effect.exit)
+    expect(process.env.OPENCODE_CONSOLE_TOKEN).toBe(previousToken)
+    yield* Effect.promise(() => InstanceWork.waitHandoffs())
+    expect(Exit.isSuccess(result)).toBe(mode !== "override")
+    if (Exit.isFailure(result)) expect(Cause.squash(result.cause)).toMatchObject({ code: "CONFIG_SOURCE_OVERRIDDEN" })
+    const text = yield* FSUtil.use.readFileString(file)
+    expect(text).not.toContain("PRIVATE-ORG-TOKEN")
+    if (mode === "sibling") expect(text).toContain('"after"')
+    else expect(text).toBe(before)
+  }))
+}

@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import path from "path"
 import { tool, type ModelMessage } from "ai"
+import { fileURLToPath, pathToFileURL } from "url"
 import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
@@ -1474,6 +1475,153 @@ describe("session.llm.stream", () => {
         expect(capture.body.model).toBe(resolved.api.id)
       }),
     { config: () => openAIConfig(loadFixture("openai", "gpt-5.2").model, `${state.server!.url.origin}/v1`) },
+  )
+
+  it.instance(
+    "disables hosted image generation on the product native path",
+    () =>
+      Effect.gen(function* () {
+        const fixture = loadFixture("openai", "gpt-5.2")
+        const request = waitRequest(
+          "/responses",
+          createEventResponse(
+            [
+              { type: "response.created", response: { id: "resp-image" } },
+              {
+                type: "response.completed",
+                response: { incomplete_details: null, usage: { input_tokens: 1, output_tokens: 1 } },
+              },
+            ],
+            true,
+          ),
+        )
+        const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(fixture.model.id))
+        resolved.options = { ...resolved.options, imageGeneration: true, promptCacheKey: "kept-cache" }
+        const sessionID = SessionID.make("session-test-image-native")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        yield* drainWith(llmLayerWithExecutor({ flags: { experimentalNativeLlm: true } }), {
+          user: {
+            id: MessageID.make("msg_user-image-native"),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: ProviderV2.ID.make("openai"), modelID: resolved.id },
+          } satisfies SessionV1.User,
+          sessionID,
+          model: resolved,
+          agent,
+          system: [],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        })
+        const capture = yield* Effect.promise(() => request)
+        const tools = capture.body.tools as Array<{ type?: string }> | undefined
+        expect(tools?.some((tool) => tool.type === "image_generation")).not.toBe(true)
+        expect(capture.body.prompt_cache_key).toBe("kept-cache")
+      }),
+    { config: () => openAIConfig(loadFixture("openai", "gpt-5.2").model, `${state.server!.url.origin}/v1`) },
+  )
+
+  it.instance(
+    "disables hosted image generation when native falls back to AI SDK",
+    () =>
+      Effect.gen(function* () {
+        const fixture = loadFixture("openai", "gpt-5.2")
+        const request = waitRequest("/responses", createEventResponse([], true))
+        const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(fixture.model.id))
+        resolved.api = {
+          ...resolved.api,
+          npm: pathToFileURL(fileURLToPath(import.meta.resolve("@ai-sdk/openai"))).href,
+        }
+        resolved.options = { ...resolved.options, imageGeneration: true, promptCacheKey: "fallback-cache" }
+        const sessionID = SessionID.make("session-test-image-fallback")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        yield* drainWith(llmLayerWithExecutor({ flags: { experimentalNativeLlm: true } }), {
+          user: {
+            id: MessageID.make("msg_user-image-fallback"),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: ProviderV2.ID.make("openai"), modelID: resolved.id },
+          } satisfies SessionV1.User,
+          sessionID,
+          model: resolved,
+          agent,
+          system: [],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        })
+        const capture = yield* Effect.promise(() => request)
+        const tools = capture.body.tools as Array<{ type?: string }> | undefined
+        expect(tools?.some((tool) => tool.type === "image_generation")).not.toBe(true)
+        expect(capture.body.prompt_cache_key).toBe("fallback-cache")
+      }),
+    { config: () => openAIConfig(loadFixture("openai", "gpt-5.2").model, `${state.server!.url.origin}/v1`) },
+  )
+
+  it.instance(
+    "disables hosted image generation on the product AI SDK path",
+    () =>
+      Effect.gen(function* () {
+        const fixture = loadFixture("openai", "gpt-5.2")
+        const request = waitRequest("/responses", createEventResponse([], true))
+        const resolved = yield* Provider.use.getModel(ProviderV2.ID.openai, ModelV2.ID.make(fixture.model.id))
+        resolved.options = { ...resolved.options, imageGeneration: true }
+        const sessionID = SessionID.make("session-test-image-sdk")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: { imageGeneration: true, promptCacheKey: "kept-cache" },
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        yield* drainWith(llmLayerWithExecutor({ flags: { experimentalNativeLlm: false } }), {
+          user: {
+            id: MessageID.make("msg_user-image-sdk"),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: ProviderV2.ID.make("openai"), modelID: resolved.id },
+          } satisfies SessionV1.User,
+          sessionID,
+          model: resolved,
+          agent,
+          system: [],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        })
+        const capture = yield* Effect.promise(() => request)
+        const tools = capture.body.tools as Array<{ type?: string }> | undefined
+        expect(tools?.some((tool) => tool.type === "image_generation")).not.toBe(true)
+        expect(capture.body.prompt_cache_key).toBe("kept-cache")
+      }),
+    {
+      config: () => ({
+        ...openAIConfig(loadFixture("openai", "gpt-5.2").model, `${state.server!.url.origin}/v1`),
+        provider: {
+          openai: {
+            ...openAIConfig(loadFixture("openai", "gpt-5.2").model, `${state.server!.url.origin}/v1`).provider!.openai,
+            options: {
+              apiKey: "test-openai-key",
+              baseURL: `${state.server!.url.origin}/v1`,
+              imageGeneration: true,
+            },
+          },
+        },
+      }),
+    },
   )
 
   it.instance(

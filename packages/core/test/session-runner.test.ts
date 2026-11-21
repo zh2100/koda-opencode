@@ -10,6 +10,7 @@ import {
   type LLMRequest,
 } from "@opencode-ai/llm"
 import * as OpenAIChat from "@opencode-ai/llm/protocols/openai-chat"
+import * as OpenAIResponses from "@opencode-ai/llm/protocols/openai-responses"
 import { Database } from "@opencode-ai/core/database/database"
 import { makeLocationNode } from "@opencode-ai/core/effect/app-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -28,7 +29,7 @@ import { ContextSnapshotDecodeError } from "@opencode-ai/core/session/error"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { SessionInput } from "@opencode-ai/core/session/input"
 import { SessionMessage } from "@opencode-ai/core/session/message"
-import { Prompt } from "@opencode-ai/core/session/prompt"
+import { FileAttachment, Prompt } from "@opencode-ai/core/session/prompt"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionRunCoordinator } from "@opencode-ai/core/session/run-coordinator"
@@ -366,6 +367,17 @@ const messageTexts = (request: LLMRequest, role: "user" | "system") =>
   )
 const userTexts = (request: LLMRequest) => messageTexts(request, "user")
 const systemTexts = (request: LLMRequest) => messageTexts(request, "system")
+const languageInstruction =
+  "Reply entirely in the same language as the user's latest message, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
+const withLanguage = (parts: string[]) => [...parts, languageInstruction]
+const expectSystem = (requests: readonly LLMRequest[], expected: string[][]) => {
+  const actual = requests.map((request) => request.system.map((part) => part.text))
+  expect(actual).toEqual(expected.map(withLanguage))
+  for (const parts of actual) {
+    expect(parts.filter((part) => part === languageInstruction)).toHaveLength(1)
+    expect(parts.at(-1)).toBe(languageInstruction)
+  }
+}
 
 const replaySessionProjection = (id: SessionV2.ID) =>
   Effect.gen(function* () {
@@ -611,6 +623,60 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
+  it.effect("completes a turn with an unreadable text attachment and continues", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      requests.length = 0
+      responses = [[], []]
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({
+          text: "Read the broken file",
+          files: [
+            FileAttachment.make({
+              uri: "data:text/plain;base64,//4=",
+              mime: "text/plain",
+              name: "broken.txt",
+            }),
+          ],
+        }),
+      })
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Continue normally" }) })
+      const first = requests[0]?.messages[0]?.content.find((part) => part.type === "text")
+      expect(first && "text" in first ? first.text : "").toContain("could not be read")
+      expect(requests[1]?.messages.map((message) => message.role)).toEqual(["user", "user"])
+      expect(requests[1]?.messages[1]?.content).toEqual([{ type: "text", text: "Continue normally" }])
+      expect(yield* session.messages({ sessionID })).toHaveLength(2)
+    }),
+  )
+
+  it.effect("keeps cancellation when an attachment read is interrupted", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      requests.length = 0
+      streamGate = Deferred.makeUnsafe<void>()
+      streamStarted = Deferred.makeUnsafe<void>()
+      const fiber = yield* session
+        .prompt({
+          sessionID,
+          prompt: Prompt.make({
+            text: "Wait",
+            files: [
+              FileAttachment.make({ uri: "data:text/plain;base64,aGVsbG8=", mime: "text/plain", name: "ok.txt" }),
+            ],
+          }),
+        })
+        .pipe(Effect.forkChild)
+      yield* Deferred.await(streamStarted!)
+      yield* Fiber.interrupt(fiber)
+      const exit = yield* Fiber.await(fiber)
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+      expect(requests).toHaveLength(1)
+    }),
+  )
+
   it.effect("starts a real runner turn after default prompt recording", () =>
     Effect.gen(function* () {
       yield* setup
@@ -751,10 +817,7 @@ describe("SessionRunnerLLM", () => {
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
       yield* session.resume(sessionID)
 
-      expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([
-        ["Initial context"],
-        ["Initial context"],
-      ])
+      expectSystem(requests, [["Initial context"], ["Initial context"]])
       expect(requests[1]?.messages.map((message) => message.role)).toEqual(["user", "user", "system"])
       expect(requests[1]?.messages.at(-1)?.content).toEqual([{ type: "text", text: "Changed context" }])
       expect(yield* session.messages({ sessionID })).toHaveLength(3)
@@ -789,7 +852,7 @@ describe("SessionRunnerLLM", () => {
       response = fragmentFixture("text", "text-build", ["Done"]).completeEvents
       yield* session.resume(sessionID)
 
-      expect(requests.at(-1)?.system.map((part) => part.text)).toEqual(["Build agent instructions", "Initial context"])
+      expectSystem(requests.slice(-1), [["Build agent instructions", "Initial context"]])
     }),
   )
 
@@ -815,7 +878,7 @@ describe("SessionRunnerLLM", () => {
       response = fragmentFixture("text", "text-reviewer", ["Done"]).completeEvents
       yield* session.resume(sessionID)
 
-      expect(requests.at(-1)?.system.map((part) => part.text)).toEqual(["Reviewer instructions", "Initial context"])
+      expectSystem(requests.slice(-1), [["Reviewer instructions", "Initial context"]])
       expect((yield* session.messages({ sessionID }))[0]).toMatchObject({ type: "assistant", agent: "reviewer" })
     }),
   )
@@ -844,7 +907,7 @@ describe("SessionRunnerLLM", () => {
       response = fragmentFixture("text", "text-selected", ["Done"]).completeEvents
       yield* session.resume(sessionID)
 
-      expect(requests.at(-1)?.system.map((part) => part.text)).toEqual(["Reviewer instructions", "Initial context"])
+      expectSystem(requests.slice(-1), [["Reviewer instructions", "Initial context"]])
       expect((yield* session.messages({ sessionID }))[0]).toMatchObject({ type: "assistant", agent: "reviewer" })
     }),
   )
@@ -870,10 +933,7 @@ describe("SessionRunnerLLM", () => {
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
       yield* session.resume(sessionID)
 
-      expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([
-        ["Initial context\n\nBuild skills"],
-        ["Initial context\n\nBuild skills"],
-      ])
+      expectSystem(requests, [["Initial context\n\nBuild skills"], ["Initial context\n\nBuild skills"]])
       expect(systemTexts(requests[1]!)).toContainEqual(expect.stringContaining("Reviewer skills"))
     }),
   )
@@ -904,9 +964,7 @@ describe("SessionRunnerLLM", () => {
       response = []
       yield* session.resume(sessionID)
 
-      expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([
-        ["Initial context\n\nBuild skills"],
-      ])
+      expectSystem(requests, [["Initial context\n\nBuild skills"]])
     }),
   )
 
@@ -934,7 +992,7 @@ describe("SessionRunnerLLM", () => {
       response = []
       yield* session.resume(sessionID)
       expect(requests.map((request) => request.model)).toEqual([model])
-      expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([["Initial context"]])
+      expectSystem(requests, [["Initial context"]])
     }),
   )
 
@@ -982,11 +1040,7 @@ describe("SessionRunnerLLM", () => {
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Third" }), resume: false })
       yield* session.resume(sessionID)
 
-      expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([
-        ["Initial context"],
-        ["Initial context"],
-        ["Initial context"],
-      ])
+      expectSystem(requests, [["Initial context"], ["Initial context"], ["Initial context"]])
       expect(requests[1]?.messages.map((message) => message.role)).toEqual(["user", "user", "system"])
       expect(requests[2]?.messages.filter((message) => message.role === "system")).toHaveLength(2)
       expect((yield* session.context(sessionID)).map((message) => message.type)).toEqual([
@@ -1028,11 +1082,7 @@ describe("SessionRunnerLLM", () => {
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Third" }), resume: false })
       yield* session.resume(sessionID)
 
-      expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([
-        ["Initial context"],
-        ["Initial context"],
-        ["Initial context"],
-      ])
+      expectSystem(requests, [["Initial context"], ["Initial context"], ["Initial context"]])
     }),
   )
 
@@ -1065,10 +1115,7 @@ describe("SessionRunnerLLM", () => {
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
       yield* session.resume(sessionID)
 
-      expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([
-        ["Initial context"],
-        ["Replacement context"],
-      ])
+      expectSystem(requests, [["Initial context"], ["Replacement context"]])
       yield* replaySessionProjection(sessionID)
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Third" }), resume: false })
       yield* session.resume(sessionID)
@@ -1256,7 +1303,7 @@ describe("SessionRunnerLLM", () => {
       expect(requests).toHaveLength(3)
       expect(yield* session.context(sessionID)).toMatchObject([
         { type: "compaction" },
-        { type: "assistant", finish: "error", error: { message: "prompt too long" } },
+        { type: "assistant", finish: "error", error: { message: "Provider request failed" } },
       ])
     }),
   )
@@ -1304,7 +1351,7 @@ describe("SessionRunnerLLM", () => {
       expect(context.some((message) => message.type === "compaction")).toBe(false)
       expect(context.slice(-2)).toMatchObject([
         { type: "user", text: "Continue" },
-        { type: "assistant", finish: "error", error: { message: "prompt too long" } },
+        { type: "assistant", finish: "error", error: { message: "Provider request failed" } },
       ])
     }),
   )
@@ -1366,7 +1413,7 @@ describe("SessionRunnerLLM", () => {
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Third" }), resume: false })
       yield* session.resume(sessionID)
 
-      expect(requests.at(-1)?.system.map((part) => part.text)).toEqual(["Initial context"])
+      expectSystem(requests.slice(-1), [["Initial context"]])
       expect(systemTexts(requests.at(-1)!)).toContain("Changed context")
     }),
   )
@@ -1445,7 +1492,7 @@ describe("SessionRunnerLLM", () => {
               state: {
                 status: "error",
                 input: { path: "README.md" },
-                error: { type: "unknown", message: "Denied" },
+                error: { type: "unknown", message: "Tool execution failed" },
               },
             },
             {
@@ -1564,10 +1611,7 @@ describe("SessionRunnerLLM", () => {
       yield* Fiber.join(run)
 
       expect(requests.map((request) => request.model)).toEqual([model, replacementModel])
-      expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([
-        ["Initial context"],
-        ["Initial context"],
-      ])
+      expectSystem(requests, [["Initial context"], ["Initial context"]])
       expect(systemTexts(requests[1]!)).toContain("Replacement context")
     }),
   )
@@ -2653,7 +2697,7 @@ describe("SessionRunnerLLM", () => {
             {
               type: "tool",
               id: "call-missing",
-              state: { status: "error", error: { message: "Unknown tool: missing" } },
+              state: { status: "error", error: { message: "Tool execution failed" } },
             },
           ],
         },
@@ -2700,7 +2744,7 @@ describe("SessionRunnerLLM", () => {
               id: "call-defect",
               state: {
                 status: "error",
-                error: { type: "unknown", message: "Tool execution failed: unexpected tool defect" },
+                error: { type: "unknown", message: "Tool execution failed" },
               },
             },
           ],
@@ -2751,7 +2795,11 @@ describe("SessionRunnerLLM", () => {
         {
           type: "assistant",
           content: [
-            { type: "tool", id: "call-blocked", state: { status: "error", error: { message: "Permission blocked" } } },
+            {
+              type: "tool",
+              id: "call-blocked",
+              state: { status: "error", error: { message: "Tool execution failed" } },
+            },
           ],
         },
         { type: "assistant", finish: "stop" },
@@ -2844,7 +2892,11 @@ describe("SessionRunnerLLM", () => {
         {
           type: "assistant",
           content: [
-            { type: "tool", id: "call-corrected", state: { status: "error", error: { message: "Use another tool" } } },
+            {
+              type: "tool",
+              id: "call-corrected",
+              state: { status: "error", error: { message: "Tool execution failed" } },
+            },
           ],
         },
         { type: "assistant", finish: "stop" },
@@ -3169,7 +3221,7 @@ describe("SessionRunnerLLM", () => {
       expect(requests).toHaveLength(1)
       expect(yield* session.context(sessionID)).toMatchObject([
         { type: "user", text: "Fail durably" },
-        { type: "assistant", finish: "error", error: { type: "unknown", message: "Provider unavailable" } },
+        { type: "assistant", finish: "error", error: { type: "unknown", message: "Provider request failed" } },
       ])
     }),
   )
@@ -3188,7 +3240,7 @@ describe("SessionRunnerLLM", () => {
       expect(requests).toHaveLength(1)
       expect(yield* session.context(sessionID)).toMatchObject([
         { type: "user", text: "Fail before step" },
-        { type: "assistant", finish: "error", error: { type: "unknown", message: "Provider unavailable" } },
+        { type: "assistant", finish: "error", error: { type: "unknown", message: "Provider request failed" } },
       ])
     }),
   )
@@ -3215,7 +3267,7 @@ describe("SessionRunnerLLM", () => {
         {
           type: "assistant",
           finish: "error",
-          error: { message: "prompt too long" },
+          error: { message: "Provider request failed" },
           content: [{ type: "text", text: "Partial" }],
         },
       ])
@@ -3292,6 +3344,139 @@ describe("SessionRunnerLLM", () => {
           content: [{ type: "tool", id: "call-hosted-provider-error", state: { status: "error" } }],
         },
       ])
+    }),
+  )
+
+  it.effect("disables hosted image generation on the request built by the real runner", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const agents = yield* AgentV2.Service
+      yield* agents.transform((editor) =>
+        editor.update(AgentV2.ID.make("build"), (agent) => {
+          agent.steps = 1
+        }),
+      )
+      const hosted = Model.make({
+        id: "gpt-image-host",
+        provider: "openai",
+        route: OpenAIResponses.route.with({
+          endpoint: { baseURL: "https://api.openai.test/v1/" },
+          providerOptions: { openai: { imageGeneration: true } },
+        }),
+      })
+      currentModel = hosted
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Do not host an image tool" }), resume: false })
+      requests.length = 0
+      response = [
+        LLMEvent.stepStart({ index: 0 }),
+        LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+        LLMEvent.finish({ reason: "stop" }),
+      ]
+      yield* session.resume(sessionID)
+      expect(requests).toHaveLength(1)
+      const captured = requests[0]
+      if (!captured) return
+      expect(captured.providerOptions).toMatchObject({ openai: { imageGeneration: false } })
+      expect(captured.tools).toEqual([])
+      expect(captured.toolChoice).toMatchObject({ type: "none" })
+      const prepared = yield* LLMClient.prepare(captured)
+      const tools = (prepared.body as { tools?: Array<{ type?: string }> }).tools ?? []
+      expect(tools.filter((tool) => tool.type === "image_generation")).toEqual([])
+      expect(prepared.body).toMatchObject({ prompt_cache_key: sessionID })
+      expect(prepared.body).not.toHaveProperty("imageGeneration")
+    }),
+  )
+
+  it.effect("keeps hosted image generation disabled for plan, deny, and allow", () =>
+    Effect.gen(function* () {
+      const hosted = Model.make({
+        id: "gpt-image-host",
+        provider: "openai",
+        route: OpenAIResponses.route.with({
+          endpoint: { baseURL: "https://api.openai.test/v1/" },
+          providerOptions: { openai: { imageGeneration: true } },
+        }),
+      })
+      const cases = [
+        {
+          name: "plan",
+          mode: "plan" as const,
+          permissions: [{ action: "*", resource: "*", effect: "allow" as const }],
+          exposed: false,
+        },
+        {
+          name: "explicit deny",
+          mode: undefined,
+          permissions: [{ action: "image_generation", resource: "*", effect: "deny" as const }],
+          exposed: false,
+        },
+        {
+          name: "allow",
+          mode: undefined,
+          permissions: [{ action: "image_generation", resource: "*", effect: "allow" as const }],
+          exposed: true,
+        },
+      ]
+      for (const item of cases) {
+        yield* setup
+        const { db } = yield* Database.Service
+        const agents = yield* AgentV2.Service
+        const applicationTools = yield* ApplicationTools.Service
+        yield* db
+          .update(SessionTable)
+          .set({
+            agent: "build",
+            metadata: item.mode ? { scheduledApprovalMode: item.mode } : null,
+          })
+          .where(eq(SessionTable.id, sessionID))
+          .run()
+          .pipe(Effect.orDie)
+        yield* agents.transform((editor) =>
+          editor.update(AgentV2.ID.make("build"), (agent) => {
+            agent.steps = undefined
+            agent.permissions = item.permissions
+          }),
+        )
+        yield* applicationTools.register({
+          image_generation: Tool.make({
+            description: "Generate an image",
+            input: Schema.Struct({ prompt: Schema.String }),
+            output: Schema.Struct({ ok: Schema.Boolean }),
+            execute: () => Effect.succeed({ ok: true }),
+          }),
+          marker_tool: Tool.make({
+            description: "Marker",
+            input: Schema.Struct({}),
+            output: Schema.Struct({ ok: Schema.Boolean }),
+            execute: () => Effect.succeed({ ok: true }),
+          }),
+        })
+        currentModel = hosted
+        const session = yield* SessionV2.Service
+        yield* session.prompt({
+          sessionID,
+          prompt: Prompt.make({ text: `Hosted image ${item.name}` }),
+          resume: false,
+        })
+        requests.length = 0
+        response = [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+          LLMEvent.finish({ reason: "stop" }),
+        ]
+        yield* session.resume(sessionID)
+        const captured = requests[0]
+        expect(captured?.providerOptions).toMatchObject({ openai: { imageGeneration: false } })
+        expect(captured?.tools.some((tool) => tool.name === "marker_tool")).toBe(item.name !== "plan")
+        expect(captured?.tools.some((tool) => tool.name === "image_generation")).toBe(item.exposed)
+        expect(captured?.toolChoice).toBeUndefined()
+        const prepared = yield* LLMClient.prepare(captured!)
+        const tools = (prepared.body as { tools?: Array<{ type?: string; name?: string }> }).tools ?? []
+        expect(tools.filter((tool) => tool.type === "image_generation")).toEqual([])
+        expect(prepared.body).toMatchObject({ prompt_cache_key: sessionID })
+        expect(prepared.body).not.toHaveProperty("imageGeneration")
+      }
     }),
   )
 

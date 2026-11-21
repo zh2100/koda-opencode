@@ -69,7 +69,14 @@ describe("resource root startup validation", () => {
     const registered = registration(path.join(root, "registered"))
     ResourceRoot.remember(home, registered)
     expect(() => ResourceRoot.select(fallback, home)).toThrow(/missing its completed manifest/)
-    for (const target of [fallback.data, fallback.config, fallback.state, fallback.cache, registered.data, registered.config]) {
+    for (const target of [
+      fallback.data,
+      fallback.config,
+      fallback.state,
+      fallback.cache,
+      registered.data,
+      registered.config,
+    ]) {
       expect(fs.existsSync(target)).toBe(false)
     }
 
@@ -82,7 +89,14 @@ describe("resource root startup validation", () => {
     fs.rmSync(LockIdentity.marker(registered.state))
     fs.mkdirSync(LockIdentity.marker(registered.state))
     expect(() => ResourceRoot.select(fallback, home)).toThrow(/corrupt|directory/)
-    for (const target of [registered.data, registered.config, registered.cache, path.join(registered.data, "log"), path.join(registered.data, "repos"), path.join(registered.cache, "bin")]) {
+    for (const target of [
+      registered.data,
+      registered.config,
+      registered.cache,
+      path.join(registered.data, "log"),
+      path.join(registered.data, "repos"),
+      path.join(registered.cache, "bin"),
+    ]) {
       expect(fs.existsSync(target)).toBe(false)
     }
     fs.rmSync(root, { recursive: true, force: true })
@@ -102,7 +116,9 @@ describe("resource root startup validation", () => {
       rootId: "22222222-2222-4222-8222-222222222222",
       epoch: 1,
     })
-    expect(() => ResourceRoot.select(paths(path.join(root, "fallback")), home)).toThrow(/does not match|missing its completed manifest/)
+    expect(() => ResourceRoot.select(paths(path.join(root, "fallback")), home)).toThrow(
+      /does not match|missing its completed manifest/,
+    )
     complete(path.join(root, "registered"), 2)
     expect(() => ResourceRoot.select(paths(path.join(root, "fallback")), home)).toThrow(/does not match|epoch/)
     fs.rmSync(root, { recursive: true, force: true })
@@ -119,12 +135,16 @@ describe("resource root startup validation", () => {
     expect(selected.context.registration?.rootId).toBe(rootId)
     fs.rmSync(LockIdentity.marker(registered.state))
     const locks = path.join(registered.state, "locks")
-    await expect(Flock.acquire("relay-auth", { dir: locks, context: selected.context })).rejects.toThrow(/missing|changed|manifest/)
+    await expect(Flock.acquire("relay-auth", { dir: locks, context: selected.context })).rejects.toThrow(
+      /missing|changed|manifest/,
+    )
     expect(fs.existsSync(locks)).toBe(false)
 
     complete(path.join(root, "registered"))
     write(LockIdentity.marker(registered.state), { generation: "path-identity-v1", status: "complete" })
-    await expect(Flock.acquire("relay-auth", { context: selected.context })).rejects.toThrow(/changed|does not match|manifest/)
+    await expect(Flock.acquire("relay-auth", { context: selected.context })).rejects.toThrow(
+      /changed|does not match|manifest/,
+    )
     expect(fs.existsSync(path.join(registered.state, "locks"))).toBe(false)
     fs.rmSync(root, { recursive: true, force: true })
   })

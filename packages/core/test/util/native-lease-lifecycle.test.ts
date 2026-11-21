@@ -100,6 +100,67 @@ async function waitUntil(check: () => boolean) {
 }
 
 describe("native lease lifecycle", () => {
+  test("RA-02 the common Flock.effect wrapper cancels a native waiter without releasing its owner", async () => {
+    const env = isolated()
+    const held = await Flock.acquire("relay-auth", { context: env.context })
+    let ready!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      ready = resolve
+    })
+    const fiber = Effect.runFork(
+      Effect.scoped(
+        Flock.effect("relay-auth", {
+          context: env.context,
+          timeoutMs: 3_000,
+          baseDelayMs: 10,
+          maxDelayMs: 20,
+          onWait: () => ready(),
+        }),
+      ),
+    )
+    try {
+      try {
+        await waiting
+        await Fiber.interrupt(fiber).pipe(Effect.timeout("1 second"), Effect.runPromise)
+        const exit = await Effect.runPromise(Fiber.await(fiber))
+        expect(exit._tag).toBe("Failure")
+        if (exit._tag === "Failure") expect(Cause.hasInterrupts(exit.cause)).toBe(true)
+        await expect(
+          Flock.acquire("relay-auth", { context: env.context, timeoutMs: 50, baseDelayMs: 10 }),
+        ).rejects.toThrow("Timed out")
+      } finally {
+        await Effect.runPromise(Fiber.interrupt(fiber))
+        await held.release()
+      }
+      const next = await Flock.acquire("relay-auth", { context: env.context, timeoutMs: 500 })
+      await next.release()
+    } finally {
+      env.remove()
+    }
+  })
+
+  test("RA-02 the common native wrapper releases both scoped and late leases", async () => {
+    const env = isolated()
+    try {
+      await Effect.scoped(
+        Effect.gen(function* () {
+          yield* Flock.effect("relay-auth", { context: env.context })
+          const rival = NativeFileLock.tryAcquire(LockProtocol.file(LockProtocol.resolve("relay-auth", env.context)))
+          if (rival.status === "acquired") rival.release()
+          expect(rival.status).toBe("busy")
+        }),
+      ).pipe(Effect.runPromise)
+      for (let index = 0; index < 8; index++) {
+        const fiber = Effect.runFork(Effect.scoped(Flock.effect("relay-auth", { context: env.context })))
+        await Effect.runPromise(Fiber.interrupt(fiber))
+        const next = await Flock.acquire("relay-auth", { context: env.context, timeoutMs: 500 })
+        await next.release()
+      }
+    } finally {
+      env.remove()
+    }
+  })
+
   test("NL-T01 cancelling a waiting Effect native lock keeps the original holder", async () => {
     const env = isolated()
     const holder = hold(env.root, env.context, "relay-auth")
@@ -240,11 +301,15 @@ describe("native lease lifecycle", () => {
     let releaseCalls = 0
     let resumed = false
     const pending = new Promise<{ release: () => Promise<void> }>((resolve) => {
-      setTimeout(() => resolve({
-        release: async () => {
-          releaseCalls += 1
-        },
-      }), 30)
+      setTimeout(
+        () =>
+          resolve({
+            release: async () => {
+              releaseCalls += 1
+            },
+          }),
+        30,
+      )
     })
     const bridge = NativeFileLock.handoff(pending, () => {
       resumed = true

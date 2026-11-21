@@ -15,8 +15,10 @@ test("GDAL is outside asar and packaging checks the actual target", async () => 
     to: expect.stringMatching(/^gdal\/(win32|linux|darwin)-(x64|arm64)$/),
   })
   expect(typeof config.beforePack).toBe("function")
-  const hook = config.beforePack as (context: unknown) => Promise<void>
-  await expect(hook({ electronPlatformName: "unsupported", arch: 1 })).rejects.toThrow("matching the builder target")
+  if (typeof config.beforePack !== "function") throw new Error("beforePack hook is missing")
+  await expect(
+    Reflect.apply(config.beforePack, undefined, [{ electronPlatformName: "unsupported", arch: 1 }]),
+  ).rejects.toThrow("matching the builder target")
 })
 
 test("GDAL is opt-in", async () => {
@@ -41,7 +43,7 @@ for (const channel of channels) {
     process.env.OPENCODE_CHANNEL = channel.channel
 
     const module = await import(`./electron-builder.config.ts?channel=${channel.channel}`)
-    const config = module.default as Configuration
+    const config = module.default satisfies Configuration
 
     if (previous === undefined) delete process.env.OPENCODE_CHANNEL
     else process.env.OPENCODE_CHANNEL = previous
@@ -56,12 +58,31 @@ for (const channel of channels) {
   })
 }
 
+test("keeps the process lock module beside the packaged CLI", async () => {
+  const config = (await import("./electron-builder.config.ts?process-lock")).default
+  const resources = config.extraResources?.find((item) => item && typeof item === "object" && "filter" in item && Array.isArray(item.filter) && item.filter.includes("opencode-cli*"))
+  expect(resources && typeof resources === "object" && "filter" in resources ? resources.filter : []).toContain("process-lock-*")
+})
+
+test("publishes production updates to the Koda GitHub repository", async () => {
+  const previous = process.env.OPENCODE_CHANNEL
+  process.env.OPENCODE_CHANNEL = "prod"
+
+  const module = await import("./electron-builder.config.ts?publish=prod")
+  const config = module.default satisfies Configuration
+
+  if (previous === undefined) delete process.env.OPENCODE_CHANNEL
+  else process.env.OPENCODE_CHANNEL = previous
+
+  expect(config.publish).toEqual({ provider: "github", owner: "zh2100", repo: "koda-opencode", channel: "latest" })
+})
+
 test("keeps a hidden prod launcher for old Linux pins", async () => {
   const previous = process.env.OPENCODE_CHANNEL
   process.env.OPENCODE_CHANNEL = "prod"
 
   const module = await import("./electron-builder.config.ts?compat=prod")
-  const config = module.default as Configuration
+  const config = module.default satisfies Configuration
 
   if (previous === undefined) delete process.env.OPENCODE_CHANNEL
   else process.env.OPENCODE_CHANNEL = previous
@@ -85,7 +106,7 @@ test("keeps a hidden prod launcher for old Linux pins", async () => {
 })
 
 test("bundles open-computer-use outside the app archive", async () => {
-  const config = (await import("./electron-builder.config.ts?computer-use")).default as Configuration
+  const config = (await import("./electron-builder.config.ts?computer-use")).default satisfies Configuration
   expect(config.files).toContain("!resources/open-computer-use/**/*")
   expect(config.extraResources).toContainEqual({
     from: "resources/open-computer-use/",
@@ -97,7 +118,7 @@ test("bundles the CLI outside the dev app archive", async () => {
   const previous = process.env.OPENCODE_CHANNEL
   process.env.OPENCODE_CHANNEL = "dev"
   const module = await import("./electron-builder.config.ts?cli-resource")
-  const config = module.default as Configuration
+  const config = module.default satisfies Configuration
   if (previous === undefined) delete process.env.OPENCODE_CHANNEL
   else process.env.OPENCODE_CHANNEL = previous
 
@@ -105,23 +126,23 @@ test("bundles the CLI outside the dev app archive", async () => {
   expect(config.extraResources).toContainEqual({
     from: "resources/",
     to: "",
-    filter: ["opencode-cli*"],
+    filter: ["opencode-cli*", "process-lock-*"],
   })
 })
 
 for (const channel of ["beta", "prod"] as const) {
-  test(`does not bundle the CLI in ${channel} builds`, async () => {
+  test(`bundles the CLI outside the app archive in ${channel} builds`, async () => {
     const previous = process.env.OPENCODE_CHANNEL
     process.env.OPENCODE_CHANNEL = channel
     const module = await import(`./electron-builder.config.ts?no-cli-resource=${channel}`)
-    const config = module.default as Configuration
+    const config = module.default satisfies Configuration
     if (previous === undefined) delete process.env.OPENCODE_CHANNEL
     else process.env.OPENCODE_CHANNEL = previous
 
-    expect(config.extraResources).not.toContainEqual({
+    expect(config.extraResources).toContainEqual({
       from: "resources/",
       to: "",
-      filter: ["opencode-cli*"],
+      filter: ["opencode-cli*", "process-lock-*"],
     })
   })
 }

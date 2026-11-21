@@ -1,4 +1,9 @@
-import { afterEach, expect } from "bun:test"
+import { afterEach, beforeEach, expect } from "bun:test"
+import fs from "node:fs/promises"
+import { Config } from "../../src/config/config"
+import { AppRuntime } from "../../src/effect/app-runtime"
+import { Global } from "@opencode-ai/core/global"
+import { installedConfigDependencies } from "../fixture/config-dependencies"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
@@ -17,6 +22,18 @@ const it = testEffect(
     [InstanceStore.bootstrapNode, InstanceBootstrap.node],
   ]),
 )
+
+beforeEach(async () => {
+  // Other config suites deliberately leave their documents in the shared test
+  // root. Bootstrap tests own a clean global fixture and a real local plugin.
+  for (const file of ["config", "config.json", "opencode.json", "opencode.jsonc"]) {
+    await fs.rm(path.join(Global.Path.config, file), { force: true })
+  }
+  await installedConfigDependencies(Global.Path.config)
+  const homeConfig = path.join(Global.Path.home, ".opencode")
+  if (existsSync(homeConfig)) await installedConfigDependencies(homeConfig)
+  await AppRuntime.runPromise(Config.Service.use((config) => config.invalidate()))
+})
 
 // InstanceBootstrap must run before any code touches the instance —
 // originally tracked by PRs #25389 and #25449, now a permanent

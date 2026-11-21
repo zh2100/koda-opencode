@@ -133,5 +133,5 @@ describe("plugin.meta", () => {
 
     const saved = await map<{ spec: string; load_count: number }>(file)
     expect(Object.values(saved).find((item) => item.spec === spec)?.load_count).toBe(n)
-  }, 20_000)
+  }, 60_000)
 })

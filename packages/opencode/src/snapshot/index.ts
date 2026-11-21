@@ -1,3 +1,5 @@
+import { InstanceWork } from "@/effect/instance-work"
+import { Fiber } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Cause, Duration, Effect, Layer, Schedule, Schema, Semaphore, Context } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -758,12 +760,16 @@ const layer: Layer.Layer<Service, never, FSUtil.Service | AppProcess.Service | C
           )
         })
 
-        yield* cleanup().pipe(
+        const loop = yield* InstanceWork.run(cleanup()).pipe(
           Effect.catchCause((cause) => Effect.logError("cleanup loop failed", { cause: Cause.pretty(cause) })),
           Effect.repeat(Schedule.spaced(Duration.hours(1))),
           Effect.delay(Duration.minutes(1)),
           Effect.forkScoped,
         )
+
+        const stop = () => Effect.runPromise(Fiber.interrupt(loop)).then(() => undefined)
+        const unregister = InstanceWork.registerProducer(ctx, stop)
+        yield* Effect.addFinalizer(() => Effect.promise(stop).pipe(Effect.ensuring(Effect.sync(unregister))))
 
         return { cleanup, track, patch, restore, revert, diff, diffFull }
       }),
@@ -771,28 +777,28 @@ const layer: Layer.Layer<Service, never, FSUtil.Service | AppProcess.Service | C
 
     return Service.of({
       init: Effect.fn("Snapshot.init")(function* () {
-        yield* InstanceState.get(state)
+        yield* InstanceWork.run(InstanceState.get(state), "snapshot-init")
       }),
       cleanup: Effect.fn("Snapshot.cleanup")(function* () {
-        return yield* InstanceState.useEffect(state, (s) => s.cleanup())
+        return yield* InstanceWork.run(InstanceState.useEffect(state, (s) => s.cleanup()), "snapshot-cleanup")
       }),
       track: Effect.fn("Snapshot.track")(function* () {
-        return yield* InstanceState.useEffect(state, (s) => s.track())
+        return yield* InstanceWork.run(InstanceState.useEffect(state, (s) => s.track()), "snapshot-track")
       }),
       patch: Effect.fn("Snapshot.patch")(function* (hash: string) {
-        return yield* InstanceState.useEffect(state, (s) => s.patch(hash))
+        return yield* InstanceWork.run(InstanceState.useEffect(state, (s) => s.patch(hash)), "snapshot-patch")
       }),
       restore: Effect.fn("Snapshot.restore")(function* (snapshot: string) {
-        return yield* InstanceState.useEffect(state, (s) => s.restore(snapshot))
+        return yield* InstanceWork.run(InstanceState.useEffect(state, (s) => s.restore(snapshot)), "snapshot-restore")
       }),
       revert: Effect.fn("Snapshot.revert")(function* (patches: Patch[]) {
-        return yield* InstanceState.useEffect(state, (s) => s.revert(patches))
+        return yield* InstanceWork.run(InstanceState.useEffect(state, (s) => s.revert(patches)), "snapshot-revert")
       }),
       diff: Effect.fn("Snapshot.diff")(function* (hash: string) {
-        return yield* InstanceState.useEffect(state, (s) => s.diff(hash))
+        return yield* InstanceWork.run(InstanceState.useEffect(state, (s) => s.diff(hash)), "snapshot-diff")
       }),
       diffFull: Effect.fn("Snapshot.diffFull")(function* (from: string, to: string) {
-        return yield* InstanceState.useEffect(state, (s) => s.diffFull(from, to))
+        return yield* InstanceWork.run(InstanceState.useEffect(state, (s) => s.diffFull(from, to)), "snapshot-diff-full")
       }),
     })
   }),

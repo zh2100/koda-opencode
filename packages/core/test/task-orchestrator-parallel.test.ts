@@ -264,10 +264,14 @@ describe("TaskOrchestratorParallel", () => {
                   if (id === "a") {
                     transient += 1
                     if (name.endsWith(":retry")) return Effect.succeed({ output: "a done", patch: "patch a" })
-                    return Effect.failCause(provider(new TransportReason({ message: "socket hang up", kind: "TransportError" })))
+                    return Effect.failCause(
+                      provider(new TransportReason({ message: "socket hang up", kind: "TransportError" })),
+                    )
                   }
                   permanent += 1
-                  return Effect.failCause(provider(new AuthenticationReason({ message: "invalid key", kind: "invalid" })))
+                  return Effect.failCause(
+                    provider(new AuthenticationReason({ message: "invalid key", kind: "invalid" })),
+                  )
                 },
                 review: () => Effect.succeed('{"approved":true,"findings":[]}'),
                 test: () => Effect.succeed("ok"),

@@ -68,6 +68,8 @@ export type Event =
   | EventQuestionV2Replied
   | EventQuestionV2Rejected
   | EventTodoUpdated
+  | EventScheduledTaskUpdated
+  | EventRelayCatalogUpdated
   | EventLspUpdated
   | EventPermissionAsked
   | EventPermissionReplied
@@ -1368,6 +1370,21 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "scheduled.task.updated"
+        properties: {
+          task: ScheduledTaskInfo
+          run?: ScheduledTaskRun
+        }
+      }
+    | {
+        id: string
+        type: "relay.catalog.updated"
+        properties: {
+          [key: string]: unknown
+        }
+      }
+    | {
+        id: string
         type: "lsp.updated"
         properties: {
           [key: string]: unknown
@@ -1654,6 +1671,12 @@ export type ServerConfig = {
   cors?: Array<string>
 }
 
+export type ImageGenerationConfig = {
+  enabled?: boolean
+  model?: string
+  api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat"
+}
+
 export type PermissionActionConfig = "ask" | "allow" | "deny"
 
 export type PermissionObjectConfig = {
@@ -1933,6 +1956,7 @@ export type Config = {
   disabled_providers?: Array<string>
   enabled_providers?: Array<string>
   model?: string
+  image_generation?: ImageGenerationConfig
   small_model?: string
   default_agent?: string
   subagent_depth?: number
@@ -2030,6 +2054,69 @@ export type Config = {
     mcp_timeout?: number
     policies?: Array<ConfigV2ExperimentalPolicy>
   }
+}
+
+export type ProjectConfigInvalidError = {
+  _tag: "ProjectConfigInvalidError"
+  code: "CONFIG_DOCUMENT_INVALID" | "CONFIG_PATCH_INVALID"
+  ref: string
+}
+
+export type ProjectConfigForbiddenError = {
+  _tag: "ProjectConfigForbiddenError"
+  code: "CONFIG_PROJECT_DISABLED" | "CONFIG_SOURCE_READ_ONLY" | "CONFIG_TARGET_OUTSIDE_PROJECT"
+  ref: string
+}
+
+export type ProjectConfigConflictError = {
+  _tag: "ProjectConfigConflictError"
+  code:
+    | "CONFIG_SOURCE_CHANGED"
+    | "CONFIG_SOURCE_OVERRIDDEN"
+    | "CONFIG_PATH_ALIAS_UNSUPPORTED"
+    | "CONFIG_TEMPLATE_EDIT_UNSUPPORTED"
+  ref: string
+}
+
+export type ProjectConfigUnavailableError = {
+  _tag: "ProjectConfigUnavailableError"
+  code:
+    | "CONFIG_SOURCE_READ_FAILED"
+    | "CONFIG_LOCK_TIMEOUT"
+    | "CONFIG_WRITE_FAILED"
+    | "CONFIG_REFRESH_CAPACITY_EXHAUSTED"
+    | "CONFIG_COMMIT_UNKNOWN"
+  ref: string
+}
+
+export type McpConfigNotFoundError = {
+  _tag: "McpConfigNotFoundError"
+  code: "MCP_SOURCE_MISSING" | "MCP_ENTRY_MISSING"
+  ref: string
+}
+
+export type McpConfigForbiddenError = {
+  _tag: "McpConfigForbiddenError"
+  code: "MCP_SOURCE_READ_ONLY"
+  ref: string
+}
+
+export type McpConfigConflictError = {
+  _tag: "McpConfigConflictError"
+  code: "MCP_SOURCE_CHANGED" | "MCP_VERSION_CONFLICT" | "MCP_SOURCE_ALIAS_UNSUPPORTED"
+  ref: string
+}
+
+export type McpConfigInvalidError = {
+  _tag: "McpConfigInvalidError"
+  code: "MCP_DOCUMENT_INVALID"
+  ref: string
+}
+
+export type McpConfigUnavailableError = {
+  _tag: "McpConfigUnavailableError"
+  code: "MCP_SOURCE_READ_FAILED" | "MCP_LOCK_TIMEOUT" | "MCP_WRITE_FAILED"
+  ref: string
 }
 
 export type Model = {
@@ -2790,6 +2877,24 @@ export type ProviderNotFoundError = {
   message: string
 }
 
+export type ScheduledTaskNotFoundError = {
+  _tag: "ScheduledTaskNotFoundError"
+  taskID: string
+  message: string
+}
+
+export type ScheduledTaskDisabledError = {
+  _tag: "ScheduledTaskDisabledError"
+  taskID: string
+  message: string
+}
+
+export type ScheduledTaskConflictError = {
+  _tag: "ScheduledTaskConflictError"
+  taskID: string
+  message: string
+}
+
 export type OutputFormat1 =
   | {
       type: "text"
@@ -2919,6 +3024,8 @@ export type V2Event =
   | QuestionV2Replied
   | QuestionV2Rejected
   | TodoUpdated
+  | ScheduledTaskUpdated
+  | RelayCatalogUpdated
   | LspUpdated
   | PermissionAsked
   | PermissionReplied
@@ -2958,6 +3065,62 @@ export type ProjectCopyError = {
     message: string
     forceRequired?: boolean
   }
+}
+
+export type OrchestratorModels = {
+  mode?: "sequential" | "parallel"
+  planner?: string
+  worker: string
+  reviewer?: string
+  tester?: string
+  finalizer?: string
+  fallback?: string
+  timeoutMs?: number
+  maxRetries?: number
+}
+
+export type OrchestratorCreatePayload = {
+  sessionID: string
+  projectID: string
+  workspaceKey: string
+  prompt: string
+  models: OrchestratorModels
+}
+
+export type OrchestratorTaskStep = {
+  role: "planner" | "worker" | "reviewer" | "tester" | "finalizer"
+  status: "pending" | "running" | "needs_revision" | "failed" | "completed"
+  startedAt?: number
+  finishedAt?: number
+}
+
+export type OrchestratorTaskWorker = {
+  id: string
+  title: string
+  status: "pending" | "running" | "completed" | "failed"
+  startedAt?: number
+  finishedAt?: number
+  failureReason?: string
+}
+
+export type OrchestratorTask = {
+  id: string
+  sessionID: string
+  status: "pending" | "running" | "completed" | "failed" | "paused" | "aborted"
+  currentStep: number
+  failureReason?: string
+  steps?: Array<OrchestratorTaskStep>
+  workers?: Array<OrchestratorTaskWorker>
+}
+
+export type OrchestratorTaskNotFoundError = {
+  _tag: "OrchestratorTaskNotFoundError"
+  taskID: string
+  message: string
+}
+
+export type OrchestratorControlPayload = {
+  action: "pause" | "abort" | "retry"
 }
 
 export type EffectHttpApiErrorForbidden = {
@@ -3164,6 +3327,69 @@ export type QuestionV2Tool = {
 }
 
 export type QuestionV2Answer = Array<string>
+
+export type ScheduledTaskScheduleKind = "once" | "daily"
+
+export type RelayEffort = "low" | "medium" | "high" | "xhigh"
+
+export type ScheduledTaskApprovalMode = "ask" | "auto" | "plan"
+
+export type ScheduledTaskInfo = {
+  id: string
+  name: string
+  projectID: string
+  location: LocationRef
+  prompt: Prompt
+  schedule: ScheduledTaskScheduleKind
+  timezone: string
+  runAt: number
+  model: ModelRef
+  effort?: RelayEffort
+  approvalMode: ScheduledTaskApprovalMode
+  enabled: boolean
+  revision: number
+  nextRun?: number
+  lastRun?: number
+}
+
+export type ScheduledTaskRunStatus = "pending" | "running" | "completed" | "failed" | "missed" | "interrupted"
+
+export type RelayErrorCode =
+  | "KEY_MISSING"
+  | "KEY_REJECTED"
+  | "UPSTREAM_UNREACHABLE"
+  | "UPSTREAM_TIMEOUT"
+  | "UPSTREAM_RATE_LIMITED"
+  | "UPSTREAM_INVALID_RESPONSE"
+  | "MODEL_UNAVAILABLE"
+  | "MODEL_VENDOR_MISMATCH"
+  | "MODEL_VENDOR_CONFLICT"
+  | "PROVIDER_DISABLED"
+  | "PROJECT_INVALID"
+  | "TASK_EXECUTION_FAILED"
+  | "REVISION_CONFLICT"
+  | "REQUEST_CONFLICT"
+  | "SECRET_STORE_UNAVAILABLE"
+
+export type RelayErrorInfo = {
+  code: RelayErrorCode
+  retryable: boolean
+  requestId: string
+  details?: string
+}
+
+export type ScheduledTaskRun = {
+  id: string
+  taskId: string
+  scheduledAt: number
+  revision: number
+  status: ScheduledTaskRunStatus
+  sessionId?: string
+  promptMessageId?: string
+  startedAt?: number
+  endedAt?: number
+  error?: RelayErrorInfo
+}
 
 export type ProjectVcs = "git"
 
@@ -3909,6 +4135,7 @@ export type SessionV2Info = {
   id: string
   parentID?: string
   projectID: string
+  approvalMode?: "ask" | "auto" | "plan"
   agent?: string
   model?: ModelRef
   cost: number
@@ -4983,6 +5210,86 @@ export type IntegrationAttemptStatus =
       }
     }
 
+export type RelayVendorBaseUrl = string
+
+export type RelayVendor = {
+  id: string
+  entityId?: string
+  name: string
+  baseURL?: RelayVendorBaseUrl
+  builtin: boolean
+  hasKey: boolean
+  updatedAt: number
+  revision: number
+}
+
+export type RelayOperationReceipt = {
+  operationId: string
+  kind: "vendor-create"
+  vendorId: string
+  entityId: string
+  committedRevision: number
+}
+
+export type RelayCatalogSync = {
+  status: "synced" | "pending"
+  retryable: boolean
+}
+
+export type RelayAuthState = {
+  vendors: Array<RelayVendor>
+  revision: number
+  capabilities?: Array<string>
+  operationReceipt?: RelayOperationReceipt
+  catalogSync?: RelayCatalogSync
+}
+
+export type RelayModelAssignmentSource = "manual" | "owned_by" | "prefix" | "unassigned" | "conflict"
+
+export type RelayModelCandidate = {
+  vendorId?: string
+  modelId: string
+  displayName?: string
+  ownedBy?: string
+  fetchedAt: number
+  assignmentSource: RelayModelAssignmentSource
+  upstreamPresent: boolean
+}
+
+export type RelayModelManaged = {
+  vendorId: string
+  modelId: string
+  visible: boolean
+  reasoningCapabilities: Array<RelayEffort>
+  assignmentSource: RelayModelAssignmentSource
+  lastSeenAt: number
+  upstreamPresent: boolean
+}
+
+export type RelaySyncSnapshot = {
+  auth: RelayAuthState
+  candidates: Array<RelayModelCandidate>
+  managed: Array<RelayModelManaged>
+  catalogRevision: number
+  notice: {
+    status: "idle" | "pending" | "exhausted"
+  }
+}
+
+export type ScheduledTaskCreatePayload = {
+  name: string
+  projectID: string
+  location: LocationRef
+  prompt: Prompt
+  schedule: ScheduledTaskScheduleKind
+  timezone: string
+  runAt: number
+  model: ModelRef
+  effort?: RelayEffort
+  approvalMode: ScheduledTaskApprovalMode
+  enabled: boolean
+}
+
 export type PermissionV2Request = {
   id: string
   sessionID: string
@@ -4995,11 +5302,14 @@ export type PermissionV2Request = {
   source?: PermissionV2Source
 }
 
+export type PermissionV2Effect1 = PermissionV2Effect
+
 export type PermissionSavedInfo = {
   id: string
   projectID: string
   action: string
   resource: string
+  effect?: PermissionV2Effect
 }
 
 export type FileSystemEntry = {
@@ -5676,6 +5986,41 @@ export type TodoUpdated = {
   data: {
     sessionID: string
     todos: Array<Todo>
+  }
+}
+
+export type ScheduledTaskUpdated = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "scheduled.task.updated"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    task: ScheduledTaskInfo
+    run?: ScheduledTaskRun
+  }
+}
+
+export type RelayCatalogUpdated = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "relay.catalog.updated"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    [key: string]: unknown
   }
 }
 
@@ -6851,6 +7196,23 @@ export type EventTodoUpdated = {
   }
 }
 
+export type EventScheduledTaskUpdated = {
+  id: string
+  type: "scheduled.task.updated"
+  properties: {
+    task: ScheduledTaskInfo
+    run?: ScheduledTaskRun
+  }
+}
+
+export type EventRelayCatalogUpdated = {
+  id: string
+  type: "relay.catalog.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventLspUpdated = {
   id: string
   type: "lsp.updated"
@@ -7249,6 +7611,13 @@ export type GlobalHealthResponses = {
   200: {
     healthy: true
     version: string
+    gates?: {
+      relayCoreUi: boolean
+      relayLayout: boolean
+      relaySkills: boolean
+      relayMcp: boolean
+      scheduledTasks: boolean
+    }
   }
 }
 
@@ -7313,9 +7682,21 @@ export type GlobalConfigUpdateData = {
 
 export type GlobalConfigUpdateErrors = {
   /**
-   * BadRequest | InvalidRequestError
+   * BadRequest | ProjectConfigInvalidError | InvalidRequestError
    */
-  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  400: EffectHttpApiErrorBadRequest | ProjectConfigInvalidError | InvalidRequestError
+  /**
+   * ProjectConfigForbiddenError
+   */
+  403: ProjectConfigForbiddenError
+  /**
+   * ProjectConfigConflictError
+   */
+  409: ProjectConfigConflictError
+  /**
+   * ProjectConfigUnavailableError
+   */
+  503: ProjectConfigUnavailableError
 }
 
 export type GlobalConfigUpdateError = GlobalConfigUpdateErrors[keyof GlobalConfigUpdateErrors]
@@ -7448,9 +7829,21 @@ export type ConfigUpdateData = {
 
 export type ConfigUpdateErrors = {
   /**
-   * BadRequest | InvalidRequestError
+   * BadRequest | ProjectConfigInvalidError | InvalidRequestError
    */
-  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  400: EffectHttpApiErrorBadRequest | ProjectConfigInvalidError | InvalidRequestError
+  /**
+   * ProjectConfigForbiddenError
+   */
+  403: ProjectConfigForbiddenError
+  /**
+   * ProjectConfigConflictError
+   */
+  409: ProjectConfigConflictError
+  /**
+   * ProjectConfigUnavailableError
+   */
+  503: ProjectConfigUnavailableError
 }
 
 export type ConfigUpdateError = ConfigUpdateErrors[keyof ConfigUpdateErrors]
@@ -7463,6 +7856,116 @@ export type ConfigUpdateResponses = {
 }
 
 export type ConfigUpdateResponse = ConfigUpdateResponses[keyof ConfigUpdateResponses]
+
+export type ConfigMcpSourceData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/mcp/{name}"
+}
+
+export type ConfigMcpSourceErrors = {
+  /**
+   * McpConfigInvalidError | InvalidRequestError
+   */
+  400: McpConfigInvalidError | InvalidRequestError
+  /**
+   * McpConfigForbiddenError
+   */
+  403: McpConfigForbiddenError
+  /**
+   * McpConfigNotFoundError
+   */
+  404: McpConfigNotFoundError
+  /**
+   * McpConfigConflictError
+   */
+  409: McpConfigConflictError
+  /**
+   * McpConfigUnavailableError
+   */
+  503: McpConfigUnavailableError
+}
+
+export type ConfigMcpSourceError = ConfigMcpSourceErrors[keyof ConfigMcpSourceErrors]
+
+export type ConfigMcpSourceResponses = {
+  /**
+   * Success
+   */
+  200: {
+    source: string
+    version: string
+    writable: boolean
+    config:
+      | McpLocalConfig
+      | McpRemoteConfig
+      | {
+          enabled: boolean
+        }
+  }
+}
+
+export type ConfigMcpSourceResponse = ConfigMcpSourceResponses[keyof ConfigMcpSourceResponses]
+
+export type ConfigUpdateMcpData = {
+  body?: {
+    source: string
+    version: string
+    patch: {
+      type?: "local" | "remote"
+      command?: Array<string>
+      url?: string
+    }
+  }
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/mcp/{name}"
+}
+
+export type ConfigUpdateMcpErrors = {
+  /**
+   * McpConfigInvalidError | InvalidRequestError
+   */
+  400: McpConfigInvalidError | InvalidRequestError
+  /**
+   * McpConfigForbiddenError
+   */
+  403: McpConfigForbiddenError
+  /**
+   * McpConfigNotFoundError
+   */
+  404: McpConfigNotFoundError
+  /**
+   * McpConfigConflictError
+   */
+  409: McpConfigConflictError
+  /**
+   * McpConfigUnavailableError
+   */
+  503: McpConfigUnavailableError
+}
+
+export type ConfigUpdateMcpError = ConfigUpdateMcpErrors[keyof ConfigUpdateMcpErrors]
+
+export type ConfigUpdateMcpResponses = {
+  /**
+   * Success
+   */
+  200: boolean
+}
+
+export type ConfigUpdateMcpResponse = ConfigUpdateMcpResponses[keyof ConfigUpdateMcpResponses]
 
 export type ConfigProvidersData = {
   body?: never
@@ -11256,6 +11759,13 @@ export type V2HealthGetResponses = {
    */
   200: {
     healthy: true
+    gates?: {
+      relayCoreUi: boolean
+      relayLayout: boolean
+      relaySkills: boolean
+      relayMcp: boolean
+      scheduledTasks: boolean
+    }
   }
 }
 
@@ -11442,6 +11952,41 @@ export type V2SessionActiveResponses = {
 
 export type V2SessionActiveResponse = V2SessionActiveResponses[keyof V2SessionActiveResponses]
 
+export type V2SessionRemoveData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}"
+}
+
+export type V2SessionRemoveErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+}
+
+export type V2SessionRemoveError = V2SessionRemoveErrors[keyof V2SessionRemoveErrors]
+
+export type V2SessionRemoveResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SessionRemoveResponse = V2SessionRemoveResponses[keyof V2SessionRemoveResponses]
+
 export type V2SessionGetData = {
   body?: never
   path: {
@@ -11478,6 +12023,45 @@ export type V2SessionGetResponses = {
 }
 
 export type V2SessionGetResponse = V2SessionGetResponses[keyof V2SessionGetResponses]
+
+export type V2SessionUpdateData = {
+  body: {
+    title: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}"
+}
+
+export type V2SessionUpdateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+}
+
+export type V2SessionUpdateError = V2SessionUpdateErrors[keyof V2SessionUpdateErrors]
+
+export type V2SessionUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: SessionV2Info
+  }
+}
+
+export type V2SessionUpdateResponse = V2SessionUpdateResponses[keyof V2SessionUpdateResponses]
 
 export type V2SessionSwitchAgentData = {
   body: {
@@ -11795,6 +12379,43 @@ export type V2SessionRevertCommitResponses = {
 
 export type V2SessionRevertCommitResponse = V2SessionRevertCommitResponses[keyof V2SessionRevertCommitResponses]
 
+export type V2SessionTodoData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/todo"
+}
+
+export type V2SessionTodoErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+}
+
+export type V2SessionTodoError = V2SessionTodoErrors[keyof V2SessionTodoErrors]
+
+export type V2SessionTodoResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: Array<Todo>
+  }
+}
+
+export type V2SessionTodoResponse = V2SessionTodoResponses[keyof V2SessionTodoResponses]
+
 export type V2SessionContextData = {
   body?: never
   path: {
@@ -11949,6 +12570,45 @@ export type V2SessionInterruptResponses = {
 }
 
 export type V2SessionInterruptResponse = V2SessionInterruptResponses[keyof V2SessionInterruptResponses]
+
+export type V2SessionResumeData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/resume"
+}
+
+export type V2SessionResumeErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2SessionResumeError = V2SessionResumeErrors[keyof V2SessionResumeErrors]
+
+export type V2SessionResumeResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SessionResumeResponse = V2SessionResumeResponses[keyof V2SessionResumeResponses]
 
 export type V2SessionMessageData = {
   body?: never
@@ -12515,6 +13175,706 @@ export type V2CredentialUpdateResponses = {
 
 export type V2CredentialUpdateResponse = V2CredentialUpdateResponses[keyof V2CredentialUpdateResponses]
 
+export type V2RelayAuthGetData = {
+  body?: never
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/relay/auth"
+}
+
+export type V2RelayAuthGetErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2RelayAuthGetError = V2RelayAuthGetErrors[keyof V2RelayAuthGetErrors]
+
+export type V2RelayAuthGetResponses = {
+  /**
+   * Relay.AuthState
+   */
+  200: RelayAuthState
+}
+
+export type V2RelayAuthGetResponse = V2RelayAuthGetResponses[keyof V2RelayAuthGetResponses]
+
+export type V2RelayAuthVendorDeleteData = {
+  body: {
+    revision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    operationId?: string
+    expectedEntityId?: string
+  }
+  path: {
+    vendorId: string
+  }
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/relay/auth/vendors/{vendorId}"
+}
+
+export type V2RelayAuthVendorDeleteErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2RelayAuthVendorDeleteError = V2RelayAuthVendorDeleteErrors[keyof V2RelayAuthVendorDeleteErrors]
+
+export type V2RelayAuthVendorDeleteResponses = {
+  /**
+   * Relay.AuthState
+   */
+  200: RelayAuthState
+}
+
+export type V2RelayAuthVendorDeleteResponse = V2RelayAuthVendorDeleteResponses[keyof V2RelayAuthVendorDeleteResponses]
+
+export type V2RelayAuthVendorData = {
+  body: {
+    createOnly?: boolean
+    name?: string
+    baseURL?: RelayVendorBaseUrl
+    key?: string
+    revision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    operationId?: string
+    expectedEntityId?: string
+  }
+  path: {
+    vendorId: string
+  }
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/relay/auth/vendors/{vendorId}"
+}
+
+export type V2RelayAuthVendorErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2RelayAuthVendorError = V2RelayAuthVendorErrors[keyof V2RelayAuthVendorErrors]
+
+export type V2RelayAuthVendorResponses = {
+  /**
+   * Relay.AuthState
+   */
+  200: RelayAuthState
+}
+
+export type V2RelayAuthVendorResponse = V2RelayAuthVendorResponses[keyof V2RelayAuthVendorResponses]
+
+export type V2RelayAuthVendorKeyClearData = {
+  body: {
+    revision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    operationId?: string
+    expectedEntityId?: string
+  }
+  path: {
+    vendorId: string
+  }
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/relay/auth/vendors/{vendorId}/key"
+}
+
+export type V2RelayAuthVendorKeyClearErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2RelayAuthVendorKeyClearError = V2RelayAuthVendorKeyClearErrors[keyof V2RelayAuthVendorKeyClearErrors]
+
+export type V2RelayAuthVendorKeyClearResponses = {
+  /**
+   * Relay.AuthState
+   */
+  200: RelayAuthState
+}
+
+export type V2RelayAuthVendorKeyClearResponse =
+  V2RelayAuthVendorKeyClearResponses[keyof V2RelayAuthVendorKeyClearResponses]
+
+export type V2RelayModelsSyncData = {
+  body: {
+    retryNotice?: boolean
+  }
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/relay/models/sync"
+}
+
+export type V2RelayModelsSyncErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2RelayModelsSyncError = V2RelayModelsSyncErrors[keyof V2RelayModelsSyncErrors]
+
+export type V2RelayModelsSyncResponses = {
+  /**
+   * RelaySync.Snapshot
+   */
+  200: RelaySyncSnapshot
+}
+
+export type V2RelayModelsSyncResponse = V2RelayModelsSyncResponses[keyof V2RelayModelsSyncResponses]
+
+export type V2RelayModelsProbeData = {
+  body: {
+    vendorId: string
+    expectedEntityId?: string
+    expectedVendorRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/relay/models/probe"
+}
+
+export type V2RelayModelsProbeErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2RelayModelsProbeError = V2RelayModelsProbeErrors[keyof V2RelayModelsProbeErrors]
+
+export type V2RelayModelsProbeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    count: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type V2RelayModelsProbeResponse = V2RelayModelsProbeResponses[keyof V2RelayModelsProbeResponses]
+
+export type V2RelayModelsRefreshData = {
+  body: {
+    vendorId: string
+    expectedEntityId?: string
+    expectedVendorRevision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/relay/models/refresh"
+}
+
+export type V2RelayModelsRefreshErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2RelayModelsRefreshError = V2RelayModelsRefreshErrors[keyof V2RelayModelsRefreshErrors]
+
+export type V2RelayModelsRefreshResponses = {
+  /**
+   * Success
+   */
+  200: Array<RelayModelCandidate>
+}
+
+export type V2RelayModelsRefreshResponse = V2RelayModelsRefreshResponses[keyof V2RelayModelsRefreshResponses]
+
+export type V2RelayModelsManagedData = {
+  body?: never
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/relay/models"
+}
+
+export type V2RelayModelsManagedErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2RelayModelsManagedError = V2RelayModelsManagedErrors[keyof V2RelayModelsManagedErrors]
+
+export type V2RelayModelsManagedResponses = {
+  /**
+   * Success
+   */
+  200: Array<RelayModelManaged>
+}
+
+export type V2RelayModelsManagedResponse = V2RelayModelsManagedResponses[keyof V2RelayModelsManagedResponses]
+
+export type V2RelayModelsCandidatesData = {
+  body?: never
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+    vendorId?: string
+  }
+  url: "/api/relay/models/candidates"
+}
+
+export type V2RelayModelsCandidatesErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2RelayModelsCandidatesError = V2RelayModelsCandidatesErrors[keyof V2RelayModelsCandidatesErrors]
+
+export type V2RelayModelsCandidatesResponses = {
+  /**
+   * Success
+   */
+  200: Array<RelayModelCandidate>
+}
+
+export type V2RelayModelsCandidatesResponse = V2RelayModelsCandidatesResponses[keyof V2RelayModelsCandidatesResponses]
+
+export type V2RelayModelsVisibilityData = {
+  body: {
+    vendorId: string
+    modelId: string
+    visible: boolean
+    expectedEntityId?: string
+  }
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/relay/models/visibility"
+}
+
+export type V2RelayModelsVisibilityErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2RelayModelsVisibilityError = V2RelayModelsVisibilityErrors[keyof V2RelayModelsVisibilityErrors]
+
+export type V2RelayModelsVisibilityResponses = {
+  /**
+   * Success
+   */
+  200: Array<RelayModelManaged>
+}
+
+export type V2RelayModelsVisibilityResponse = V2RelayModelsVisibilityResponses[keyof V2RelayModelsVisibilityResponses]
+
+export type V2ScheduledTaskListData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/scheduled-task"
+}
+
+export type V2ScheduledTaskListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2ScheduledTaskListError = V2ScheduledTaskListErrors[keyof V2ScheduledTaskListErrors]
+
+export type V2ScheduledTaskListResponses = {
+  /**
+   * Success
+   */
+  200: Array<ScheduledTaskInfo>
+}
+
+export type V2ScheduledTaskListResponse = V2ScheduledTaskListResponses[keyof V2ScheduledTaskListResponses]
+
+export type V2ScheduledTaskCreateData = {
+  body: ScheduledTaskCreatePayload
+  path?: never
+  query?: never
+  url: "/api/scheduled-task"
+}
+
+export type V2ScheduledTaskCreateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2ScheduledTaskCreateError = V2ScheduledTaskCreateErrors[keyof V2ScheduledTaskCreateErrors]
+
+export type V2ScheduledTaskCreateResponses = {
+  /**
+   * ScheduledTask.Info
+   */
+  200: ScheduledTaskInfo
+}
+
+export type V2ScheduledTaskCreateResponse = V2ScheduledTaskCreateResponses[keyof V2ScheduledTaskCreateResponses]
+
+export type V2ScheduledTaskRunsData = {
+  body?: never
+  path: {
+    taskID: string
+  }
+  query?: never
+  url: "/api/scheduled-task/{taskID}/run"
+}
+
+export type V2ScheduledTaskRunsErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2ScheduledTaskRunsError = V2ScheduledTaskRunsErrors[keyof V2ScheduledTaskRunsErrors]
+
+export type V2ScheduledTaskRunsResponses = {
+  /**
+   * Success
+   */
+  200: Array<ScheduledTaskRun>
+}
+
+export type V2ScheduledTaskRunsResponse = V2ScheduledTaskRunsResponses[keyof V2ScheduledTaskRunsResponses]
+
+export type V2ScheduledTaskRunData = {
+  body?: never
+  path: {
+    taskID: string
+  }
+  query?: never
+  url: "/api/scheduled-task/{taskID}/run"
+}
+
+export type V2ScheduledTaskRunErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ScheduledTaskNotFoundError
+   */
+  404: ScheduledTaskNotFoundError
+  /**
+   * ScheduledTaskDisabledError | ScheduledTaskConflictError
+   */
+  409: ScheduledTaskDisabledError | ScheduledTaskConflictError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2ScheduledTaskRunError = V2ScheduledTaskRunErrors[keyof V2ScheduledTaskRunErrors]
+
+export type V2ScheduledTaskRunResponses = {
+  /**
+   * ScheduledTask.Run
+   */
+  200: ScheduledTaskRun
+}
+
+export type V2ScheduledTaskRunResponse = V2ScheduledTaskRunResponses[keyof V2ScheduledTaskRunResponses]
+
+export type V2ScheduledTaskEnableData = {
+  body: {
+    enabled: boolean
+  }
+  path: {
+    taskID: string
+  }
+  query?: never
+  url: "/api/scheduled-task/{taskID}/enable"
+}
+
+export type V2ScheduledTaskEnableErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ScheduledTaskNotFoundError
+   */
+  404: ScheduledTaskNotFoundError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2ScheduledTaskEnableError = V2ScheduledTaskEnableErrors[keyof V2ScheduledTaskEnableErrors]
+
+export type V2ScheduledTaskEnableResponses = {
+  /**
+   * ScheduledTask.Info
+   */
+  200: ScheduledTaskInfo
+}
+
+export type V2ScheduledTaskEnableResponse = V2ScheduledTaskEnableResponses[keyof V2ScheduledTaskEnableResponses]
+
+export type ServerImageGenerationImageGenerationGetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/settings/image-generation"
+}
+
+export type ServerImageGenerationImageGenerationGetErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type ServerImageGenerationImageGenerationGetError =
+  ServerImageGenerationImageGenerationGetErrors[keyof ServerImageGenerationImageGenerationGetErrors]
+
+export type ServerImageGenerationImageGenerationGetResponses = {
+  /**
+   * Independent image generation model. The selected API is the provider protocol and never changes the conversation model or enables paid probing/fallback.
+   */
+  200: ImageGenerationConfig
+}
+
+export type ServerImageGenerationImageGenerationGetResponse =
+  ServerImageGenerationImageGenerationGetResponses[keyof ServerImageGenerationImageGenerationGetResponses]
+
+export type ServerImageGenerationImageGenerationUpdateData = {
+  body: ImageGenerationConfig
+  path?: never
+  query?: never
+  url: "/api/settings/image-generation"
+}
+
+export type ServerImageGenerationImageGenerationUpdateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type ServerImageGenerationImageGenerationUpdateError =
+  ServerImageGenerationImageGenerationUpdateErrors[keyof ServerImageGenerationImageGenerationUpdateErrors]
+
+export type ServerImageGenerationImageGenerationUpdateResponses = {
+  /**
+   * Independent image generation model. The selected API is the provider protocol and never changes the conversation model or enables paid probing/fallback.
+   */
+  200: ImageGenerationConfig
+}
+
+export type ServerImageGenerationImageGenerationUpdateResponse =
+  ServerImageGenerationImageGenerationUpdateResponses[keyof ServerImageGenerationImageGenerationUpdateResponses]
+
 export type V2PermissionRequestListData = {
   body?: never
   path?: never
@@ -12584,6 +13944,40 @@ export type V2PermissionSavedListResponses = {
 }
 
 export type V2PermissionSavedListResponse = V2PermissionSavedListResponses[keyof V2PermissionSavedListResponses]
+
+export type V2PermissionSavedCreateData = {
+  body: {
+    projectID: string
+    action: string
+    resource: string
+    effect?: PermissionV2Effect
+  }
+  path?: never
+  query?: never
+  url: "/api/permission/saved"
+}
+
+export type V2PermissionSavedCreateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2PermissionSavedCreateError = V2PermissionSavedCreateErrors[keyof V2PermissionSavedCreateErrors]
+
+export type V2PermissionSavedCreateResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2PermissionSavedCreateResponse = V2PermissionSavedCreateResponses[keyof V2PermissionSavedCreateResponses]
 
 export type V2PermissionSavedRemoveData = {
   body?: never
@@ -13587,6 +14981,108 @@ export type V2ProjectCopyRefreshResponses = {
 }
 
 export type V2ProjectCopyRefreshResponse = V2ProjectCopyRefreshResponses[keyof V2ProjectCopyRefreshResponses]
+
+export type V2OrchestratorCreateData = {
+  body?: OrchestratorCreatePayload
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/experimental/orchestrator"
+}
+
+export type V2OrchestratorCreateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+}
+
+export type V2OrchestratorCreateError = V2OrchestratorCreateErrors[keyof V2OrchestratorCreateErrors]
+
+export type V2OrchestratorCreateResponses = {
+  /**
+   * OrchestratorTask
+   */
+  200: OrchestratorTask
+}
+
+export type V2OrchestratorCreateResponse = V2OrchestratorCreateResponses[keyof V2OrchestratorCreateResponses]
+
+export type V2OrchestratorGetData = {
+  body?: never
+  path: {
+    taskID: string
+  }
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/experimental/orchestrator/{taskID}"
+}
+
+export type V2OrchestratorGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * OrchestratorTaskNotFoundError
+   */
+  404: OrchestratorTaskNotFoundError
+}
+
+export type V2OrchestratorGetError = V2OrchestratorGetErrors[keyof V2OrchestratorGetErrors]
+
+export type V2OrchestratorGetResponses = {
+  /**
+   * OrchestratorTask
+   */
+  200: OrchestratorTask
+}
+
+export type V2OrchestratorGetResponse = V2OrchestratorGetResponses[keyof V2OrchestratorGetResponses]
+
+export type V2OrchestratorControlData = {
+  body?: OrchestratorControlPayload
+  path: {
+    taskID: string
+  }
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/experimental/orchestrator/{taskID}/control"
+}
+
+export type V2OrchestratorControlErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * OrchestratorTaskNotFoundError
+   */
+  404: OrchestratorTaskNotFoundError
+}
+
+export type V2OrchestratorControlError = V2OrchestratorControlErrors[keyof V2OrchestratorControlErrors]
+
+export type V2OrchestratorControlResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2OrchestratorControlResponse = V2OrchestratorControlResponses[keyof V2OrchestratorControlResponses]
 
 export type PtyConnectData = {
   body?: never

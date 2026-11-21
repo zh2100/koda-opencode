@@ -1,4 +1,6 @@
 import { describe, expect } from "bun:test"
+import { Npm } from "@opencode-ai/core/npm"
+import { NpmTest } from "../fake/npm"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Effect, Layer } from "effect"
 import { Skill } from "../../src/skill"
@@ -16,17 +18,25 @@ import fs from "fs/promises"
 
 const node = LayerNode.compile(CrossSpawnSpawner.node)
 
-const it = testEffect(Layer.mergeAll(LayerNode.compile(Skill.node), node, testInstanceStoreLayer))
+const it = testEffect(
+  Layer.mergeAll(LayerNode.compile(Skill.node, [[Npm.node, NpmTest.noop]]), node, testInstanceStoreLayer),
+)
 const itWithoutClaudeCodeSkills = testEffect(
   Layer.mergeAll(
-    LayerNode.compile(Skill.node, [[RuntimeFlags.node, RuntimeFlags.layer({ disableClaudeCodeSkills: true })]]),
+    LayerNode.compile(Skill.node, [
+      [Npm.node, NpmTest.noop],
+      [RuntimeFlags.node, RuntimeFlags.layer({ disableClaudeCodeSkills: true })],
+    ]),
     node,
     testInstanceStoreLayer,
   ),
 )
 const itWithoutExternalSkills = testEffect(
   Layer.mergeAll(
-    LayerNode.compile(Skill.node, [[RuntimeFlags.node, RuntimeFlags.layer({ disableExternalSkills: true })]]),
+    LayerNode.compile(Skill.node, [
+      [Npm.node, NpmTest.noop],
+      [RuntimeFlags.node, RuntimeFlags.layer({ disableExternalSkills: true })],
+    ]),
     node,
     testInstanceStoreLayer,
   ),

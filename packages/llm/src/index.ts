@@ -31,3 +31,5 @@ export type {
   ModelFactory as ProviderModelFactory,
   ModelOptions as ProviderModelOptions,
 } from "./provider"
+
+export { ToolErrorProjection } from "./tool-error-projection"

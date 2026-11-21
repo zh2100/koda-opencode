@@ -78,6 +78,95 @@ function errors(list: PromiseSettledResult<unknown>[]) {
 }
 
 const providerRev = new Map<string, number>()
+const promptScopes = new Map<string, { issued: number; applied: number; generation: number }>()
+const promptVersions = new Map<string, number>()
+const promptGenerations = new Map<string, number>()
+let promptEpoch = 0
+
+const promptKey = (scope: string, kind: "permission" | "question", directory: string) => `${scope}\0${kind}:${directory}`
+
+export function notePrompt(input: {
+  scope: string
+  kind: "permission" | "question"
+  directory: string
+  id: string
+}) {
+  const pending = input.directory ? promptVersions.get(versionKey(input.scope, input.kind, "", input.id)) : undefined
+  promptVersions.set(
+    versionKey(input.scope, input.kind, input.directory, input.id),
+    Math.max(pending ?? 0, ++promptEpoch),
+  )
+}
+
+export function createPromptVersions(scope: string) {
+  return {
+    note(kind: "permission" | "question", directory: string, id: string) {
+      notePrompt({ scope, kind, directory, id })
+    },
+  }
+}
+
+const versionKey = (scope: string, kind: "permission" | "question", directory: string, id: string) =>
+  `${scope}\0${kind}\0${directory}\0${id}`
+
+function promptContext(scope: string, kind: "permission" | "question", directory: string) {
+  const key = promptKey(scope, kind, directory)
+  const generation = promptGenerations.get(scope) ?? 0
+  const current = promptScopes.get(key)
+  if (current && current.generation === generation) return current
+  const next = { issued: 0, applied: 0, generation }
+  promptScopes.set(key, next)
+  return next
+}
+
+function promptRequest(scope: string, kind: "permission" | "question", directory: string) {
+  const context = promptContext(scope, kind, directory)
+  const issued = ++context.issued
+  // Occupy this generation immediately. A later failure must not reopen the
+  // write window for an older snapshot that has not merged yet.
+  context.applied = Math.max(context.applied, issued)
+  return { issued, started: promptEpoch, generation: context.generation }
+}
+
+function claimPromptRequest(
+  scope: string,
+  kind: "permission" | "question",
+  directory: string,
+  request: { issued: number; generation: number },
+) {
+  const context = promptContext(scope, kind, directory)
+  if (context.generation !== request.generation || request.issued < context.applied) return false
+  context.applied = request.issued
+  return true
+}
+
+function promptStale(
+  scope: string,
+  kind: "permission" | "question",
+  directory: string,
+  request: { issued: number; generation: number },
+) {
+  const context = promptScopes.get(promptKey(scope, kind, directory))
+  return !context || context.generation !== request.generation || request.issued !== context.applied
+}
+
+function promptChanged(
+  scope: string,
+  kind: "permission" | "question",
+  directory: string,
+  id: string,
+  started: number,
+) {
+  const current = Math.max(
+    promptVersions.get(versionKey(scope, kind, directory, id)) ?? 0,
+    promptVersions.get(versionKey(scope, kind, "", id)) ?? 0,
+  )
+  return current > started
+}
+
+export function disposePromptScope(scope: string) {
+  promptGenerations.set(scope, (promptGenerations.get(scope) ?? 0) + 1)
+}
 
 export function clearProviderRev(scope: ServerScope, directory: string) {
   providerRev.delete(ScopedKey.from(scope, directory))
@@ -107,8 +196,7 @@ export const loadGlobalConfigQuery = (scope: ServerScope, sdk: OpencodeClient, p
   queryOptions({
     queryKey: [scope, "config"],
     queryFn: async () => {
-      if ((await protocol) !== "v1") return {}
-      return retry(() => sdk.global.config.get().then((x) => x.data!))
+      return retry(() => sdk.global.config.get().then((x) => x.data ?? {}))
     },
   })
 
@@ -356,16 +444,21 @@ export async function bootstrapDirectory(input: {
   }
   if (loading) input.setStore("status", "partial")
 
+  const permissionRequest = promptRequest(String(input.scope), "permission", input.directory)
+  const questionRequest = promptRequest(String(input.scope), "question", input.directory)
   const revKey = ScopedKey.from(input.scope, input.directory)
   const rev = (providerRev.get(revKey) ?? 0) + 1
   providerRev.set(revKey, rev)
-  ;(async () => {
+  return (async () => {
     const slow = [
       () => Promise.resolve(input.loadSessions(input.directory)),
       () =>
         input.queryClient
-          .ensureQueryData(loadAgentsQuery(input.scope, input.directory, input.api.agents, input.sdk, input.protocol))
-          .then((data) => input.setStore("agent", data))
+          .fetchQuery(loadAgentsQuery(input.scope, input.directory, input.api.agents, input.sdk, input.protocol))
+          .then((data) => {
+            if (providerRev.get(revKey) !== rev) return
+            input.setStore("agent", data)
+          })
           .catch(() => undefined),
       () =>
         retry(async () => {
@@ -425,82 +518,17 @@ export async function bootstrapDirectory(input: {
       input.mcp &&
         (() =>
           loadCommands(input.directory, input.api.commands, input.sdk, input.protocol)
-            .then((commands) => input.setStore("command", commands))
+            .then((commands) => {
+              if (providerRev.get(revKey) !== rev) return
+              input.setStore("command", commands)
+            })
             .catch(() => undefined)),
       () =>
         input.queryClient.fetchQuery(
           loadReferencesQuery(input.scope, input.directory, input.api.references, input.sdk, input.protocol),
         ),
-      () =>
-        retry(() =>
-          (async () => {
-            if ((await input.protocol) === "v1") return (await input.sdk.permission.list()).data ?? []
-              return input.api.permissions.listRequests({ location: { directory: input.directory } })
-              .then((result) => result.data.map((item) => normalizePermissionRequest({ ...item, resources: [...item.resources], save: item.save ? [...item.save] : undefined })))
-          })().then((permissions) => {
-            const ids = permissions.map((permission) => permission.sessionID)
-            const grouped = groupBySession(
-              permissions.filter((permission) => !!permission.id && !!permission.sessionID),
-            )
-            const warm = input.session
-              ? Promise.all(ids.map((sessionID) => input.session!.resolve(sessionID))).then(() => undefined)
-              : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.sessions })
-            return warm.then(() =>
-              batch(() => {
-                const current = input.session?.data.permission ?? input.store.permission
-                for (const sessionID of Object.keys(current)) {
-                  if (grouped[sessionID]) continue
-                  if (input.session?.get(sessionID)?.directory !== input.directory) continue
-                  if (input.session) input.session.set("permission", sessionID, [])
-                  if (!input.session) input.setStore("permission", sessionID, [])
-                }
-                for (const [sessionID, permissions] of Object.entries(grouped)) {
-                  const value = reconcile(
-                    permissions.filter((p) => !!p?.id).sort((a, b) => cmp(a.id, b.id)),
-                    { key: "id" },
-                  )
-                  if (input.session) input.session.set("permission", sessionID, value)
-                  if (!input.session) input.setStore("permission", sessionID, value)
-                }
-              }),
-            )
-          }),
-        ).catch(() => undefined),
-      () =>
-        retry(() =>
-          (async () => {
-            if ((await input.protocol) === "v1") return (await input.sdk.question.list()).data ?? []
-            return input.api.questions.listRequests({ location: { directory: input.directory } })
-              .then((result) => result.data)
-          })().then((questions) => {
-            const ids = questions.map((question) => question.sessionID)
-            const grouped = groupBySession(
-              questions.filter((question) => !!question.id && !!question.sessionID) as QuestionRequest[],
-            )
-            const warm = input.session
-              ? Promise.all(ids.map((sessionID) => input.session!.resolve(sessionID))).then(() => undefined)
-              : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.sessions })
-            return warm.then(() =>
-              batch(() => {
-                const current = input.session?.data.question ?? input.store.question
-                for (const sessionID of Object.keys(current)) {
-                  if (grouped[sessionID]) continue
-                  if (input.session?.get(sessionID)?.directory !== input.directory) continue
-                  if (input.session) input.session.set("question", sessionID, [])
-                  if (!input.session) input.setStore("question", sessionID, [])
-                }
-                for (const [sessionID, questions] of Object.entries(grouped)) {
-                  const value = reconcile(
-                    questions.filter((q) => !!q?.id).sort((a, b) => cmp(a.id, b.id)),
-                    { key: "id" },
-                  )
-                  if (input.session) input.session.set("question", sessionID, value)
-                  if (!input.session) input.setStore("question", sessionID, value)
-                }
-              }),
-            )
-          }),
-        ).catch(() => undefined),
+      () => loadPromptSnapshot(input, "permission", permissionRequest),
+      () => loadPromptSnapshot(input, "question", questionRequest),
       () => Promise.resolve(input.loadSessions(input.directory)),
       input.mcp &&
         (() =>
@@ -540,6 +568,86 @@ export async function bootstrapDirectory(input: {
       }
     }
 
+    if (providerRev.get(revKey) !== rev) return
     if (loading) input.setStore("status", "complete")
   })()
+}
+
+function loadPromptSnapshot(
+  input: Parameters<typeof bootstrapDirectory>[0],
+  kind: "permission" | "question",
+  request: { issued: number; started: number; generation: number },
+) {
+  const scope = String(input.scope)
+  const started = request.started
+  return retry(() =>
+    listPrompts(input, kind).then((items) => {
+      const ids = items.map((item) => item.sessionID)
+      const grouped = groupBySession(items.filter((item) => !!item.id && !!item.sessionID))
+      const warm = input.session
+        ? Promise.all(ids.map((sessionID) => input.session!.resolve(sessionID))).then(() => undefined)
+        : warmSessions({ ids, store: input.store, setStore: input.setStore, api: input.api.sessions })
+      return warm.then(() => {
+        if (!claimPromptRequest(scope, kind, input.directory, request)) return
+        if (promptStale(scope, kind, input.directory, request)) return
+        batch(() => {
+          if (promptStale(scope, kind, input.directory, request)) return
+          const current =
+            kind === "permission"
+              ? (input.session?.data.permission ?? input.store.permission)
+              : (input.session?.data.question ?? input.store.question)
+          for (const sessionID of Object.keys(current)) {
+            if (grouped[sessionID]) continue
+            if (promptChanged(scope, kind, input.directory, sessionID, started)) continue
+            const known = input.session?.get(sessionID)
+            if (known && known.directory !== input.directory) continue
+            writePrompt(input, kind, sessionID, [])
+          }
+          for (const [sessionID, prompts] of Object.entries(grouped)) {
+            if (promptChanged(scope, kind, input.directory, sessionID, started)) continue
+            const value = prompts.filter((item) => !!item?.id).sort((a, b) => cmp(a.id, b.id))
+            writePrompt(input, kind, sessionID, reconcile(value, { key: "id" }) as unknown as PermissionRequest[] | QuestionRequest[])
+          }
+        })
+      })
+    }),
+  ).catch(() => undefined)
+}
+
+function listPrompts(input: Parameters<typeof bootstrapDirectory>[0], kind: "permission" | "question") {
+  if (kind === "permission") {
+    return (async () => {
+      if ((await input.protocol) === "v1") return (await input.sdk.permission.list()).data ?? []
+      return input.api.permissions.listRequests({ location: { directory: input.directory } }).then((result) =>
+        result.data.map((item) =>
+          normalizePermissionRequest({
+            ...item,
+            resources: [...item.resources],
+            save: item.save ? [...item.save] : undefined,
+          }),
+        ),
+      )
+    })()
+  }
+  return (async () => {
+    if ((await input.protocol) === "v1") return (await input.sdk.question.list()).data ?? []
+    return input.api.questions.listRequests({ location: { directory: input.directory } }).then((result) => result.data)
+  })()
+}
+
+function writePrompt(
+  input: Parameters<typeof bootstrapDirectory>[0],
+  kind: "permission" | "question",
+  sessionID: string,
+  value: PermissionRequest[] | QuestionRequest[],
+) {
+  if (kind === "permission") {
+    const permissions = value as PermissionRequest[]
+    if (input.session) input.session.set("permission", sessionID, permissions)
+    if (!input.session) input.setStore("permission", sessionID, permissions)
+    return
+  }
+  const questions = value as QuestionRequest[]
+  if (input.session) input.session.set("question", sessionID, questions)
+  if (!input.session) input.setStore("question", sessionID, questions)
 }

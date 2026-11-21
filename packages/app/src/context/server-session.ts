@@ -19,7 +19,9 @@ import { sessionNotFoundError } from "@/utils/server-errors"
 import { rootSession } from "@/utils/session-route"
 import { normalizeSessionInfo } from "@/utils/session"
 import { compareMessages, messageKey, normalizeSessionMessages } from "@/utils/session-message"
+import { normalizePromptAgents, normalizePromptFiles } from "@/utils/session-prompt"
 import { dropSessionCaches, pickSessionCacheEvictions, SESSION_CACHE_LIMIT } from "./global-sync/session-cache"
+import { createPromptVersions } from "./global-sync/bootstrap"
 import { adaptV2SessionEvent, createV2SessionReducer, type V2SessionReduction } from "./server-session-v2-reducer"
 import type { ServerApi } from "@/utils/server"
 
@@ -53,13 +55,8 @@ function normalizeContextMessages(source: readonly ContextMessage[]): SessionMes
         type: "user",
         text: message.text,
         time: message.time,
-        files: message.files?.map((file) => ({
-          data: file.uri.startsWith("data:") ? (file.uri.split(",", 2)[1] ?? "") : file.uri,
-          mime: file.mime,
-          name: file.name ?? "",
-           source: file.source ? { type: "uri" as const, uri: file.source.text } : undefined,
-        })),
-         agents: message.agents?.map((agent) => ({ name: agent.name, mention: agent.source })),
+        files: normalizePromptFiles(message.files),
+        agents: normalizePromptAgents(message.agents),
       }]
     if (message.type === "assistant") {
       const content = message.content.flatMap((part): SessionMessageAssistant["content"] => {
@@ -238,7 +235,7 @@ function reconcileFetched<T extends { id: string }>(
   return options.compare ? items.sort(options.compare) : items
 }
 
-type ServerSessionOptions = { retry?: typeof retry; protocol?: Promise<"v1" | "v2"> }
+type ServerSessionOptions = { retry?: typeof retry; protocol?: Promise<"v1" | "v2">; scope?: string }
 
 export function createServerSession(
   client: OpencodeClient,
@@ -260,12 +257,30 @@ export function createServerSession(
     part: {} as Record<string, Part[]>,
     part_text_accum_delta: {} as Record<string, string>,
     session_working(id: string) {
-      return (this.session_status[id]?.type ?? "idle") !== "idle"
+      const children = new Map<string, string[]>()
+      for (const session of Object.values(this.info)) {
+        if (!session?.parentID) continue
+        const siblings = children.get(session.parentID) ?? []
+        siblings.push(session.id)
+        children.set(session.parentID, siblings)
+      }
+      const queue = [id]
+      const seen = new Set<string>()
+      for (let index = 0; index < queue.length; index++) {
+        const current = queue[index]
+        if (seen.has(current)) continue
+        seen.add(current)
+        if ((this.session_status[current]?.type ?? "idle") !== "idle") return true
+        queue.push(...(children.get(current) ?? []))
+      }
+      return false
     },
   })
   const requests = new Map<string, Promise<Session>>()
   const inflight = new Map<string, Promise<void>>()
   const inflightTodo = new Map<string, Promise<void>>()
+  const todoForce = new Set<string>()
+  const todoVersions = new Map<string, number>()
   const optimistic = new Map<string, Map<string, OptimisticItem>>()
   const v2 = createV2SessionReducer()
   const messageLoads = new Map<string, MessageLoadState>()
@@ -541,6 +556,8 @@ export function createServerSession(
       requests.delete(sessionID)
       inflight.delete(sessionID)
       inflightTodo.delete(sessionID)
+      todoForce.delete(sessionID)
+      todoVersions.delete(sessionID)
       messageLoads.delete(sessionID)
       v2.clear(sessionID)
       pendingParts.delete(sessionID)
@@ -888,17 +905,24 @@ export function createServerSession(
     }
   }
 
+  const messageForce = new Set<string>()
   const sync = (sessionID: string, options?: { force?: boolean; messageLimit?: number }) => {
     touch(sessionID)
+    if (options?.force) messageForce.add(sessionID)
     return runInflight(inflight, sessionID, async () => {
-      const cached = data.message[sessionID] !== undefined && meta.limit[sessionID] !== undefined
-      if (cached && data.info[sessionID] && !options?.force) return
-      await Promise.all([
-        resolve(sessionID, options),
-        cached && !options?.force
-          ? Promise.resolve()
-          : loadMessages(sessionID, options?.messageLimit ?? meta.limit[sessionID] ?? initialMessagePageSize),
-      ])
+      let force = messageForce.delete(sessionID) || options?.force === true
+      for (;;) {
+        const cached = data.message[sessionID] !== undefined && meta.limit[sessionID] !== undefined
+        if (cached && data.info[sessionID] && !force) return
+        await Promise.all([
+          resolve(sessionID, force ? { ...options, force: true } : options),
+          cached && !force
+            ? Promise.resolve()
+            : loadMessages(sessionID, options?.messageLimit ?? meta.limit[sessionID] ?? initialMessagePageSize),
+        ])
+        if (!messageForce.has(sessionID)) return
+        force = messageForce.delete(sessionID)
+      }
     })
   }
 
@@ -1034,6 +1058,13 @@ export function createServerSession(
       void resolve(sessionID, { force: true }).catch(() => {})
   }
 
+  const prompts = createPromptVersions(options?.scope ?? "")
+  const bindPromptDirectory = (info: { id?: string; directory?: string } | undefined) => {
+    if (!info?.id || !info.directory) return
+    if ((data.permission[info.id]?.length ?? 0) > 0) prompts.note("permission", info.directory, info.id)
+    if ((data.question[info.id]?.length ?? 0) > 0) prompts.note("question", info.directory, info.id)
+  }
+
   const apply = (event: { type: string; properties?: unknown }) => {
     const eventID = eventSessionID(event)
     if (eventID) {
@@ -1049,10 +1080,12 @@ export function createServerSession(
     switch (event.type) {
       case "session.created":
         remember((event.properties as { info: Session }).info)
+        bindPromptDirectory((event.properties as { info: Session }).info)
         return
       case "session.updated": {
         const info = (event.properties as { info: Session }).info
         remember(info)
+        bindPromptDirectory(info)
         if (info.time.archived) evict([info.id])
         return
       }
@@ -1070,6 +1103,7 @@ export function createServerSession(
       }
       case "todo.updated": {
         const props = event.properties as { sessionID: string; todos: Todo[] }
+        todoVersions.set(props.sessionID, (todoVersions.get(props.sessionID) ?? 0) + 1)
         setData("todo", props.sessionID, [...props.todos])
         return
       }
@@ -1295,6 +1329,7 @@ export function createServerSession(
       }
       case "permission.asked": {
         const permission = event.properties as PermissionRequest
+        prompts.note("permission", data.info[permission.sessionID]?.directory ?? "", permission.sessionID)
         const permissions = data.permission[permission.sessionID]
         if (!permissions) {
           setData("permission", permission.sessionID, [permission])
@@ -1312,6 +1347,7 @@ export function createServerSession(
       }
       case "permission.replied": {
         const props = event.properties as { sessionID: string; requestID: string }
+        prompts.note("permission", data.info[props.sessionID]?.directory ?? "", props.sessionID)
         setData(
           "permission",
           props.sessionID,
@@ -1325,6 +1361,7 @@ export function createServerSession(
       }
       case "question.asked": {
         const question = event.properties as QuestionRequest
+        prompts.note("question", data.info[question.sessionID]?.directory ?? "", question.sessionID)
         const questions = data.question[question.sessionID]
         if (!questions) {
           setData("question", question.sessionID, [question])
@@ -1343,6 +1380,7 @@ export function createServerSession(
       case "question.replied":
       case "question.rejected": {
         const props = event.properties as { sessionID: string; requestID: string }
+        prompts.note("question", data.info[props.sessionID]?.directory ?? "", props.sessionID)
         setData(
           "question",
           props.sessionID,
@@ -1443,17 +1481,33 @@ export function createServerSession(
     async todo(sessionID: string, request?: { force?: boolean }) {
       touch(sessionID)
       if (data.todo[sessionID] !== undefined && !request?.force) return
+      if (request?.force && inflightTodo.has(sessionID)) todoForce.add(sessionID)
       return runInflight(inflightTodo, sessionID, () => {
-        const active = generation(sessionID)
-        const load = (options?.protocol ?? Promise.resolve("v1")).then((protocol) =>
-          protocol === "v2" && sessionApi
-            ? sessionApi.todo({ sessionID })
-            : (options?.retry ?? retry)(() => client.session.todo({ sessionID })).then((result) => result.data ?? []),
-        )
-        return load.then((todos) => {
-          if (generations.get(sessionID) !== active) return
-          setData("todo", sessionID, [...(todos ?? [])])
-        })
+        const load = () => {
+          const active = generation(sessionID)
+          const version = todoVersions.get(sessionID) ?? 0
+          return (options?.protocol ?? Promise.resolve("v1")).then((protocol) =>
+            protocol === "v2" && sessionApi
+              ? sessionApi.todo({ sessionID })
+              : (options?.retry ?? retry)(() => client.session.todo({ sessionID })).then((result) => result.data ?? []),
+          ).then((todos) => {
+            if (generations.get(sessionID) !== active) return
+            if ((todoVersions.get(sessionID) ?? 0) !== version) return
+            setData("todo", sessionID, [...(todos ?? [])])
+          })
+        }
+
+        const refresh = async () => {
+          try {
+            await load()
+            while (todoForce.delete(sessionID)) {
+              await load()
+            }
+          } finally {
+            todoForce.delete(sessionID)
+          }
+        }
+        return refresh()
       })
     },
     history: {
@@ -1484,6 +1538,7 @@ export function createServerSession(
       if (count && count > 1) pinned.set(sessionID, count - 1)
     },
     apply,
+    prompts,
     applyV2,
   }
 }

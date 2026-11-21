@@ -3,11 +3,14 @@ import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { Location } from "@opencode-ai/core/location"
+import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SkillV2 } from "@opencode-ai/core/skill"
 import { SystemContext } from "@opencode-ai/core/system-context"
 import { SkillGuidance } from "@opencode-ai/core/skill/guidance"
 import { it } from "../lib/effect"
+import { tempLocationLayer } from "../fixture/location"
 
 const build = AgentV2.ID.make("build")
 const effect = SkillV2.Info.make({
@@ -30,6 +33,8 @@ const denied = SkillV2.Info.make({
 
 const layer = (list: () => SkillV2.Info[]) =>
   AppNodeBuilder.build(SkillGuidance.node, [
+    [Location.node, tempLocationLayer],
+    [PermissionSaved.node, Layer.mock(PermissionSaved.Service, { list: () => Effect.succeed([]) })],
     [SkillV2.node, Layer.mock(SkillV2.Service, { list: () => Effect.succeed(list()) })],
   ])
 

@@ -1,3 +1,4 @@
+import { ToolErrorProjection } from "../tool-error-projection"
 import { Effect, Schema } from "effect"
 import { Route } from "../route/client"
 import { Auth } from "../route/auth"
@@ -105,13 +106,17 @@ type OpenAIResponsesReasoningInput = {
 }
 type OpenAIResponsesReasoningReplay = Omit<OpenAIResponsesReasoningInput, "id">
 
-const OpenAIResponsesTool = Schema.Struct({
+const OpenAIResponsesFunctionTool = Schema.Struct({
   type: Schema.tag("function"),
   name: Schema.String,
   description: Schema.String,
   parameters: JsonObject,
   strict: Schema.optional(Schema.Boolean),
 })
+const OpenAIResponsesTool = Schema.Union([
+  OpenAIResponsesFunctionTool,
+  Schema.Struct({ type: Schema.Literal("image_generation") }),
+])
 type OpenAIResponsesTool = Schema.Schema.Type<typeof OpenAIResponsesTool>
 
 const OpenAIResponsesToolChoice = Schema.Union([
@@ -415,7 +420,17 @@ const lowerMessages = Effect.fn("OpenAIResponses.lowerMessages")(function* (requ
         }
         if (part.type === "tool-result" && part.providerExecuted === true) {
           flushText()
-          const itemID = hostedToolItemID(part)
+          const call = message.content.find(
+            (entry) => entry.type === "tool-call" && entry.id === part.id && entry.providerExecuted === true,
+          )
+          const verified = ToolErrorProjection.openaiItem(
+            part.id,
+            call?.type === "tool-call" ? call.providerMetadata : undefined,
+            part.providerMetadata,
+          )
+          if (part.result.type === "error" && (ToolErrorProjection.blocked(part.result) || !call || !verified))
+            return yield* invalid("Hosted tool failure cannot be safely continued")
+          const itemID = part.result.type === "error" ? verified : hostedToolItemID(part)
           if (store !== false && itemID && !hostedToolReferences.has(itemID))
             input.push({ type: "item_reference", id: itemID })
           if (itemID) hostedToolReferences.add(itemID)
@@ -479,15 +494,21 @@ const fromRequest = Effect.fn("OpenAIResponses.fromRequest")(function* (request:
   const generation = request.generation
   const options = yield* lowerOptions(request)
   const toolSchemaCompatibility = request.model.compatibility?.toolSchema
+  // Hosted image generation is opt-in: not every Responses-compatible server supports it.
+  const tools: OpenAIResponsesTool[] = request.tools.map((tool) =>
+    lowerTool(tool, ToolSchemaProjection.modelCompatibility(tool.inputSchema, toolSchemaCompatibility)),
+  )
+  // The independent tool owns this name; never also expose a hosted tool that can
+  // bypass its explicitly selected model, permissions and credentials.
+  if (
+    request.providerOptions?.openai?.imageGeneration === true &&
+    !request.tools.some((tool) => tool.name === "image_generation")
+  )
+    tools.push({ type: "image_generation" })
   return {
     model: request.model.id,
     input: yield* lowerMessages(request),
-    tools:
-      request.tools.length === 0
-        ? undefined
-        : request.tools.map((tool) =>
-            lowerTool(tool, ToolSchemaProjection.modelCompatibility(tool.inputSchema, toolSchemaCompatibility)),
-          ),
+    tools: tools.length ? tools : undefined,
     tool_choice: request.toolChoice ? yield* lowerToolChoice(request.toolChoice) : undefined,
     stream: true as const,
     max_output_tokens: generation?.maxTokens,

@@ -159,8 +159,9 @@ describe("lock identity", () => {
     const link = path.join(tmp.path, "junction-data")
     await fs.promises.mkdir(data)
     directoryAlias(link, data)
-    const raw = `npm-install:${data}`
-    const alias = `npm-install:${link}`
+    // Hold the historical spelling through the link: even on POSIX its raw hash differs from the canonical hash.
+    const raw = `npm-install:${link}`
+    const alias = `npm-install:${data}${path.sep}.`
     const context = { state: tmp.path, data, config: data, cache: tmp.path }
     expect(LockProtocol.resolve(raw, context).key).toBe(raw)
     expect(LockProtocol.resolve(alias, context).key).toBe(alias)

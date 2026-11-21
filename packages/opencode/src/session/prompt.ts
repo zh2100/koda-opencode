@@ -40,7 +40,8 @@ import { ShellID } from "@/tool/shell/id"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Truncate } from "@/tool/truncate"
 import { Image } from "@/image/image"
-import { decodeDataUrl } from "@/util/data-url"
+import { decodeDataUrl, decodeDataUrlBytes } from "@/util/data-url"
+import { extractDocumentText, isReadableDocument } from "@/util/office-text"
 import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import { InstanceState } from "@/effect/instance-state"
@@ -69,6 +70,35 @@ const SUPPORTED_MCP_RESOURCE_ATTACHMENT_MIMES = new Set([
   "image/jpeg",
   "image/png",
   "image/webp",
+])
+const OFFICE_ATTACHMENT_MIMES = new Set([
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+])
+const DOCUMENT_ATTACHMENT_MIMES = new Set([
+  ...OFFICE_ATTACHMENT_MIMES,
+  "application/msword",
+  "application/rtf",
+  "text/rtf",
+  "application/epub+zip",
+  "application/vnd.oasis.opendocument.text",
+  "application/vnd.oasis.opendocument.spreadsheet",
+  "application/vnd.oasis.opendocument.presentation",
+])
+const DOCUMENT_ATTACHMENT_EXTENSIONS = new Map([
+  ["application/msword", ".doc"],
+  ["application/vnd.ms-excel", ".xls"],
+  ["application/rtf", ".rtf"],
+  ["text/rtf", ".rtf"],
+  ["application/epub+zip", ".epub"],
+  ["application/vnd.oasis.opendocument.text", ".odt"],
+  ["application/vnd.oasis.opendocument.spreadsheet", ".ods"],
+  ["application/vnd.oasis.opendocument.presentation", ".odp"],
+  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"],
+  ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"],
+  ["application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx"],
 ])
 
 const STRUCTURED_OUTPUT_DESCRIPTION = `Use this tool to return your final response in the requested structured format.
@@ -785,6 +815,39 @@ const layer = Layer.effect(
           const url = new URL(part.url)
           switch (url.protocol) {
             case "data:":
+              if (DOCUMENT_ATTACHMENT_MIMES.has(part.mime)) {
+                const filename = part.filename ?? DOCUMENT_ATTACHMENT_EXTENSIONS.get(part.mime)
+                const text =
+                  filename && isReadableDocument(filename)
+                    ? extractDocumentText(filename, decodeDataUrlBytes(part.url))
+                    : undefined
+                if (text !== undefined) {
+                  return [
+                    {
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                      type: "text",
+                      synthetic: true,
+                      text: `Called the Read tool with the following input: ${JSON.stringify({ filePath: filename })}`,
+                    },
+                    {
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                      type: "text",
+                      synthetic: true,
+                      text,
+                    },
+                    {
+                      ...part,
+                      filename,
+                      mime: "text/plain",
+                      url: `data:text/plain,${encodeURIComponent(text)}`,
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                    },
+                  ]
+                }
+              }
               if (part.mime === "text/plain") {
                 return [
                   {

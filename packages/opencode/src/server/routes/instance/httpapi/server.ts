@@ -64,6 +64,7 @@ import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { RelayAuth } from "@opencode-ai/core/relay-auth"
+import { ImageGenerationSettings } from "@opencode-ai/core/image-generation-settings"
 import { RelayCatalog } from "@opencode-ai/core/relay-catalog"
 import { RelayGate } from "@opencode-ai/core/relay-gate"
 import { RelaySecretStore } from "@opencode-ai/core/relay-secret-store"
@@ -116,7 +117,7 @@ import { sessionLocationLayer } from "@opencode-ai/server/middleware/session-loc
 import { PtyEnvironment } from "@opencode-ai/server/pty-environment"
 import { schemaErrorLayer as v2SchemaErrorLayer } from "@opencode-ai/server/middleware/schema-error"
 import { workspaceHandlers } from "./handlers/workspace"
-import { instanceContextLayer } from "./middleware/instance-context"
+import { configContextLayer, configWriteContextLayer, projectConfigWriteContextLayer, instanceContextLayer } from "./middleware/instance-context"
 import { workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware } from "./lifecycle"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
@@ -182,7 +183,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
 )
 
 const instanceRoutes = instanceApiRoutes.pipe(
-  Layer.provide([httpApiAuthLayer, workspaceRoutingLive, instanceContextLayer, schemaErrorLayer]),
+  Layer.provide([httpApiAuthLayer, workspaceRoutingLive, configContextLayer, configWriteContextLayer, projectConfigWriteContextLayer, instanceContextLayer, schemaErrorLayer]),
 )
 const serverRoutes = HttpApiBuilder.layer(Api).pipe(
   Layer.provide(handlers),
@@ -272,6 +273,7 @@ const app = LayerNode.group([
   Global.node,
   RelaySecretStore.node,
   RelayAuth.node,
+  ImageGenerationSettings.node,
   RelayCatalog.node,
   RelayGate.node,
 ])

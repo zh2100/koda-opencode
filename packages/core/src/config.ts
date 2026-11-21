@@ -1,3 +1,4 @@
+import { ImageGeneration } from "@opencode-ai/schema/image-generation"
 export * as Config from "./config"
 
 import { makeLocationNode } from "./effect/app-node"
@@ -36,6 +37,7 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   model: Schema.String.pipe(Schema.optional).annotate({
     description: "Default model to use when no session or agent model is selected",
   }),
+  image_generation: Schema.optional(ImageGeneration.Config),
   default_agent: Schema.String.pipe(Schema.optional).annotate({
     description: "Default primary agent to use when no session agent is selected",
   }),
@@ -149,7 +151,7 @@ const layer = Layer.effect(
       if (!text) return
 
       const errors: ParseError[] = []
-      const input: unknown = parse(text, errors, { allowTrailingComma: true })
+      const input: unknown = parse(text.replace(/^\uFEFF/, ""), errors, { allowTrailingComma: true })
       if (errors.length) return
 
       const info = Option.getOrUndefined(
@@ -172,8 +174,7 @@ const layer = Layer.effect(
 
     const globalDirectory = AbsolutePath.make(global.config)
     const locationIsGlobal = path.resolve(location.directory) === path.resolve(global.config)
-    // Read configuration once when this location opens. Later calls reuse these
-    // values until the location is reopened.
+    // Discover project configuration once when this location opens.
     const discovered = locationIsGlobal
       ? []
       : yield* fs
@@ -212,7 +213,9 @@ const layer = Layer.effect(
 
     return Service.of({
       entries: Effect.fn("Config.entries")(function* () {
-        return configs
+        // Global settings may be edited while a location/session remains open.
+        // Keep project precedence and the already discovered project documents.
+        return [...(yield* loadDirectory(globalDirectory).pipe(Effect.orDie)), ...direct, ...supplementary.slice(1).flat()]
       }),
     })
   }),

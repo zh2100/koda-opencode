@@ -20,6 +20,8 @@ type SubstituteInput = ParseSource & {
   text: string
   missing?: "error" | "empty"
   env?: Record<string, string>
+  readText?: (file: string) => Promise<string>
+  onEnv?: (name: string, value: string) => void
 }
 
 function source(input: ParseSource) {
@@ -34,7 +36,9 @@ function dir(input: ParseSource) {
 export async function substitute(input: SubstituteInput) {
   const missing = input.missing ?? "error"
   let text = input.text.replace(/\{env:([^}]+)\}/g, (_, varName) => {
-    return (input.env?.[varName] ?? process.env[varName]) || ""
+    const value = (input.env?.[varName] ?? process.env[varName]) || ""
+    input.onEnv?.(varName, value)
+    return value
   })
 
   const fileMatches = Array.from(text.matchAll(/\{file:[^}]+\}/g))
@@ -65,7 +69,7 @@ export async function substitute(input: SubstituteInput) {
 
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(configDir, filePath)
     const fileContent = (
-      await Filesystem.readText(resolvedPath).catch((error: NodeJS.ErrnoException) => {
+      await (input.readText ?? Filesystem.readText)(resolvedPath).catch((error: NodeJS.ErrnoException) => {
         if (missing === "empty") return ""
 
         const errMsg = `bad file reference: "${token}"`

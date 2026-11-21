@@ -142,6 +142,43 @@ describe("createChildStoreManager", () => {
     }
   })
 
+  test("counts running child sessions as working for their parent", () => {
+    let manager: ReturnType<typeof createChildStoreManager> | undefined
+
+    const dispose = createOwner((owner) => {
+      manager = createChildStoreManager({
+        owner,
+        scope: ServerScope.local,
+        persist,
+        isBooting: () => false,
+        isLoadingSessions: () => false,
+        onBootstrap() {},
+        onMcp() {},
+        onDispose() {},
+        translate: (key) => key,
+        queryOptions: queryOptionsApi,
+        global: { provider },
+      })
+    })
+
+    try {
+      if (!manager) throw new Error("manager required")
+      const [store, setStore] = manager.child("/project", { bootstrap: false })
+      const root = { id: "root", parentID: undefined } as State["session"][number]
+      const child = { id: "child", parentID: "root" } as State["session"][number]
+      setStore("session", [root, child])
+      setStore("session_status", "child", { type: "busy" })
+
+      expect(store.session_working("root")).toBe(true)
+      expect(store.session_working("child")).toBe(true)
+
+      setStore("session_status", "child", { type: "idle" })
+      expect(store.session_working("root")).toBe(false)
+    } finally {
+      dispose()
+    }
+  })
+
   test("provides the requested directory while the path query is pending", () => {
     let manager: ReturnType<typeof createChildStoreManager> | undefined
 

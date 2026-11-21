@@ -134,7 +134,9 @@ describe("protocol recheck after waiting", () => {
           key,
         )
         .pipe(Effect.forkChild)
-      yield* Effect.promise(() => waitUntil(() => fs.existsSync(path.join(selected.state, "locks", `${Hash.fast(key)}.lock`))))
+      yield* Effect.promise(() =>
+        waitUntil(() => fs.existsSync(path.join(selected.state, "locks", `${Hash.fast(key)}.lock`))),
+      )
       write(LockIdentity.marker(selected.state), { generation: "path-identity-v1", status: "migrating" })
       return yield* Fiber.await(waiting)
     }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise)

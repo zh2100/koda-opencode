@@ -1,7 +1,7 @@
 import { For, Show, createMemo, type Component } from "solid-js"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Switch } from "@opencode-ai/ui/v2/switch-v2"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { bindDialog, useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { useSDK, SDKProvider } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -33,19 +33,31 @@ export const SettingsMcpV2: Component = () => {
 
   const openAdd = () => {
     const directory = sdk().directory
-    dialog.show(() => (
-      <SDKProvider directory={directory}>
-        <DialogMcpV2 mode="add" />
-      </SDKProvider>
-    ))
+    const id = Math.random().toString(36).slice(2)
+    dialog.show(
+      bindDialog(
+        () => (
+          <SDKProvider directory={directory}>
+            <DialogMcpV2 mode="add" dialogID={id} />
+          </SDKProvider>
+        ),
+        id,
+      ),
+    )
   }
   const openEdit = (name: string) => {
     const directory = sdk().directory
-    dialog.show(() => (
-      <SDKProvider directory={directory}>
-        <DialogMcpV2 mode="edit" name={name} />
-      </SDKProvider>
-    ))
+    const id = Math.random().toString(36).slice(2)
+    dialog.show(
+      bindDialog(
+        () => (
+          <SDKProvider directory={directory}>
+            <DialogMcpV2 mode="edit" name={name} dialogID={id} />
+          </SDKProvider>
+        ),
+        id,
+      ),
+    )
   }
 
   return (

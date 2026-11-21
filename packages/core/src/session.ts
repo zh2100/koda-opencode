@@ -80,6 +80,7 @@ type CreateInput = {
   id?: SessionSchema.ID
   parentID?: SessionSchema.ID
   title?: string
+  approvalMode?: SessionSchema.Info["approvalMode"]
   agent?: AgentV2.ID
   model?: ModelV2.Ref
   location: Location.Ref
@@ -242,6 +243,7 @@ const layer = Layer.effect(
           parentID: input.parentID,
           title: input.title ?? `New session - ${new Date(now).toISOString()}`,
           agent: input.agent,
+          metadata: input.approvalMode ? { scheduledApprovalMode: input.approvalMode } : undefined,
           model: input.model
             ? {
                 id: ModelV2.ID.make(input.model.id),

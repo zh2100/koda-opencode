@@ -1,3 +1,4 @@
+import { useDialogModal } from "../../context/dialog"
 import { Select as Kobalte } from "@kobalte/core/select"
 import { Show, createMemo, onCleanup, splitProps, type ComponentProps, type JSX } from "solid-js"
 import "./select-v2.css"
@@ -62,6 +63,7 @@ export type SelectV2Props<T> = Omit<
 }
 
 export function SelectV2<T>(props: SelectV2Props<T>) {
+  const modal = useDialogModal()
   const [local, others] = splitProps(props, [
     "class",
     "classList",
@@ -74,6 +76,7 @@ export function SelectV2<T>(props: SelectV2Props<T>) {
     "onSelect",
     "onHighlight",
     "onOpenChange",
+    "modal",
     "children",
     "appearance",
     "invalid",
@@ -120,6 +123,7 @@ export function SelectV2<T>(props: SelectV2Props<T>) {
   return (
     <Kobalte<T, { category: string; options: T[] }>
       {...others}
+      modal={local.modal ?? modal()}
       multiple={false}
       allowDuplicateSelectionEvents={false}
       disabled={local.disabled}

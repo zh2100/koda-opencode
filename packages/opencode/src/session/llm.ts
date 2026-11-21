@@ -103,7 +103,7 @@ const live: Layer.Layer<
       )
 
       const isWorkflow = language instanceof GitLabWorkflowLanguageModel
-      const prepared = yield* LLMRequestPrep.prepare({
+      const preparedInput = yield* LLMRequestPrep.prepare({
         ...input,
         provider: item,
         auth: info,
@@ -111,6 +111,15 @@ const live: Layer.Layer<
         flags,
         isWorkflow,
       })
+      // Product sessions use the local image tool. A model or plugin option must not
+      // grant a provider-executed image tool after permission filtering.
+      const prepared = {
+        ...preparedInput,
+        params: {
+          ...preparedInput.params,
+          options: { ...preparedInput.params.options, imageGeneration: false },
+        },
+      }
 
       // Wire up toolExecutor for DWS workflow models so that tool calls
       // from the workflow service are executed via opencode's tool system

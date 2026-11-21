@@ -20,6 +20,7 @@ export const Info = Schema.Struct({
   id: ID,
   parentID: ID.pipe(optional),
   projectID: Project.ID,
+  approvalMode: Schema.Literals(["ask", "auto", "plan"]).pipe(optional),
   agent: Agent.ID.pipe(optional),
   model: Model.Ref.pipe(optional),
   cost: Schema.Finite,

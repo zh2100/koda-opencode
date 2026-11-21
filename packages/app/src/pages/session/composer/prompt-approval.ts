@@ -2,6 +2,12 @@ import { type Accessor } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
+import {
+  promptApprovalAgent,
+  promptApprovalCurrent,
+  promptApprovalOptions,
+  type PromptApprovalID,
+} from "./prompt-approval-state"
 
 export function createPromptApproval(input: {
   sessionID: Accessor<string | undefined>
@@ -18,20 +24,16 @@ export function createPromptApproval(input: {
   }
 
   const current = () => {
-    if (auto()) return "auto"
-    if (local.agent.current()?.name === "plan") return "plan"
-    return "ask"
+    return promptApprovalCurrent({ auto: auto(), agent: local.agent.current()?.name })
   }
 
   const options = () => {
-    const items = [
-      { id: "ask", label: language.t("prompt.approval.ask") },
-      { id: "auto", label: language.t("prompt.approval.auto") },
-    ]
-    if (local.agent.list().some((item) => item.name === "plan")) {
-      items.push({ id: "plan", label: language.t("prompt.approval.plan") })
-    }
-    return items
+    return promptApprovalOptions({
+      ask: language.t("prompt.approval.ask"),
+      auto: language.t("prompt.approval.auto"),
+      plan: language.t("prompt.approval.plan"),
+      hasPlan: local.agent.list().some((item) => item.name === "plan"),
+    })
   }
 
   const setAuto = (on: boolean) => {
@@ -46,17 +48,17 @@ export function createPromptApproval(input: {
   }
 
   const set = (id: string) => {
+    if (id !== "ask" && id !== "auto" && id !== "plan") return
+    const value = id as PromptApprovalID
     if (id === "auto") {
       setAuto(true)
-      if (local.agent.current()?.name === "plan") local.agent.set("build")
+      const agent = promptApprovalAgent({ id: value, currentAgent: local.agent.current()?.name })
+      if (agent) local.agent.set(agent)
       return
     }
     setAuto(false)
-    if (id === "plan") {
-      local.agent.set("plan")
-      return
-    }
-    if (local.agent.current()?.name === "plan") local.agent.set("build")
+    const agent = promptApprovalAgent({ id: value, currentAgent: local.agent.current()?.name })
+    if (agent) local.agent.set(agent)
   }
 
   return { current, options, set }

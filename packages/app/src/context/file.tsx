@@ -70,6 +70,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     )
 
     const inflight = new Map<string, Promise<void>>()
+    const fileForce = new Set<string>()
     const [store, setStore] = createStore<{
       file: Record<string, FileState>
     }>({
@@ -164,7 +165,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       })
     }
 
-    const load = (input: string, options?: { force?: boolean }) => {
+    const load = (input: string, options?: { force?: boolean }): Promise<void> => {
       const file = path.normalize(input)
       if (!file) return Promise.resolve()
 
@@ -176,7 +177,11 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       if (!options?.force && current?.loaded) return Promise.resolve()
 
       const pending = inflight.get(key)
-      if (pending) return pending
+      if (pending) {
+        if (options?.force) fileForce.add(key)
+        return pending.then(() => (fileForce.has(key) ? load(file, { force: true }) : undefined))
+      }
+      if (options?.force) fileForce.delete(key)
 
       setLoading(file)
 
@@ -197,6 +202,9 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         })
         .finally(() => {
           inflight.delete(key)
+          if (!fileForce.has(key)) return
+          fileForce.delete(key)
+          void load(file, { force: true })
         })
 
       inflight.set(key, promise)
@@ -235,6 +243,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         refreshDir: (dir) => {
           void tree.listDir(dir, { force: true })
         },
+        removeDir: tree.removeDir,
       })
     })
 

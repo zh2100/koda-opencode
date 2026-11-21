@@ -19,7 +19,8 @@ describe("TaskOrchestratorExecution", () => {
         retryCount: 0,
         maxRetries: 1,
         sessionID: SessionSchema.ID.make("ses_worker"),
-        persist: (transition: TaskOrchestratorRetry.Transition) => Effect.sync(() => calls.push(`persist:${transition.action}`)),
+        persist: (transition: TaskOrchestratorRetry.Transition) =>
+          Effect.sync(() => calls.push(`persist:${transition.action}`)),
         scheduler,
       }),
     )

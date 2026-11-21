@@ -14,14 +14,23 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Npm } from "@opencode-ai/core/npm"
+import { Config } from "../../src/config/config"
 import { Cause, Effect, Exit } from "effect"
 import type { MCP as MCPNS } from "../../src/mcp/index"
 import { MCP } from "../../src/mcp/index"
 import { McpOAuthCallback } from "../../src/mcp/oauth-callback"
 import { TestInstance } from "../fixture/fixture"
 import { pollWithTimeout, testEffect } from "../lib/effect"
+import { NpmTest } from "../fake/npm"
+import { TestConfig } from "../fixture/config"
 
-const it = testEffect(LayerNode.compile(MCP.node))
+const it = testEffect(
+  LayerNode.compile(MCP.node, [
+    [Config.node, TestConfig.layer()],
+    [Npm.node, NpmTest.noop],
+  ]),
+)
 const stdioFixture = path.join(import.meta.dir, "../fixture/mcp-lifecycle-stdio.ts")
 
 type Page<T> = { items: T[]; nextCursor?: string }

@@ -14,7 +14,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { ProjectAvatar } from "@opencode-ai/ui/v2/project-avatar-v2"
 import { getProjectAvatarVariant } from "@/context/layout"
-import { useLanguage } from "@/context/language"
+import { useLanguage, type Direction } from "@/context/language"
 import { displayName, getProjectAvatarSource } from "@/pages/layout/helpers"
 import { pathKey } from "@/utils/path-key"
 import { handleDocumentSearchKeydown } from "@/utils/search-keydown"
@@ -40,6 +40,10 @@ export type PromptProjectControls = {
 
 const actionPrefix = "action:"
 const projectPrefix = "project:"
+
+export function submenuOpenKey(direction: Direction) {
+  return direction === "rtl" ? "ArrowLeft" : "ArrowRight"
+}
 
 function projectKey(project: PromptProject) {
   return `${projectPrefix}${encodeURIComponent(project.server?.key ?? "")}:${encodeURIComponent(project.worktree)}`
@@ -92,7 +96,8 @@ export function createPromptProjectController(input: {
     ]
   }
   const initialActive = () => {
-    const selectedKey = selected() ? projectKey(selected()!) : undefined
+    const project = selected()
+    const selectedKey = project ? projectKey(project) : undefined
     const options = keys()
     if (selectedKey && options.includes(selectedKey)) return selectedKey
     return options[0] ?? ""
@@ -202,6 +207,7 @@ export function PromptProjectSelector(props: {
   controller: PromptProjectController
   placement?: "bottom" | "bottom-start"
 }) {
+  const language = useLanguage()
   const [triggerReady, setTriggerReady] = createSignal(false)
   let contentRef: HTMLDivElement | undefined
   const dismiss = createMenuDismissController(() => contentRef)
@@ -252,7 +258,7 @@ export function PromptProjectSelector(props: {
     if (props.controller.activeAction() && props.controller.servers().length > 1) {
       const item = activeItem()
       item?.focus()
-      item?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
+      item?.dispatchEvent(new KeyboardEvent("keydown", { key: submenuOpenKey(language.direction()), bubbles: true }))
       return
     }
     selectAction(props.controller.activeServer())
@@ -305,9 +311,9 @@ export function PromptProjectSelector(props: {
           id="prompt-project-menu"
           class="w-[243px] overflow-hidden rounded-md border-0 bg-v2-background-bg-layer-01 p-0 shadow-[var(--v2-elevation-floating)] focus:outline-none [&[data-closed]]:!animate-none"
           onOpenAutoFocus={(event) => event.preventDefault()}
-          onPointerDownOutside={dismiss.preventTriggerRestore}
-          onFocusOutside={dismiss.preventTriggerRestore}
-          onCloseAutoFocus={dismiss.onCloseAutoFocus}
+          onPointerDownOutside={() => dismiss.preventTriggerRestore()}
+          onFocusOutside={() => dismiss.preventTriggerRestore()}
+          onCloseAutoFocus={(event) => dismiss.onCloseAutoFocus(event)}
         >
           <div class="flex flex-col p-0.5">
             <div class="flex h-7 items-center gap-2 rounded-sm pl-3 pr-2.5 text-v2-icon-icon-muted">
@@ -531,7 +537,7 @@ function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptPr
         )}
       </Show>
       <span class="min-w-0 truncate leading-5">
-        {project() ? displayName(project()!) : local.controller.labels.new()}
+        {project() ? displayName(project()) : local.controller.labels.new()}
       </span>
       <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
     </button>

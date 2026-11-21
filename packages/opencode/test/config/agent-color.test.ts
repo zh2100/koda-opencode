@@ -1,11 +1,13 @@
 import { expect } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Effect } from "effect"
+import { Npm } from "@opencode-ai/core/npm"
+import { NpmTest } from "../fake/npm"
 import { Config } from "@/config/config"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(LayerNode.compile(LayerNode.group([Config.node, AgentSvc.node])))
+const it = testEffect(LayerNode.compile(LayerNode.group([Config.node, AgentSvc.node]), [[Npm.node, NpmTest.noop]]))
 
 it.instance(
   "agent color parsed from project config",

@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "./regression/dialog-lifecycle-acceptance.spec.ts",
+    "./regression/dialog-nested-layers.spec.ts",
+    "./regression/mcp-dialog-acceptance.spec.ts",
+    "./regression/mcp-source-edit.spec.ts",
+    "./reproduction/dialog-lifecycle/**/*.ts",
+    "./reproduction/dialog-lifecycle/**/*.tsx",
+    "./utils/**/*.ts",
+    "../vite.config.ts",
+    "../vite.js"
+  ]
+}

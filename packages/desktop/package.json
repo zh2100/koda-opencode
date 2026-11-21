@@ -29,13 +29,14 @@
   "main": "./out/main/index.js",
   "dependencies": {
     "@zip.js/zip.js": "2.7.62",
+    "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "electron-context-menu": "4.1.2",
     "electron-log": "^5",
     "electron-store": "11.0.2",
     "electron-updater": "6.8.9",
     "electron-window-state": "^5.0.3",
-    "drizzle-orm": "catalog:"
+    "semver": "catalog:"
   },
   "devDependencies": {
     "@actions/artifact": "4.0.0",
@@ -50,6 +51,7 @@
     "@solidjs/router": "0.15.4",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
+    "@types/semver": "catalog:",
     "@typescript/native-preview": "catalog:",
     "@valibot/to-json-schema": "1.6.0",
     "electron": "42.3.3",

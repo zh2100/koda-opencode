@@ -87,11 +87,12 @@ describe("native file lock", () => {
       return { active, done, child, stderr: () => stderr }
     }
     const promiseHolder = await hold("promise")
-    const overlap = await Flock.withLock(
-      "relay-auth",
-      async () => fs.existsSync(promiseHolder.active),
-      { context: selected.context, timeoutMs: 10_000, baseDelayMs: 20, maxDelayMs: 80 },
-    )
+    const overlap = await Flock.withLock("relay-auth", async () => fs.existsSync(promiseHolder.active), {
+      context: selected.context,
+      timeoutMs: 10_000,
+      baseDelayMs: 20,
+      maxDelayMs: 80,
+    })
     for (let attempt = 0; attempt < 100 && promiseHolder.child.exitCode === null; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 50))
     }

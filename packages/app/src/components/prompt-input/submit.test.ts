@@ -9,6 +9,9 @@ import { ServerScope } from "@/utils/server-scope"
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
 let resetCollaborationState: typeof import("./submit").resetCollaborationState
 
+const deliveries: Array<{ kind: string; directory: string; server: string }> = []
+let activeServer = "server-a"
+let protocol: "v1" | "v2" = "v2"
 const createdClients: string[] = []
 const createdSessions: string[] = []
 const sessionCreateInputs: Array<{
@@ -36,15 +39,22 @@ const sentPrompts: string[] = []
 const promptInputs: unknown[] = []
 const sentCommands: unknown[] = []
 const interrupted: string[] = []
+const legacyAbort = mock(async (_input: { sessionID: string }) => ({ data: true }))
 const commands: Array<{ name: string }> = []
+const resolvedSessions: string[] = []
+const toasts: Array<{ title: string; description?: string }> = []
 let serverSessionSyncs = 0
 
 let params: { id?: string } = {}
 let search: { draftId?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
+let localModel: { id: string; provider: { id: string } } | undefined
+let localAgent: { name: string } | undefined
 let permissionServer = "server-a"
 let createSessionGate: Promise<void> | undefined
+let resolveSessionGate: Promise<void> | undefined
+let releaseResolveSession: (() => void) | undefined
 let worker = "provider/worker"
 let collaborationEnabled = false
 let launchStatus = 200
@@ -85,7 +95,7 @@ const prompt = {
   capture: () => prompt,
 }
 
-const clientFor = (directory: string) => {
+const clientFor = (directory: string, server = activeServer) => {
   createdClients.push(directory)
   return {
     api: {
@@ -94,6 +104,7 @@ const clientFor = (directory: string) => {
         switchModel: async () => undefined,
         prompt: async (input: unknown) => {
           sentPrompts.push(directory)
+          deliveries.push({ kind: "prompt", directory, server })
           promptInputs.push(input)
           return { data: undefined }
         },
@@ -121,14 +132,17 @@ const clientFor = (directory: string) => {
         },
         prompt: async (input: unknown) => {
           sentPrompts.push(directory)
+          deliveries.push({ kind: "prompt", directory, server })
           promptInputs.push(input)
           return { data: undefined }
         },
         command: async (input: unknown) => {
           sentCommands.push(input)
+          deliveries.push({ kind: "command", directory, server })
         },
         shell: async (input: { sessionID: string; id?: string; command: string }) => {
           sentShell.push(input)
+          deliveries.push({ kind: "shell", directory, server })
         },
       },
     },
@@ -163,17 +177,20 @@ const clientFor = (directory: string) => {
     session: {
       prompt: async (input: unknown) => {
         sentPrompts.push(directory)
+        deliveries.push({ kind: "prompt", directory, server })
         promptInputs.push(input)
         return { data: undefined }
       },
       command: async (input: unknown) => {
         sentCommands.push(input)
+        deliveries.push({ kind: "command", directory, server })
         return { data: undefined }
       },
       shell: async (input: { sessionID: string; messageID?: string; command: string }) => {
         sentShell.push(input)
+        deliveries.push({ kind: "shell", directory, server })
       },
-      abort: async () => ({ data: undefined }),
+      abort: legacyAbort,
     },
     worktree: {
       create: async () => ({ data: { directory: `${directory}/new` } }),
@@ -183,7 +200,13 @@ const clientFor = (directory: string) => {
 
 beforeAll(async () => {
   const rootClient = clientFor("/repo/main")
-  mock.module("@/utils/toast", () => ({ showToast: () => 0, dismissToast: () => {} }))
+  mock.module("@/utils/toast", () => ({
+    showToast: (toast: (typeof toasts)[number]) => {
+      toasts.push(toast)
+      return 0
+    },
+    dismissToast: () => {},
+  }))
   mock.module("@/context/settings", () => ({
     useSettings: () => ({
       collaboration: {
@@ -198,7 +221,21 @@ beforeAll(async () => {
     }),
   }))
   mock.module("@/context/server-sdk", () => ({
-    useServerSDK: () => () => ({ server: { http: { url: "http://localhost:4096" } } }),
+    useServerSDK: () => () => {
+      const server = activeServer
+      return {
+        server: { http: { url: "http://localhost:4096" } },
+        ensureDirSdkContext: (directory: string) => {
+          const client = clientFor(directory, server)
+          return {
+            directory,
+            client,
+            api: client.api,
+            protocol: Promise.resolve(protocol),
+          }
+        },
+      }
+    },
   }))
 
   mock.module("@solidjs/router", () => ({
@@ -229,11 +266,11 @@ beforeAll(async () => {
   mock.module("@/context/local", () => ({
     useLocal: () => ({
       model: {
-        current: () => ({ id: "model", provider: { id: "provider" } }),
+        current: () => localModel,
         variant: { current: () => variant },
       },
       agent: {
-        current: () => ({ name: "agent" }),
+        current: () => localAgent,
       },
       session: {
         promote(directory: string, sessionID: string) {
@@ -281,13 +318,14 @@ beforeAll(async () => {
         directory: "/repo/main",
         client: rootClient,
         api: rootClient.api,
-        protocol: Promise.resolve("v2"),
+        protocol: Promise.resolve(protocol),
         url: "http://localhost:4096",
         createClient(opts: any) {
           return clientFor(opts.directory)
         },
       }
-      return () => sdk
+      return () =>
+        activeServer === "server-a" ? sdk : { ...sdk, client: clientFor("/repo/server-b"), directory: "/repo/server-b" }
     },
   }))
 
@@ -317,9 +355,36 @@ beforeAll(async () => {
 
   mock.module("@/context/server-sync", () => ({
     useServerSync: () => () => ({
+      ensureDirSyncContext: () => ({
+        data: { command: commands },
+        session: {
+          optimistic: {
+            add: (value: {
+              directory?: string
+              sessionID?: string
+              message: { agent: string; model: { providerID: string; modelID: string; variant?: string } }
+            }) => {
+              optimistic.push(value)
+              optimisticSeeded.push(
+                !!value.directory &&
+                  !!value.sessionID &&
+                  !!storedSessions[value.directory]?.find((item) => item.id === value.sessionID)?.title,
+              )
+            },
+            remove: () => undefined,
+          },
+        },
+      }),
       session: {
         remember: (session: Session) => sessions.set(session.id, session),
         get: (id: string) => sessions.get(id),
+        resolve: async (id: string) => {
+          resolvedSessions.push(id)
+          await resolveSessionGate
+          const session = sessions.get(id)
+          if (!session) throw new Error("Session not found")
+          return session
+        },
         set: () => undefined,
         sync: async () => {
           serverSessionSyncs++
@@ -379,6 +444,11 @@ beforeAll(async () => {
 
 beforeEach(() => {
   resetCollaborationState()
+  legacyAbort.mockClear()
+  interrupted.length = 0
+  deliveries.length = 0
+  activeServer = "server-a"
+  protocol = "v2"
   createdClients.length = 0
   createdSessions.length = 0
   sessionCreateInputs.length = 0
@@ -398,13 +468,19 @@ beforeEach(() => {
   syncedDirectories.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
+  localModel = { id: "model", provider: { id: "provider" } }
+  localAgent = { name: "agent" }
   permissionServer = "server-a"
   createSessionGate = undefined
+  resolveSessionGate = undefined
+  releaseResolveSession = undefined
   launchGate = undefined
   launchStatus = 200
   worker = "provider/worker"
   launches.length = 0
   sessions.clear()
+  resolvedSessions.length = 0
+  toasts.length = 0
   serverSessionSyncs = 0
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
@@ -473,6 +549,25 @@ describe("collaboration submission", () => {
     const first = make()
     const second = make()
     expect(collaborationEnabled).toBe(true)
+  })
+
+  test.each(["v1", "v2"] as const)("stops the running session using the %s server protocol", async (kind) => {
+    protocol = kind
+    params = { id: "running-session" }
+    await make(() => true).abort()
+    expect(legacyAbort.mock.calls.map(([input]) => input.sessionID)).toEqual(kind === "v1" ? ["running-session"] : [])
+    expect(interrupted).toEqual(kind === "v2" ? ["running-session"] : [])
+    expect(toasts).toHaveLength(0)
+  })
+
+  test("reports a rejected v1 stop without sending a v2 interrupt", async () => {
+    protocol = "v1"
+    params = { id: "running-session" }
+    legacyAbort.mockRejectedValueOnce(new Error("Stop request failed"))
+    await make(() => true).abort()
+    expect(legacyAbort).toHaveBeenCalledTimes(1)
+    expect(interrupted).toHaveLength(0)
+    expect(toasts).toEqual([{ title: "prompt.action.stop", description: "Stop request failed" }])
   })
 
   test("keeps interrupt available with collaboration enabled without launching another task", async () => {
@@ -616,6 +711,150 @@ describe("collaboration submission", () => {
 })
 
 describe("prompt submit worktree selection", () => {
+  test("uses the existing session selection while local restoration is pending", async () => {
+    const session = {
+      id: "session-1",
+      projectID: "project",
+      directory: "/repo/main",
+      title: "Existing session",
+      version: "1",
+      agent: "restored-agent",
+      model: { id: "restored-model", providerID: "restored-provider" },
+      time: { created: 1, updated: 1 },
+    } as Session
+    sessions.set(session.id, session)
+    params = { id: session.id }
+    localModel = undefined
+    localAgent = undefined
+
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => sessions.get(session.id),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await Bun.sleep(10)
+
+    expect(toasts).toHaveLength(0)
+    expect(promptInputs).toEqual([expect.objectContaining({ sessionID: session.id, prompt: { text: "ls" } })])
+    expect(optimistic[0]).toMatchObject({
+      message: {
+        agent: session.agent,
+        model: { providerID: session.model?.providerID, modelID: session.model?.id },
+      },
+    })
+  })
+
+  test.each(["normal", "shell", "missing"] as const)(
+    "recovers a cold routed session for %s submission",
+    async (mode) => {
+      const recovered = {
+        id: "session-recovered",
+        projectID: "project",
+        directory: "/repo/worktree-a",
+        title: "Recovered",
+        version: "1",
+        time: { created: 1, updated: 1 },
+      } as Session
+      if (mode !== "missing") sessions.set(recovered.id, recovered)
+      params = { id: recovered.id }
+      promptValue = [{ type: "text", content: "ls", start: 0, end: 2 }]
+      const submit = createPromptSubmit({
+        prompt,
+        info: () => undefined,
+        imageAttachments: () => [],
+        commentCount: () => 0,
+        autoAccept: () => false,
+        mode: () => (mode === "shell" ? "shell" : "normal"),
+        working: () => false,
+        editor: () => undefined,
+        queueScroll: () => undefined,
+        promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+        addToHistory: () => undefined,
+        resetHistoryNavigation: () => undefined,
+        setMode: () => undefined,
+        setPopover: () => undefined,
+        onSubmit: () => undefined,
+      })
+
+      await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+      await Bun.sleep(0)
+
+      expect(resolvedSessions).toEqual([recovered.id])
+      expect(sessionCreateInputs).toHaveLength(0)
+      if (mode === "missing") {
+        expect(sentShell).toHaveLength(0)
+        expect(promptInputs).toHaveLength(0)
+        expect(promptValue[0]).toMatchObject({ content: "ls" })
+        expect(toasts).toEqual([{ title: "prompt.toast.promptSendFailed.title", description: "Session not found" }])
+        return
+      }
+      expect(toasts).toHaveLength(0)
+      if (mode === "shell") {
+        expect(sentShell).toEqual([expect.objectContaining({ sessionID: recovered.id, command: "ls" })])
+        return
+      }
+      expect(promptInputs).toEqual([expect.objectContaining({ sessionID: recovered.id, prompt: { text: "ls" } })])
+      expect(optimistic).toEqual([expect.objectContaining({ directory: recovered.directory, sessionID: recovered.id })])
+    },
+  )
+
+  test("keeps the routed session target while recovery is in flight", async () => {
+    const recovered = {
+      id: "session-recovered",
+      projectID: "project",
+      directory: "/repo/worktree-a",
+      title: "Recovered",
+      version: "1",
+      time: { created: 1, updated: 1 },
+    } as Session
+    sessions.set(recovered.id, recovered)
+    params = { id: recovered.id }
+    resolveSessionGate = new Promise<void>((resolve) => {
+      releaseResolveSession = resolve
+    })
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const result = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await Bun.sleep(0)
+    params = { id: "session-other" }
+    releaseResolveSession?.()
+    await result
+    await Bun.sleep(0)
+
+    expect(resolvedSessions).toEqual([recovered.id])
+    expect(promptInputs).toEqual([expect.objectContaining({ sessionID: recovered.id })])
+  })
+
   test("reads the latest worktree accessor value per submit", async () => {
     const submit = createPromptSubmit({
       prompt,
@@ -644,6 +883,10 @@ describe("prompt submit worktree selection", () => {
     promptValue = [{ type: "text", content: "ls", start: 0, end: 2 }]
     await submit.handleSubmit(event)
 
+    expect(deliveries).toEqual([
+      { kind: "shell", directory: "/repo/worktree-a", server: "server-a" },
+      { kind: "shell", directory: "/repo/worktree-b", server: "server-a" },
+    ])
     expect(createdClients).toEqual(["/repo/worktree-a", "/repo/worktree-b"])
     expect(createdSessions).toEqual(["/repo/worktree-a", "/repo/worktree-b"])
     expect(sessionCreateInputs).toEqual([
@@ -775,7 +1018,7 @@ describe("prompt submit worktree selection", () => {
 
     const submit = createPromptSubmit({
       prompt,
-      info: () => ({ id: "session-1" }),
+      info: () => ({ id: "session-1" }) as Session,
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,
@@ -819,7 +1062,7 @@ describe("prompt submit worktree selection", () => {
 
     const submit = createPromptSubmit({
       prompt,
-      info: () => ({ id: "session-1" }),
+      info: () => ({ id: "session-1" }) as Session,
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,
@@ -854,7 +1097,7 @@ describe("prompt submit worktree selection", () => {
     } as unknown as ModelSelection
     const submit = createPromptSubmit({
       prompt,
-      info: () => ({ id: "session-1" }),
+      info: () => ({ id: "session-1" }) as Session,
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,
@@ -907,5 +1150,80 @@ describe("prompt submit worktree selection", () => {
     expect(storedSessions["/repo/worktree-a"]).toHaveLength(1)
     expect(storedSessions["/repo/worktree-a"]?.[0]).toMatchObject({ id: "session-1", title: "New session 1" })
     expect(optimisticSeeded).toEqual([true])
+  })
+})
+
+describe("prompt submit directory ownership", () => {
+  for (const selection of ["main", "/repo/worktree-a", "create"]) {
+    for (const kind of ["shell", "prompt", "command"] as const) {
+      test("sends " + kind + " through the selected directory: " + selection, async () => {
+        selected = selection
+        const directory = selection === "create" ? "/repo/main/new" : selection === "main" ? "/repo/main" : selection
+        if (kind === "command") {
+          protocol = "v1"
+          commands.push({ name: "test" })
+          promptValue = [{ type: "text", content: "/test argument", start: 0, end: 14 }]
+        }
+        if (selection === "create") Worktree.ready(ServerScope.local, directory)
+        const submit = createPromptSubmit({
+          prompt,
+          info: () => undefined,
+          imageAttachments: () => [],
+          commentCount: () => 0,
+          autoAccept: () => true,
+          mode: () => (kind === "shell" ? "shell" : "normal"),
+          working: () => false,
+          editor: () => undefined,
+          queueScroll: () => undefined,
+          promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+          addToHistory: () => undefined,
+          resetHistoryNavigation: () => undefined,
+          setMode: () => undefined,
+          setPopover: () => undefined,
+          newSessionWorktree: () => selected,
+        })
+        await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+        await Bun.sleep(10)
+        expect(toasts).toHaveLength(0)
+        expect(createdSessions).toEqual([directory])
+        expect(deliveries).toEqual([{ kind, directory, server: "server-a" }])
+        expect(enabledAutoAccept).toEqual([{ server: "server-a", directory, sessionID: "session-1" }])
+        if (kind === "prompt") expect(optimistic[0]).toMatchObject({ directory, sessionID: "session-1" })
+      })
+    }
+  }
+
+  test("keeps the captured server and directory while session creation is pending", async () => {
+    let release!: () => void
+    createSessionGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => true,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+    })
+    const sending = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await Bun.sleep(0)
+    activeServer = "server-b"
+    permissionServer = "server-b"
+    selected = "/repo/worktree-b"
+    params = { id: "different-route" }
+    release()
+    await sending
+    expect(deliveries).toEqual([{ kind: "shell", directory: "/repo/worktree-a", server: "server-a" }])
+    expect(enabledAutoAccept).toEqual([{ server: "server-a", directory: "/repo/worktree-a", sessionID: "session-1" }])
   })
 })

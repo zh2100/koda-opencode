@@ -1,7 +1,7 @@
 import { RelayPolicy } from "../../src/relay-policy"
 
 export const providerID = RelayPolicy.ProviderID
-export const baseURL = RelayPolicy.BaseURL
+export const baseURL = "https://provider.test/v1"
 
 export const builtinVendors = [
   { id: "chatgpt", name: "ChatGPT", builtin: true },

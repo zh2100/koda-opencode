@@ -1,4 +1,5 @@
-import { afterAll, describe, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { Global } from "@opencode-ai/core/global"
 import { Context, Effect } from "effect"
 import path from "path"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
@@ -6,6 +7,9 @@ import { FilePaths } from "../../src/server/routes/instance/httpapi/groups/file"
 import { resetDatabase } from "../fixture/db"
 import { tmpdir } from "../fixture/fixture"
 import { pollWithTimeout } from "../lib/effect"
+import { installedPlugin } from "./installed-plugin"
+
+beforeAll(() => installedPlugin(Global.Path.config))
 
 const context = Context.empty() as Context.Context<unknown>
 

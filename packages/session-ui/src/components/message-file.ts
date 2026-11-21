@@ -11,7 +11,7 @@ export function inline(part: FilePart) {
 }
 
 export function kind(part: FilePart) {
-  return part.mime.startsWith("image/") ? "image" : "file"
+  return typeof part.mime === "string" && part.mime.startsWith("image/") ? "image" : "file"
 }
 
 // language metadata only; grammars stay behind shiki's lazy imports

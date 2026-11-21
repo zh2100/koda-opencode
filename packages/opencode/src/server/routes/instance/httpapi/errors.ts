@@ -166,6 +166,51 @@ export class PtyForbiddenError extends Schema.TaggedErrorClass<PtyForbiddenError
   { httpApiStatus: 403 },
 ) {}
 
+const mcpConfigCodes = [
+  "MCP_SOURCE_MISSING",
+  "MCP_SOURCE_READ_ONLY",
+  "MCP_SOURCE_CHANGED",
+  "MCP_SOURCE_ALIAS_UNSUPPORTED",
+  "MCP_VERSION_CONFLICT",
+  "MCP_ENTRY_MISSING",
+  "MCP_DOCUMENT_INVALID",
+  "MCP_SOURCE_READ_FAILED",
+  "MCP_LOCK_TIMEOUT",
+  "MCP_WRITE_FAILED",
+] as const
+
+export class McpConfigNotFoundError extends Schema.TaggedErrorClass<McpConfigNotFoundError>()(
+  "McpConfigNotFoundError",
+  { code: Schema.Literals(["MCP_SOURCE_MISSING", "MCP_ENTRY_MISSING"]), ref: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+
+export class McpConfigForbiddenError extends Schema.TaggedErrorClass<McpConfigForbiddenError>()(
+  "McpConfigForbiddenError",
+  { code: Schema.Literals(["MCP_SOURCE_READ_ONLY"]), ref: Schema.String },
+  { httpApiStatus: 403 },
+) {}
+
+export class McpConfigConflictError extends Schema.TaggedErrorClass<McpConfigConflictError>()(
+  "McpConfigConflictError",
+  { code: Schema.Literals(["MCP_SOURCE_CHANGED", "MCP_VERSION_CONFLICT", "MCP_SOURCE_ALIAS_UNSUPPORTED"]), ref: Schema.String },
+  { httpApiStatus: 409 },
+) {}
+
+export class McpConfigInvalidError extends Schema.TaggedErrorClass<McpConfigInvalidError>()(
+  "McpConfigInvalidError",
+  { code: Schema.Literals(["MCP_DOCUMENT_INVALID"]), ref: Schema.String },
+  { httpApiStatus: 400 },
+) {}
+
+export class McpConfigUnavailableError extends Schema.TaggedErrorClass<McpConfigUnavailableError>()(
+  "McpConfigUnavailableError",
+  { code: Schema.Literals(["MCP_SOURCE_READ_FAILED", "MCP_LOCK_TIMEOUT", "MCP_WRITE_FAILED"]), ref: Schema.String },
+  { httpApiStatus: 503 },
+) {}
+
+export type McpConfigCode = (typeof mcpConfigCodes)[number]
+
 export class ProjectNotFoundError extends Schema.TaggedErrorClass<ProjectNotFoundError>()(
   "ProjectNotFoundError",
   {
@@ -191,3 +236,16 @@ export function notFound(message: string) {
     data: { message },
   })
 }
+
+export class ProjectConfigInvalidError extends Schema.TaggedErrorClass<ProjectConfigInvalidError>()("ProjectConfigInvalidError", {
+  code: Schema.Literals(["CONFIG_DOCUMENT_INVALID", "CONFIG_PATCH_INVALID"]), ref: Schema.String,
+}, { httpApiStatus: 400 }) {}
+export class ProjectConfigForbiddenError extends Schema.TaggedErrorClass<ProjectConfigForbiddenError>()("ProjectConfigForbiddenError", {
+  code: Schema.Literals(["CONFIG_PROJECT_DISABLED", "CONFIG_SOURCE_READ_ONLY", "CONFIG_TARGET_OUTSIDE_PROJECT"]), ref: Schema.String,
+}, { httpApiStatus: 403 }) {}
+export class ProjectConfigConflictError extends Schema.TaggedErrorClass<ProjectConfigConflictError>()("ProjectConfigConflictError", {
+  code: Schema.Literals(["CONFIG_SOURCE_CHANGED", "CONFIG_SOURCE_OVERRIDDEN", "CONFIG_PATH_ALIAS_UNSUPPORTED", "CONFIG_TEMPLATE_EDIT_UNSUPPORTED"]), ref: Schema.String,
+}, { httpApiStatus: 409 }) {}
+export class ProjectConfigUnavailableError extends Schema.TaggedErrorClass<ProjectConfigUnavailableError>()("ProjectConfigUnavailableError", {
+  code: Schema.Literals(["CONFIG_SOURCE_READ_FAILED", "CONFIG_LOCK_TIMEOUT", "CONFIG_WRITE_FAILED", "CONFIG_REFRESH_CAPACITY_EXHAUSTED", "CONFIG_COMMIT_UNKNOWN"]), ref: Schema.String,
+}, { httpApiStatus: 503 }) {}

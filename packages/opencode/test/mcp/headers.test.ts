@@ -4,10 +4,12 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Effect } from "effect"
+import { Config } from "../../src/config/config"
+import { TestConfig } from "../fixture/config"
 import { testEffect } from "../lib/effect"
 import { MCP } from "../../src/mcp/index"
 
-const it = testEffect(LayerNode.compile(MCP.node))
+const it = testEffect(LayerNode.compile(MCP.node, [[Config.node, TestConfig.layer()]]))
 
 const serve = Effect.acquireRelease(
   Effect.promise(async () => {

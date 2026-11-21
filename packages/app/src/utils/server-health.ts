@@ -95,11 +95,17 @@ export async function checkServerHealth(
   const attempt = async (count: number): Promise<ServerHealth> => {
     const current = await createGeneratedApiForServer({ server, fetch })
       .health.get({ signal })
-      .then((x) =>
-        typeof x.healthy === "boolean"
-          ? { data: { healthy: x.healthy, gates: x.gates } }
-          : { error: new Error("Invalid health response") },
-      )
+      .then((x) => {
+        const health = x as { healthy?: unknown; version?: unknown; gates?: RelayGates }
+        if (typeof health.healthy !== "boolean") return { error: new Error("Invalid health response") }
+        return {
+          data: {
+            healthy: health.healthy,
+            ...(typeof health.version === "string" ? { version: health.version } : {}),
+            ...(health.gates ? { gates: health.gates } : {}),
+          },
+        }
+      })
       .catch((error) => ({ error }))
     if ("data" in current && current.data) return current.data
     if (signal?.aborted) return { healthy: false }

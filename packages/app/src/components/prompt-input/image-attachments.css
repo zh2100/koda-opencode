@@ -40,4 +40,21 @@
     animation-timeline: --prompt-attachments-scroll;
     animation-range: calc(100% - 1.1px) calc(100% - 1px);
   }
+
+  /* The inline scroll timeline runs in the opposite physical direction in RTL. */
+  [data-slot="prompt-attachments"]:dir(rtl) [data-slot="prompt-attachments-fade-left"] {
+    animation-name: prompt-attachments-fade-right;
+  }
+
+  [data-slot="prompt-attachments"]:dir(rtl) [data-slot="prompt-attachments-fade-right"] {
+    animation-name: prompt-attachments-fade-left;
+  }
+
+  [data-slot="prompt-attachments"]:dir(rtl) [data-slot="prompt-attachments-fade-left"] {
+    background: linear-gradient(to left, var(--v2-background-bg-base), transparent);
+  }
+
+  [data-slot="prompt-attachments"]:dir(rtl) [data-slot="prompt-attachments-fade-right"] {
+    background: linear-gradient(to right, var(--v2-background-bg-base), transparent);
+  }
 }

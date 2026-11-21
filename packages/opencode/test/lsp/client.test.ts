@@ -1,9 +1,20 @@
-import { describe, expect, test } from "bun:test"
+import { afterAll, describe, expect, test } from "bun:test"
 import path from "path"
 import { pathToFileURL } from "url"
-import { tmpdir, withTestInstance } from "../fixture/fixture"
+import { ManagedRuntime } from "effect"
+import { InstanceStore } from "@/project/instance-store"
+import type { InstanceContext } from "@/project/instance-context"
+import { testInstanceStoreLayer, tmpdir } from "../fixture/fixture"
 import { LSPClient } from "@/lsp/client"
 import * as LSPServer from "@/lsp/server"
+
+const runtime = ManagedRuntime.make(testInstanceStoreLayer)
+afterAll(() => runtime.dispose())
+
+async function withTestInstance<A>(input: { directory: string; fn: (ctx: InstanceContext) => Promise<A> }) {
+  const ctx = await runtime.runPromise(InstanceStore.Service.use((store) => store.load({ directory: input.directory })))
+  return input.fn(ctx)
+}
 
 function spawnFakeServer() {
   const { spawn } = require("child_process")

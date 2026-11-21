@@ -17,7 +17,7 @@ import type { Argv } from "yargs"
 import path from "path"
 import { pathToFileURL } from "url"
 import { open } from "node:fs/promises"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { UI } from "../ui"
 import { effectCmd } from "../effect-cmd"
 import { EOL } from "os"
@@ -126,11 +126,12 @@ async function toolError(part: ToolPart) {
 export const RunCommand = effectCmd({
   command: "run [message..]",
   describe: "run opencode with a message",
-  // --attach connects to a remote server (no local instance needed); the
-  // default path runs an in-process server and needs the project instance.
-  instance: (args) => !args.attach,
-  // For --dir without --attach, load instance for the resolved target dir.
-  // The handler also chdirs (preserving the legacy order: chdir → file resolution).
+  // Remote attach and non-interactive runs both create/load their instance through
+  // the server request. Only mini mode needs the instance before the handler starts.
+  instance: (args) => !args.attach && (Boolean(args.mini) || args.agent !== undefined),
+  // For --dir without --attach, use the resolved target directory when mini mode
+  // needs an eagerly loaded instance. The handler also chdirs (preserving the
+  // legacy order: chdir → file resolution).
   directory: (args) => (args.dir && !args.attach ? path.resolve(process.cwd(), args.dir) : process.cwd()),
   builder: (yargs: Argv) =>
     yargs
@@ -261,13 +262,13 @@ export const RunCommand = effectCmd({
         describe: "enable direct interactive demo slash commands; pass one as the message to run it immediately",
       }),
   handler: Effect.fn("Cli.run")(function* (args) {
-    const { Agent } = yield* Effect.promise(() => import("@/agent/agent"))
     const { RuntimeFlags } = yield* Effect.promise(() => import("@/effect/runtime-flags"))
-    const { InstanceRef } = yield* Effect.promise(() => import("@/effect/instance-ref"))
     const { ServerAuth } = yield* Effect.promise(() => import("@/server/auth"))
-    const agentSvc = yield* Agent.Service
+    const agentModule = args.agent ? yield* Effect.promise(() => import("@/agent/agent")) : undefined
+    const instanceRefModule = args.agent ? yield* Effect.promise(() => import("@/effect/instance-ref")) : undefined
+    const agentSvc = agentModule ? yield* agentModule.Agent.Service : undefined
     const flags = yield* RuntimeFlags.Service
-    const localInstance = yield* InstanceRef
+    const localInstance = instanceRefModule ? yield* Effect.serviceOption(instanceRefModule.InstanceRef) : Option.none()
     yield* Effect.promise(async () => {
       const rawMessage = [...args.message, ...(args["--"] || [])].join(" ")
       const interactive = args.mini
@@ -596,8 +597,12 @@ export const RunCommand = effectCmd({
         if (!args.agent) return undefined
         const name = args.agent
 
+        if (!agentSvc || !instanceRefModule || Option.isNone(localInstance)) {
+          throw new Error("The local agent requires an instance")
+        }
+
         const entry = await Effect.runPromise(
-          agentSvc.get(name).pipe(Effect.provideService(InstanceRef, localInstance)),
+          agentSvc.get(name).pipe(Effect.provideService(instanceRefModule.InstanceRef, localInstance.value)),
         )
         if (!entry) {
           UI.println(

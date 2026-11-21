@@ -7,7 +7,10 @@ describe("TaskOrchestratorRetry", () => {
   test("completes an approved review", () => {
     expect(
       TaskOrchestratorRetry.transition({
-        review: TaskOrchestratorReview.store('{"approved":true,"findings":[]}', TaskOrchestratorReview.plan('{"approved":true,"findings":[]}', 0, 1)),
+        review: TaskOrchestratorReview.store(
+          '{"approved":true,"findings":[]}',
+          TaskOrchestratorReview.plan('{"approved":true,"findings":[]}', 0, 1),
+        ),
         maxRetries: 1,
         stepRetryCount: 0,
       }),
@@ -37,8 +40,17 @@ describe("TaskOrchestratorRetry", () => {
   })
 
   test("does not retry a revision without a worker prompt", () => {
-    const review = { kind: "review", reviewerOutput: "x", approved: false, findings: [], action: "revise", retryCount: 0 } as const
-    expect(TaskOrchestratorRetry.transition({ review, maxRetries: 2, stepRetryCount: 0 })).toMatchObject({ action: "fail" })
+    const review = {
+      kind: "review",
+      reviewerOutput: "x",
+      approved: false,
+      findings: [],
+      action: "revise",
+      retryCount: 0,
+    } as const
+    expect(TaskOrchestratorRetry.transition({ review, maxRetries: 2, stepRetryCount: 0 })).toMatchObject({
+      action: "fail",
+    })
   })
 
   test("defines a typed conflict for stale or terminal database state", () => {

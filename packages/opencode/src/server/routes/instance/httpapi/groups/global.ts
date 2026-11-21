@@ -1,3 +1,4 @@
+import { ProjectConfigInvalidError, ProjectConfigForbiddenError, ProjectConfigConflictError, ProjectConfigUnavailableError } from "../errors"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { EventV2 } from "@opencode-ai/core/event"
 import { EventManifest } from "@/event-manifest"
@@ -115,7 +116,7 @@ export const GlobalApi = HttpApi.make("global").add(
       HttpApiEndpoint.patch("configUpdate", GlobalPaths.config, {
         payload: ConfigV1.Info,
         success: described(ConfigV1.Info, "Successfully updated global config"),
-        error: HttpApiError.BadRequest,
+        error: [HttpApiError.BadRequest, ProjectConfigInvalidError, ProjectConfigForbiddenError, ProjectConfigConflictError, ProjectConfigUnavailableError],
       }).annotateMerge(
         OpenApi.annotations({
           identifier: "global.config.update",

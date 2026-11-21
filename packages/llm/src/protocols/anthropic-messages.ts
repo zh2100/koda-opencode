@@ -1,3 +1,4 @@
+import { ToolErrorProjection } from "../tool-error-projection"
 import { Effect, Schema } from "effect"
 import { Route } from "../route/client"
 import { Auth } from "../route/auth"
@@ -301,7 +302,13 @@ const lowerServerToolResult = Effect.fn("AnthropicMessages.lowerServerToolResult
   const wireType = serverToolResultType(part.name)
   if (!wireType)
     return yield* invalid(`Anthropic Messages does not know how to round-trip server tool result for ${part.name}`)
-  return { type: wireType, tool_use_id: part.id, content: part.result.value } satisfies AnthropicServerToolResultBlock
+  const error = part.result.type === "error" ? ToolErrorProjection.anthropicValue(part.name, part.result) : undefined
+  if (part.result.type === "error" && !error) return yield* invalid("Hosted tool failure cannot be safely continued")
+  return {
+    type: wireType,
+    tool_use_id: part.id,
+    content: error ?? part.result.value,
+  } satisfies AnthropicServerToolResultBlock
 })
 
 const lowerImage = Effect.fn("AnthropicMessages.lowerImage")(function* (part: MediaPart) {

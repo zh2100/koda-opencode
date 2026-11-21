@@ -244,3 +244,67 @@ const modelSwitchedEvent = {
     model: { id: "claude", providerID: "anthropic" },
   },
 }
+
+test("Effect relay client encodes guarded creates and sync and preserves receipt/null/zero", async () => {
+  const { Relay } = await import("@opencode-ai/schema/relay")
+  const requests: Array<{ url: string; body: unknown }> = []
+  let revision: number | null = null
+  const state = {
+    vendors: [],
+    revision: 1,
+    capabilities: [
+      "independent-vendors-v1",
+      "vendor-entity-v1",
+      "vendor-create-receipt-v1",
+      "catalog-sync-v1",
+      "notice-retry-v1",
+    ],
+  }
+  const httpClient = HttpClient.make((request) => {
+    const body =
+      request.body._tag === "Uint8Array" ? JSON.parse(new TextDecoder().decode(request.body.body)) : undefined
+    requests.push({ url: request.url, body })
+    return Effect.succeed(
+      HttpClientResponse.fromWeb(
+        request,
+        Response.json(
+          request.url.endsWith("/sync")
+            ? { auth: state, candidates: [], managed: [], catalogRevision: revision, notice: { status: "exhausted" } }
+            : {
+                ...state,
+                catalogSync: { status: "pending", retryable: true },
+                operationReceipt: {
+                  operationId: "create-effect",
+                  kind: "vendor-create",
+                  vendorId: "review",
+                  entityId: "entity",
+                  committedRevision: 1,
+                },
+              },
+        ),
+      ),
+    )
+  })
+  const result = await Effect.gen(function* () {
+    const client = yield* OpenCode.make({ baseUrl: "http://localhost:3000" })
+    const relay = client["server.relay"]
+    const created = yield* relay.vendor({
+      vendorId: Relay.VendorID.make("review"),
+      createOnly: true,
+      revision: 0,
+      operationId: "create-effect",
+    })
+    const historical = yield* relay.sync({ retryNotice: true })
+    revision = 0
+    const zero = yield* relay.sync()
+    return { created, historical, zero }
+  }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
+  expect(result.created.operationReceipt?.operationId).toBe("create-effect")
+  expect(result.created.catalogSync).toEqual({ status: "pending", retryable: true })
+  expect(result.historical.catalogRevision).toBeNull()
+  expect(result.zero.catalogRevision).toBe(0)
+  expect(result.zero.notice.status).toBe("exhausted")
+  expect(result.zero.auth.capabilities).toContain("catalog-sync-v1")
+  expect(requests[0]?.body).toMatchObject({ createOnly: true, operationId: "create-effect" })
+  expect(requests[1]).toEqual({ url: "http://localhost:3000/api/relay/models/sync", body: { retryNotice: true } })
+})

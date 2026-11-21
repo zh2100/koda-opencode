@@ -1,9 +1,22 @@
+import { Schema } from "effect"
+import { ConfigMCPV1 } from "@opencode-ai/core/v1/config/mcp"
 import { Config } from "@/config/config"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { Provider } from "@/provider/provider"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import {
+  ProjectConfigInvalidError,
+  ProjectConfigForbiddenError,
+  ProjectConfigConflictError,
+  ProjectConfigUnavailableError,
+  McpConfigConflictError,
+  McpConfigForbiddenError,
+  McpConfigInvalidError,
+  McpConfigNotFoundError,
+  McpConfigUnavailableError,
+} from "../errors"
 import { Authorization } from "../middleware/authorization"
-import { InstanceContextMiddleware } from "../middleware/instance-context"
+import { ConfigContextMiddleware, ConfigWriteContextMiddleware, ProjectConfigWriteContextMiddleware, InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware, WorkspaceRoutingQuery } from "../middleware/workspace-routing"
 import { described } from "./metadata"
 
@@ -16,7 +29,7 @@ export const ConfigApi = HttpApi.make("config")
         HttpApiEndpoint.get("get", root, {
           query: WorkspaceRoutingQuery,
           success: described(ConfigV1.Info, "Get config info"),
-        }).annotateMerge(
+        }).middleware(InstanceContextMiddleware).annotateMerge(
           OpenApi.annotations({
             identifier: "config.get",
             summary: "Get configuration",
@@ -27,18 +40,62 @@ export const ConfigApi = HttpApi.make("config")
           query: WorkspaceRoutingQuery,
           payload: ConfigV1.Info,
           success: described(ConfigV1.Info, "Successfully updated config"),
-          error: HttpApiError.BadRequest,
-        }).annotateMerge(
+          error: [HttpApiError.BadRequest, ProjectConfigInvalidError, ProjectConfigForbiddenError, ProjectConfigConflictError, ProjectConfigUnavailableError],
+        }).middleware(ProjectConfigWriteContextMiddleware).annotateMerge(
           OpenApi.annotations({
             identifier: "config.update",
             summary: "Update configuration",
             description: "Update OpenCode configuration settings and preferences.",
           }),
         ),
+        HttpApiEndpoint.get("mcpSource", `${root}/mcp/:name`, {
+          params: { name: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: Schema.UndefinedOr(
+            Schema.Struct({
+              source: Schema.String,
+              version: Schema.String,
+              writable: Schema.Boolean,
+              config: Schema.Union([ConfigMCPV1.Info, Schema.Struct({ enabled: Schema.Boolean })]),
+            }),
+          ),
+          error: [
+            McpConfigNotFoundError,
+            McpConfigForbiddenError,
+            McpConfigConflictError,
+            McpConfigInvalidError,
+            McpConfigUnavailableError,
+          ],
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "config.mcpSource", summary: "Read MCP configuration source" }),
+        ),
+        HttpApiEndpoint.patch("updateMcp", `${root}/mcp/:name`, {
+          params: { name: Schema.String },
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Struct({
+            source: Schema.String,
+            version: Schema.String,
+            patch: Schema.Struct({
+              type: Schema.optional(Schema.Literals(["local", "remote"])),
+              command: Schema.optional(Schema.Array(Schema.String)),
+              url: Schema.optional(Schema.String),
+            }),
+          }),
+          success: Schema.Boolean,
+          error: [
+            McpConfigNotFoundError,
+            McpConfigForbiddenError,
+            McpConfigConflictError,
+            McpConfigInvalidError,
+            McpConfigUnavailableError,
+          ],
+        }).middleware(ConfigWriteContextMiddleware).annotateMerge(
+          OpenApi.annotations({ identifier: "config.updateMcp", summary: "Update MCP at its configuration source" }),
+        ),
         HttpApiEndpoint.get("providers", `${root}/providers`, {
           query: WorkspaceRoutingQuery,
           success: described(Provider.ConfigProvidersResult, "List of providers"),
-        }).annotateMerge(
+        }).middleware(InstanceContextMiddleware).annotateMerge(
           OpenApi.annotations({
             identifier: "config.providers",
             summary: "List config providers",
@@ -52,7 +109,7 @@ export const ConfigApi = HttpApi.make("config")
           description: "Experimental HttpApi config routes.",
         }),
       )
-      .middleware(InstanceContextMiddleware)
+      .middleware(ConfigContextMiddleware)
       .middleware(WorkspaceRoutingMiddleware)
       .middleware(Authorization),
   )

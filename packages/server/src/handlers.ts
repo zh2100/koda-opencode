@@ -20,6 +20,7 @@ import { ProjectCopyHandler } from "./handlers/project-copy"
 import { OrchestratorHandler } from "./handlers/orchestrator"
 import { RelayHandler } from "./handlers/relay"
 import { ScheduledTaskHandler } from "./handlers/scheduled-task"
+import { ImageGenerationHandler } from "./handlers/image-generation"
 
 export const handlers = Layer.mergeAll(
   HealthHandler,
@@ -33,6 +34,7 @@ export const handlers = Layer.mergeAll(
   CredentialHandler,
   RelayHandler,
   ScheduledTaskHandler,
+  ImageGenerationHandler,
   PermissionHandler,
   FileSystemHandler,
   CommandHandler,

@@ -48,45 +48,64 @@ describe("TaskOrchestrator end to end", () => {
       }
     }).pipe(
       Effect.provide(TaskOrchestrator.layer),
-      Effect.provide(Layer.mergeAll(
-        Layer.effect(Database.Service, makeDb.pipe(Effect.map((db) => ({ db })))),
-         Layer.succeed(SessionV2.Service, {
-          get: (id: SessionSchema.ID) => Effect.succeed(id === session ? info : { ...info, id, location: { directory: "C:/isolated" } }),
-          create: () => Effect.sync(() => {
-            calls.push("private-session")
-            return { ...info, id: SessionSchema.ID.make("ses_private") }
-          }),
-          interrupt: () => Effect.void,
-          switchAgent: ({ sessionID, agent }: { sessionID: SessionSchema.ID; agent: string }) => Effect.sync(() => calls.push(`agent:${sessionID}:${agent}`)),
-          switchModel: ({ sessionID, model }: { sessionID: SessionSchema.ID; model: ModelV2.Ref }) => Effect.sync(() => calls.push(`model:${sessionID}:${model.providerID}/${model.id}`)),
-          notice: ({ text }: { text: string }) => Effect.sync(() => notices.push(text)),
-          recordPrompt: () => Effect.succeed("prompt-message"),
-           prompt: ({ sessionID, prompt }: { sessionID: SessionSchema.ID; prompt: { text: string } }) => Effect.sync(() => {
-             prompts.push({ sessionID, text: prompt.text })
-             return { id: "prompt" }
-           }),
-           resume: () => Effect.void,
-           active: Effect.succeed(new Set()),
-           context: () => Effect.succeed([{
-             id: "assistant",
-             type: "assistant",
-             time: { created: Date.now(), completed: Date.now() },
-             content: [{ type: "text", id: "text", text: '{"approved":true,"findings":[]}' }],
-           }]),
-         } as never),
-         SessionExecution.noopLayer,
-        WorkspaceOwnership.layer,
-        Layer.succeed(TaskOrchestratorWorkerSchedulerService.Service, { schedule: () => Effect.sync(() => calls.push("schedule")) } as never),
-        Layer.succeed(TesterSessionBridge.Service, {
-          use: ({ run }: { run: (id: SessionSchema.ID) => Effect.Effect<unknown> }) => run(SessionSchema.ID.make("ses_tester")),
-        } as never),
-        Layer.succeed(Git.Service, { repo: { discover: () => Effect.succeed(undefined) } } as never),
-      )),
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.effect(Database.Service, makeDb.pipe(Effect.map((db) => ({ db })))),
+          Layer.succeed(SessionV2.Service, {
+            get: (id: SessionSchema.ID) =>
+              Effect.succeed(id === session ? info : { ...info, id, location: { directory: "C:/isolated" } }),
+            create: () =>
+              Effect.sync(() => {
+                calls.push("private-session")
+                return { ...info, id: SessionSchema.ID.make("ses_private") }
+              }),
+            interrupt: () => Effect.void,
+            switchAgent: ({ sessionID, agent }: { sessionID: SessionSchema.ID; agent: string }) =>
+              Effect.sync(() => calls.push(`agent:${sessionID}:${agent}`)),
+            switchModel: ({ sessionID, model }: { sessionID: SessionSchema.ID; model: ModelV2.Ref }) =>
+              Effect.sync(() => calls.push(`model:${sessionID}:${model.providerID}/${model.id}`)),
+            notice: ({ text }: { text: string }) => Effect.sync(() => notices.push(text)),
+            recordPrompt: () => Effect.succeed("prompt-message"),
+            prompt: ({ sessionID, prompt }: { sessionID: SessionSchema.ID; prompt: { text: string } }) =>
+              Effect.sync(() => {
+                prompts.push({ sessionID, text: prompt.text })
+                return { id: "prompt" }
+              }),
+            resume: () => Effect.void,
+            active: Effect.succeed(new Set()),
+            context: () =>
+              Effect.succeed([
+                {
+                  id: "assistant",
+                  type: "assistant",
+                  time: { created: Date.now(), completed: Date.now() },
+                  content: [{ type: "text", id: "text", text: '{"approved":true,"findings":[]}' }],
+                },
+              ]),
+          } as never),
+          SessionExecution.noopLayer,
+          WorkspaceOwnership.layer,
+          Layer.succeed(TaskOrchestratorWorkerSchedulerService.Service, {
+            schedule: () => Effect.sync(() => calls.push("schedule")),
+          } as never),
+          Layer.succeed(TesterSessionBridge.Service, {
+            use: ({ run }: { run: (id: SessionSchema.ID) => Effect.Effect<unknown> }) =>
+              run(SessionSchema.ID.make("ses_tester")),
+          } as never),
+          Layer.succeed(Git.Service, { repo: { discover: () => Effect.succeed(undefined) } } as never),
+        ),
+      ),
       Effect.provide(sqlite),
       Effect.scoped,
       Effect.runPromise,
     )
-    expect(result.steps.map((item) => item.status)).toEqual(["completed", "completed", "completed", "completed", "completed"])
+    expect(result.steps.map((item) => item.status)).toEqual([
+      "completed",
+      "completed",
+      "completed",
+      "completed",
+      "completed",
+    ])
     expect(result.task[0]?.status).toBe("completed")
     expect(calls).toContain("model:ses_private:openai/gpt-5")
     expect(calls).toContain("model:ses_private:openai/review")

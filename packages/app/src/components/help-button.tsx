@@ -10,9 +10,6 @@ import introducingTabsVideo from "@/assets/help/introducing-tabs.mp4"
 import homeImage from "@/assets/help/home.png"
 import tabsImage from "@/assets/help/tabs.png"
 
-// TODO: wire to changelog / seen-state when available
-const showPopover = () => true
-
 // can remove this after the tabs rollout has been out for a while
 export function TabsInfoPopup() {
   const settings = useSettings()

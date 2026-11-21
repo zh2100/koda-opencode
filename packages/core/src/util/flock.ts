@@ -1,9 +1,10 @@
 import path from "path"
 import os from "os"
 import { randomBytes, randomUUID } from "crypto"
-import { mkdir, readFile, rm, stat, utimes, writeFile } from "fs/promises"
+import { mkdir, readFile, rm, utimes, writeFile } from "fs/promises"
 import { Hash } from "./hash"
 import { LockProtocol } from "./lock-protocol"
+import { LockOwner } from "./lock-owner"
 import { NativeFileLock } from "./native-file-lock"
 import { ResourceRoot } from "../resource-root"
 import { Effect } from "effect"
@@ -112,39 +113,9 @@ export namespace Flock {
     return performance.now()
   }
 
-  function wall() {
-    return performance.timeOrigin + mono()
-  }
-
-  async function stats(file: string) {
-    try {
-      return await stat(file)
-    } catch (err) {
-      const errCode = code(err)
-      if (errCode === "ENOENT" || errCode === "ENOTDIR") return
-      throw err
-    }
-  }
-
-  async function stale(lockDir: string, heartbeatPath: string, metaPath: string, staleMs: number) {
-    // Stale detection allows automatic recovery after crashed owners.
-    const now = wall()
-    const heartbeat = await stats(heartbeatPath)
-    if (heartbeat) {
-      return now - heartbeat.mtimeMs > staleMs
-    }
-
-    const meta = await stats(metaPath)
-    if (meta) {
-      return now - meta.mtimeMs > staleMs
-    }
-
-    const dir = await stats(lockDir)
-    if (!dir) {
-      return false
-    }
-
-    return now - dir.mtimeMs > staleMs
+  async function ownerExited(metaPath: string) {
+    const raw = await readFile(metaPath, "utf8").catch(() => undefined)
+    return LockOwner.diagnose(raw).reason === "exited-owner"
   }
 
   async function tryAcquireLockDir(lockDir: string, opts: Opts): Promise<Owned | { acquired: false }> {
@@ -159,7 +130,7 @@ export namespace Flock {
         throw err
       }
 
-      if (!(await stale(lockDir, heartbeatPath, metaPath, opts.staleMs))) {
+      if (!(await ownerExited(metaPath))) {
         return { acquired: false }
       }
 
@@ -168,13 +139,8 @@ export namespace Flock {
         await mkdir(breakerPath, { mode: 0o700 })
       } catch (claimErr) {
         const errCode = code(claimErr)
-        if (errCode === "EEXIST") {
-          const breaker = await stats(breakerPath)
-          if (breaker && wall() - breaker.mtimeMs > opts.staleMs) {
-            await rm(breakerPath, { recursive: true, force: true }).catch(() => undefined)
-          }
-          return { acquired: false }
-        }
+        // A paused breaker can resume; never revoke it by age.
+        if (errCode === "EEXIST") return { acquired: false }
 
         if (errCode === "ENOENT" || errCode === "ENOTDIR") {
           return { acquired: false }
@@ -185,7 +151,7 @@ export namespace Flock {
 
       try {
         // Breaker ownership ensures only one contender performs stale cleanup.
-        if (!(await stale(lockDir, heartbeatPath, metaPath, opts.staleMs))) {
+        if (!(await ownerExited(metaPath))) {
           return { acquired: false }
         }
 
@@ -226,7 +192,7 @@ export namespace Flock {
 
     const startHeartbeat = (intervalMs = Math.max(100, Math.floor(opts.staleMs / 3))) => {
       if (timer) return
-      // Heartbeat prevents long critical sections from being evicted as stale.
+      // Heartbeats are diagnostic only; ownership is never revoked by age.
       timer = setInterval(() => {
         const t = new Date()
         void utimes(heartbeatPath, t, t).catch(() => undefined)
@@ -374,6 +340,7 @@ export namespace Flock {
         ? await acquireNative(key, context, decision, input)
         : await acquireDirectory(key, context, decision, input, cfg)
     try {
+      input.signal?.throwIfAborted()
       LockProtocol.confirmCurrent(key, context, input.dir, decision)
     } catch (error) {
       await lease.release()
@@ -420,12 +387,20 @@ export namespace Flock {
 
   export const effect = Effect.fn("Flock.effect")(function* (key: string, input: Options = {}) {
     return yield* Effect.acquireRelease(
-      Effect.promise((signal) => Flock.acquire(key, { ...input, signal })).pipe(
-        Effect.withSpan("Flock.acquire", {
-          attributes: { key },
-        }),
-      ),
+      Effect.callback<Lease>((resume, signal) => {
+        const pending = Flock.acquire(key, {
+          ...input,
+          signal: input.signal ? AbortSignal.any([input.signal, signal]) : signal,
+        })
+        const bridge = NativeFileLock.handoff(pending, (result) =>
+          resume(result.status === "failed" ? Effect.die(result.cause) : Effect.succeed(result.value)),
+        )
+        return Effect.sync(() => bridge.cancel()).pipe(
+          Effect.andThen(Effect.promise(() => bridge.late((lease) => lease.release()).then(() => undefined))),
+        )
+      }).pipe(Effect.withSpan("Flock.acquire", { attributes: { key } })),
       (lock) => Effect.promise(() => lock.release()).pipe(Effect.withSpan("Flock.release")),
+      { interruptible: true },
     ).pipe(Effect.asVoid)
   })
 }

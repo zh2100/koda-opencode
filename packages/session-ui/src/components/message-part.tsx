@@ -1535,6 +1535,7 @@ function ToolFileAccordion(props: { path: string; actions?: JSX.Element; childre
 
 PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const data = useData()
+  const dialog = useDialog()
   const i18n = useI18n()
   const part = () => props.part as ToolPart
   if (part().tool === "todowrite") return null
@@ -1547,6 +1548,17 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const emptyMetadata: Record<string, any> = {}
 
   const input = () => part().state?.input ?? emptyInput
+  const images = createMemo(() => {
+    const state = part().state
+    return state.status === "completed"
+      ? (state.attachments ?? []).filter(
+          (attachment) =>
+            typeof attachment.mime === "string" &&
+            attachment.mime.startsWith("image/") &&
+            typeof attachment.url === "string",
+        )
+      : []
+  })
   // @ts-expect-error
   const partMetadata = () => part().state?.metadata ?? emptyMetadata
   const taskId = createMemo(() => {
@@ -1597,7 +1609,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                   onOpenChange={props.onToolOpenChange ? handleToolOpenChange : undefined}
                   subtitle={taskSubtitle()}
                   href={taskHref()}
-                   onSubtitleClick={(event) => {
+                  onSubtitleClick={(event) => {
                     if (!data.navigateToSession) return
                     if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
                     const id = taskId()
@@ -1632,6 +1644,34 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
               virtualizeDiff={props.virtualizeDiff}
               onContentRendered={props.onContentRendered}
             />
+            <Show when={images().length > 0}>
+              <div data-component="tool-image-attachments" class="mt-3 flex flex-wrap gap-3">
+                <For each={images()}>
+                  {(attachment) => (
+                    <button
+                      type="button"
+                      class="max-w-full rounded border border-border-weak-base bg-background-base"
+                      aria-label={attachment.filename ?? i18n.t("ui.imagePreview.alt")}
+                      onClick={() =>
+                        dialog.show(() => (
+                          <ImagePreview
+                            src={attachment.url}
+                            alt={attachment.filename ?? i18n.t("ui.imagePreview.alt")}
+                            mime={attachment.mime}
+                          />
+                        ))
+                      }
+                    >
+                      <img
+                        src={attachment.url}
+                        alt={attachment.filename ?? i18n.t("ui.imagePreview.alt")}
+                        class="max-h-[60vh] max-w-full object-contain"
+                      />
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
           </Match>
         </Switch>
       </div>

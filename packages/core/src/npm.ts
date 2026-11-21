@@ -34,7 +34,7 @@ export interface Interface {
         version?: string
       }[]
     },
-  ) => Effect.Effect<void, EffectFlock.LockError | InstallFailedError>
+  ) => Effect.Effect<void, InstallFailedError>
   readonly which: (pkg: string, bin?: string) => Effect.Effect<string | undefined>
 }
 
@@ -91,6 +91,8 @@ const layer = Layer.effect(
           savePrefix: "",
           ignoreScripts: true,
         })
+        // Arborist cannot cancel a dispatched reify Promise. Retain the scope's
+        // lock until it really settles; lock acquisition itself stays cancellable.
         return yield* Effect.tryPromise({
           try: () =>
             arborist.reify({
@@ -105,7 +107,7 @@ const layer = Layer.effect(
               add,
               dir: input.dir,
             }),
-        }) as Effect.Effect<ArboristTree, InstallFailedError>
+        }).pipe(Effect.uninterruptible) as Effect.Effect<ArboristTree, InstallFailedError>
       }).pipe(
         Effect.withSpan("Npm.reify", {
           attributes: input,
@@ -136,7 +138,7 @@ const layer = Layer.effect(
       return resolveEntryPoint(first.name, first.path)
     }, Effect.scoped)
 
-    const install: Interface["install"] = Effect.fn("Npm.install")(function* (dir, input) {
+    const install: Interface["install"] = (dir, input) => Effect.gen(function* () {
       const canWrite = yield* afs.access(dir, { writable: true }).pipe(
         Effect.as(true),
         Effect.orElseSucceed(() => false),
@@ -187,7 +189,10 @@ const layer = Layer.effect(
       }).pipe(Effect.withSpan("Npm.checkDirty"))
 
       return
-    }, Effect.scoped)
+    }).pipe(
+      Effect.scoped,
+      Effect.mapError((error) => (error instanceof InstallFailedError ? error : new InstallFailedError({ dir, cause: error }))),
+    )
 
     const which = Effect.fn("Npm.which")(function* (pkg: string, bin?: string) {
       const dir = directory(pkg)
