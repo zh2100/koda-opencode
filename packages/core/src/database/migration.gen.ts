@@ -46,5 +46,9 @@ export const migrations = (
     import("./migration/20261021100727_task_orchestrator_parallel"),
     import("./migration/20261107102331_scheduled-run-owner"),
     import("./migration/20261110124114_scheduled-cancel-epoch"),
+    import("./migration/20261123190132_image_attempt"),
+    import("./migration/20261124051520_image_edit"),
+    import("./migration/20261124150601_session_input_invalidation"),
+    import("./migration/20261125011752_masked_image_edit"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

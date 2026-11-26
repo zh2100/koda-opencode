@@ -2,7 +2,7 @@ export const dict: Record<string, string> = {
   "desktop.menu.about": "Koda གི་སྐོར་ལས།",
   "desktop.about.title": "Koda Desktop v{{version}}",
   "desktop.about.detail":
-    "OpenCode གཞི་རྟེན་སྦེ་ལག་ལེན་འཐབ་སྟེ་བསྒྱུར་བཅོས་འབད་ཡོདཔ།\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+    "OpenCode གཞི་རྟེན་སྦེ་ལག་ལེན་འཐབ་སྟེ་བསྒྱུར་བཅོས་འབད་ཡོདཔ།\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Koda v{{version}} ཐོབ་ཚུགས། ཡར་སེང་འབད་ནི་ལུ་གསར་བཏོན་ཤོག་ལེབ་ཁ་ཕྱེ་ནི་ཨིན་ན?",
   "desktop.koda.update.open": "གསར་བཏོན་ཤོག་ལེབ་ཁ་ཕྱེ།",
   "command.project.create": "ལས་གཞི་གསརཔ།",

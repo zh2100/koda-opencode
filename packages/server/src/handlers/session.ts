@@ -181,6 +181,23 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
         }),
       )
       .handle(
+        "session.pending",
+        Effect.fn(function* (ctx) {
+          return {
+            data: yield* session.pending(ctx.params.sessionID).pipe(
+              Effect.catchTag("Session.NotFoundError", (error) =>
+                Effect.fail(
+                  new SessionNotFoundError({
+                    sessionID: error.sessionID,
+                    message: `Session not found: ${error.sessionID}`,
+                  }),
+                ),
+              ),
+            ),
+          }
+        }),
+      )
+      .handle(
         "session.prompt",
         Effect.fn(function* (ctx) {
           return {
@@ -204,7 +221,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                 Effect.catchTag("Session.PromptConflictError", (error) =>
                   Effect.fail(
                     new ConflictError({
-                      message: `Prompt message ID conflicts with an existing durable record: ${error.messageID}`,
+                      message: `Prompt conflicts with a durable record or staged revert. Refresh the Session and reselect the intended target: ${error.messageID}`,
                       resource: error.messageID,
                     }),
                   ),

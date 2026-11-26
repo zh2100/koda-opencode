@@ -476,12 +476,13 @@ export function PromptInputV2Attachments(props: {
                       </AttachmentCardV2>
                     }
                   >
-                    <img
-                      src={attachment.blob.url}
-                      alt={attachment.filename}
-                      class="w-[58px] h-[46px] rounded-[6px] object-cover"
+                    <button
+                      type="button"
+                      class="block rounded-[6px]"
                       onClick={() => props.onAttachmentClick?.(attachment)}
-                    />
+                    >
+                      <img src={attachment.blob.url} alt={attachment.filename} class="w-[58px] h-[46px] rounded-[6px] object-cover" />
+                    </button>
                     <div class="absolute inset-0 rounded-[6px] shadow-[inset_0_0_0_0.5px_var(--v2-border-border-base)] pointer-events-none" />
                   </Show>
                 </TooltipV2>

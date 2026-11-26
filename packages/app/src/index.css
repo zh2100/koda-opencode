@@ -328,3 +328,10 @@
     }
   }
 }
+[data-slot="turn-task-status"][data-state="running"] {
+  color: light-dark(#16703a, #7cd99c);
+}
+
+[data-slot="turn-task-status"][data-state="completed"] {
+  color: light-dark(#a3450a, #ffad70);
+}

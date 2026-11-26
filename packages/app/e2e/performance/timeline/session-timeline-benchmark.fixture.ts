@@ -16,7 +16,9 @@ const model = { providerID: "opencode", modelID: "claude-opus-4-6", variant: "ma
 
 type EventPayload = {
   directory: string
-  payload: Record<string, unknown>
+  payload:
+    | { type: "message.part.updated"; properties: { part: typeof streamedTextPart } }
+    | { type: "message.part.delta"; properties: { messageID: string; partID: string; field: "text"; delta: string } }
 }
 
 const userMessage = {
@@ -110,6 +112,8 @@ export async function setupTimelineBenchmark(
   const currentUserMessage = options.turnDiffs
     ? { ...userMessage, info: { ...userMessage.info, summary: { diffs: options.turnDiffs } } }
     : userMessage
+  // Each mocked SSE response closes. A recovery GET must include the parts already delivered.
+  let deliveredText: typeof streamedTextPart | undefined
   await mockOpenCodeServer(page, {
     directory,
     project: project(),
@@ -120,10 +124,19 @@ export async function setupTimelineBenchmark(
       items: [
         ...Array.from({ length: options.historyTurns }, (_, index) => performanceTurn(index)).flat(),
         currentUserMessage,
-        assistantMessage,
+        deliveredText ? { ...assistantMessage, parts: [editPart, deliveredText] } : assistantMessage,
       ],
     }),
-    events: () => events.splice(0, eventBatch),
+    events: () => {
+      const batch = events.splice(0, eventBatch)
+      for (const event of batch) {
+        const payload = event.payload
+        if (payload.type === "message.part.updated") deliveredText = payload.properties.part
+        if (payload.type === "message.part.delta" && deliveredText)
+          deliveredText = { ...deliveredText, text: deliveredText.text + payload.properties.delta }
+      }
+      return batch
+    },
     eventRetry: 16,
   })
   await page.addInitScript(

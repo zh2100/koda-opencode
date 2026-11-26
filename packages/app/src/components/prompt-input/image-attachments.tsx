@@ -90,15 +90,16 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
                     <Show
                       when={props.newLayoutDesigns}
                       fallback={
-                        <div
-                          class={fallbackClass}
-                          classList={{ "cursor-pointer": pdf }}
-                          onClick={() => {
-                            if (pdf) props.onOpen(attachment)
-                          }}
-                        >
-                          <Icon name="folder" class="size-6 text-text-weak" />
-                        </div>
+                        <Show when={pdf} fallback={(
+                          <div class={fallbackClass}>
+                            <Icon name="folder" class="size-6 text-text-weak" />
+                          </div>
+                        )}>
+                          <button type="button" class={fallbackClass} aria-label={attachment.filename}
+                            onClick={() => props.onOpen(attachment)}>
+                            <Icon name="folder" class="size-6 text-text-weak" />
+                          </button>
+                        </Show>
                       }
                     >
                       <AttachmentCardV2
@@ -113,12 +114,13 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
                     </Show>
                   }
                 >
-                  <img
-                    src={attachment.blob.url}
-                    alt={attachment.filename}
-                    class={props.newLayoutDesigns ? imageClassV2 : imageClass}
-                    onClick={() => props.onOpen(attachment)}
-                  />
+                  <button type="button" class="block rounded-md" onClick={() => props.onOpen(attachment)}>
+                    <img
+                      src={attachment.blob.url}
+                      alt={attachment.filename}
+                      class={props.newLayoutDesigns ? imageClassV2 : imageClass}
+                    />
+                  </button>
                 </Show>
               )
               const name = () => (

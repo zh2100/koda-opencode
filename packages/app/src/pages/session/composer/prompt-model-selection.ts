@@ -67,7 +67,18 @@ export function createPromptModelSelection(input: { agent: () => { model?: Model
     set(item: ModelKey | undefined, options?: { recent?: boolean }) {
       startTransition(() =>
         batch(() => {
-          prompt.model.set(item ? { ...item, variant: prompt.model.current()?.variant } : undefined)
+          const previous = prompt.model.current()
+          prompt.model.set(
+            item
+              ? {
+                  ...item,
+                  variant:
+                    previous?.providerID === item.providerID && previous?.modelID === item.modelID
+                      ? previous.variant
+                      : undefined,
+                }
+              : undefined,
+          )
           if (!item) return
           models.setVisibility(item, true)
           if (options?.recent) models.recent.push(item)
@@ -90,6 +101,7 @@ export function createPromptModelSelection(input: { agent: () => { model?: Model
         return prompt.model.current()?.variant
       },
       current() {
+        if (this.selected() === null) return undefined
         const resolved = resolveModelVariant({
           variants: this.list(),
           selected: this.selected(),

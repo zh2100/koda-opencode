@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "composite": false, "emitDeclarationOnly": false },
+  "include": ["./regression/masked-image-edit.spec.ts", "./utils/**/*.ts"]
+}

@@ -58,20 +58,55 @@ const withCatalog = <A, E, R>(
 const it = testEffect(Layer.empty)
 
 describe("RelayCapability", () => {
+  it.effect("resolves exact upstream models on user-named relays", () =>
+    Effect.sync(() => {
+      expect(RelayCapability.variants("gpt", "gpt-6.2-astra").map((variant) => [variant.id, variant.body.reasoning_effort])).toEqual([
+        ["low", "low"],
+        ["medium", "medium"],
+        ["high", "high"],
+        ["ultra", "xhigh"],
+        ["max", "max"],
+        ["native-ultra", "ultra"],
+      ])
+      for (const id of ["gpt-6.2-sol", "gpt-6-astra", "gpt-6.1-sol"]) {
+        expect(RelayCapability.efforts("gpt", id)).toEqual(["low", "medium", "high", "xhigh", "max"])
+        expect(RelayCapability.variants("renamed-route", id).at(-1)?.body).toEqual({ reasoning_effort: "max" })
+      }
+      expect(RelayCapability.variants("gpt", "gpt-6.1-terra")[0]).toEqual({
+        id: "none",
+        headers: {},
+        body: { reasoning_effort: "none" },
+      })
+      for (const id of ["grok-4.6", "grok-4.7"])
+        expect(RelayCapability.efforts("sub2api", id)).toEqual(["low", "medium", "high", "xhigh"])
+      for (const id of [
+        "gpt-image-2",
+        "gpt-image-2.5-sunburst",
+        "gpt-image-2.5-flare",
+        "grok-imagine-image",
+        "grok-imagine-image-2.0",
+        "grok-imagine-image-quality",
+        "unknown-model",
+      ])
+        expect(RelayCapability.variants("sub2api", id)).toEqual([])
+    }),
+  )
+
   it.effect("uses per-model tables instead of a single vendor set", () =>
     Effect.sync(() => {
-      expect(RelayCapability.efforts("chatgpt", "gpt-6.1-sol")).toEqual(["low", "medium", "high", "xhigh"])
+      expect(RelayCapability.efforts("chatgpt", "gpt-6.1-sol")).toEqual(["low", "medium", "high", "xhigh", "max"])
       expect(RelayCapability.efforts("chatgpt", "gpt-6-sol")).toEqual(["low", "medium", "high", "xhigh"])
       expect(RelayCapability.efforts("chatgpt", "gpt-6-luna")).toEqual(["low", "medium", "high"])
       expect(RelayCapability.efforts("chatgpt", "gpt-5.6-luna")).toEqual(["low", "medium", "high"])
-      expect(RelayCapability.efforts("chatgpt", "gpt-6-astra")).toEqual(["low", "medium", "high", "xhigh"])
+      expect(RelayCapability.efforts("chatgpt", "gpt-6-astra")).toEqual(["low", "medium", "high", "xhigh", "max"])
       expect(RelayCapability.variants("chatgpt", "gpt-6-astra").map((item) => item.id)).toEqual([
         "low",
         "medium",
         "high",
         "ultra",
+        "max",
       ])
-      expect(RelayCapability.variants("chatgpt", "gpt-6-astra").at(-1)?.body).toEqual({ reasoning_effort: "xhigh" })
+      expect(RelayCapability.variants("chatgpt", "gpt-6-astra").at(-1)?.body).toEqual({ reasoning_effort: "max" })
       expect(RelayCapability.variants("chatgpt", "gpt-6-luna").map((item) => item.id)).toEqual([
         "low",
         "medium",
@@ -79,7 +114,7 @@ describe("RelayCapability", () => {
       ])
       expect(RelayCapability.efforts("chatgpt", "gpt-5.2")).toEqual(["low", "medium", "high", "xhigh"])
       expect(RelayCapability.efforts("chatgpt", "gpt-4o")).toEqual([])
-      expect(RelayCapability.efforts("grok", "grok-4.7")).toEqual(["medium", "high", "xhigh"])
+      expect(RelayCapability.efforts("grok", "grok-4.7")).toEqual(["low", "medium", "high", "xhigh"])
       expect(RelayCapability.efforts("grok", "grok-4.20-0309-reasoning")).toEqual(["medium", "high", "xhigh"])
       expect(RelayCapability.efforts("grok", "grok-4.20-0309-non-reasoning")).toEqual([])
       expect(RelayCapability.efforts("grok", "grok-imagine-image")).toEqual([])
@@ -116,10 +151,10 @@ describe("RelayCapability", () => {
         ["gpt-5.6-luna", ["low", "medium", "high"]],
         ["gpt-5.6-sol", ["low", "medium", "high", "ultra"]],
         ["gpt-5.6-terra", ["low", "medium", "high", "ultra"]],
-        ["gpt-6-astra", ["low", "medium", "high", "ultra"]],
+        ["gpt-6-astra", ["low", "medium", "high", "ultra", "max"]],
         ["gpt-6-luna", ["low", "medium", "high"]],
         ["gpt-6-sol", ["low", "medium", "high", "ultra"]],
-        ["gpt-6.1-sol", ["low", "medium", "high", "ultra"]],
+        ["gpt-6.1-sol", ["low", "medium", "high", "ultra", "max"]],
       ])
       expect(
         [
@@ -142,8 +177,8 @@ describe("RelayCapability", () => {
         ["grok-4.20-multi-agent-0309", ["medium", "high", "ultra"]],
         ["grok-4.3", ["medium", "high", "ultra"]],
         ["grok-4.5", ["medium", "high", "ultra"]],
-        ["grok-4.6", ["medium", "high", "ultra"]],
-        ["grok-4.7", ["medium", "high", "ultra"]],
+        ["grok-4.6", ["low", "medium", "high", "ultra"]],
+        ["grok-4.7", ["low", "medium", "high", "ultra"]],
         ["grok-build-0.1", ["medium", "high"]],
         ["grok-imagine-image", []],
         ["grok-imagine-image-quality", []],

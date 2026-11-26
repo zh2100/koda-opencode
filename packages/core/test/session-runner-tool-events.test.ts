@@ -143,6 +143,20 @@ test("binary failure emits no success event", async () => {
   expect(published.some((event) => event.type === "session.next.tool.failed.1")).toBe(true)
 })
 
+test.each([
+  { type: "text", value: "Image generated successfully" } as const,
+  { type: "json", value: { result: "iVBORw0KGgo=" } } as const,
+  { type: "json", value: { result: `data:image/jpeg;base64,${base64}` } } as const,
+  { type: "json", value: { result: base64.slice(0, 48) } } as const,
+])("image tool needs a decodable image, not a claim, signature or mismatched MIME (%#)", async (result) => {
+  const { published, publisher } = capture()
+  const image = { id: "receipt", name: "image_generation" }
+  await Effect.runPromise(publisher.publish(LLMEvent.toolCall({ ...image, input: {} })))
+  await Effect.runPromise(publisher.publish(LLMEvent.toolResult({ ...image, result })))
+  expect(published.some((event) => event.type === "session.next.tool.success.1")).toBe(false)
+  expect(published.some((event) => event.type === "session.next.tool.failed.1")).toBe(true)
+})
+
 test("old success event data containing result still decodes", () => {
   const decoded = Schema.decodeUnknownSync(SessionEvent.Tool.Success.data)({
     sessionID,

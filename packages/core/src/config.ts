@@ -1,4 +1,5 @@
 import { ImageGeneration } from "@opencode-ai/schema/image-generation"
+import { ImageEdit } from "@opencode-ai/schema/image-edit"
 export * as Config from "./config"
 
 import { makeLocationNode } from "./effect/app-node"
@@ -38,6 +39,7 @@ export class Info extends Schema.Class<Info>("Config.Info")({
     description: "Default model to use when no session or agent model is selected",
   }),
   image_generation: Schema.optional(ImageGeneration.Config),
+  image_edit: Schema.optional(ImageEdit.Config),
   default_agent: Schema.String.pipe(Schema.optional).annotate({
     description: "Default primary agent to use when no session agent is selected",
   }),

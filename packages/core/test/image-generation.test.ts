@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { Cause, Duration, Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, Duration, Effect, Exit, Fiber, Layer, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { ImageGeneration } from "@opencode-ai/core/image-generation"
@@ -23,6 +23,28 @@ function http(body: unknown, status = 200, requests: HttpClientRequest.HttpClien
 const it = testEffect(Layer.empty)
 
 describe("ImageGeneration", () => {
+  test("selects OpenAI Images automatically for Grok image models", () => {
+    expect(ImageGeneration.apiForProvider({ npm: "@ai-sdk/openai-compatible", modelID: "grok-imagine-image" })).toBe(
+      "openai-images",
+    )
+    expect(
+      ImageGeneration.apiForProvider({ npm: "@ai-sdk/openai-compatible", modelID: "grok-imagine-image-2.0" }),
+    ).toBe("openai-images")
+    expect(ImageGeneration.apiForProvider({ npm: "@ai-sdk/openai-compatible", modelID: "gpt-image-1" })).toBe(
+      "openai-images",
+    )
+    expect(ImageGeneration.apiForProvider({ npm: "@ai-sdk/openai-compatible", modelID: "dall-e-3" })).toBe(
+      "openai-images",
+    )
+    expect(ImageGeneration.apiForProvider({ npm: "@ai-sdk/google", modelID: "gemini-2.5-flash-image" })).toBe(
+      "google-gemini",
+    )
+    expect(ImageGeneration.apiForProvider({ npm: "@ai-sdk/google", modelID: "gemini-2.5-flash" })).toBe("google-gemini")
+    expect(ImageGeneration.apiForProvider({ npm: "@ai-sdk/openai-compatible", modelID: "vendor-image" })).toBe(
+      "openai-chat",
+    )
+  })
+
   test("recognizes only supported image magic bytes", () => {
     expect(ImageGeneration.decodeImage(png)).toEqual({ data: png, mime: "image/png" })
     expect(ImageGeneration.decodeImage(Buffer.from([255, 216, 255]).toString("base64")).mime).toBe("image/jpeg")
@@ -385,9 +407,106 @@ describe("ImageGeneration", () => {
         { model: "local-image", baseURL: "http://image.test/v1", headers: {} },
         { prompt: "test" },
       ).pipe(Effect.provide(layer), Effect.flip, Effect.forkChild)
-      yield* TestClock.adjust(Duration.seconds(180))
+      yield* TestClock.adjust(Duration.minutes(10))
       expect((yield* Fiber.join(fiber)).message).toContain("timed out")
       expect(requests).toHaveLength(1)
+    }),
+  )
+
+  it.effect("does not cut off a progressing image response at 240 seconds", () =>
+    Effect.gen(function* () {
+      const requests: string[] = []
+      const pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+      const layer = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Effect.sync(() => {
+            requests.push(request.url)
+            const response = HttpClientResponse.fromWeb(request, Response.json({}))
+            return {
+              ...response,
+              headers: response.headers,
+              cookies: response.cookies,
+              stream: Stream.fromIterable(['{"data":[', '{"b64_json":"', pixel, '"}', "]}"]).pipe(
+                Stream.mapEffect((part) => Effect.sleep("60 seconds").pipe(Effect.as(new TextEncoder().encode(part)))),
+              ),
+            }
+          }),
+        ),
+      )
+      const fiber = yield* ImageGeneration.generate(
+        { model: "local-image", baseURL: "http://image.test/v1", headers: {} },
+        { prompt: "test" },
+      ).pipe(Effect.provide(layer), Effect.forkChild)
+      yield* TestClock.adjust(Duration.seconds(240))
+      expect(requests).toHaveLength(1)
+      yield* TestClock.adjust(Duration.minutes(1))
+      const result = yield* Fiber.join(fiber)
+      expect(result.images).toEqual([{ data: pixel, mime: "image/png" }])
+      expect(yield* ImageGeneration.verifyReceipt(result.images[0].data, result.images[0].mime)).toBe(true)
+      expect(requests).toHaveLength(1)
+    }),
+  )
+
+  for (const partial of [false, true]) {
+    it.effect(
+      `times out an idle image body ${partial ? "after a chunk" : "before the first chunk"} without retrying`,
+      () =>
+        Effect.gen(function* () {
+          const requests: string[] = []
+          const layer = Layer.succeed(
+            HttpClient.HttpClient,
+            HttpClient.make((request) =>
+              Effect.sync(() => {
+                requests.push(request.url)
+                const response = HttpClientResponse.fromWeb(request, Response.json({}))
+                return {
+                  ...response,
+                  headers: response.headers,
+                  cookies: response.cookies,
+                  stream: partial
+                    ? Stream.make(new TextEncoder().encode('{"data":[')).pipe(Stream.concat(Stream.never))
+                    : Stream.never,
+                }
+              }),
+            ),
+          )
+          const fiber = yield* ImageGeneration.generate(
+            { model: "local-image", baseURL: "http://image.test/v1", headers: {} },
+            { prompt: "test" },
+          ).pipe(Effect.provide(layer), Effect.flip, Effect.forkChild)
+          yield* TestClock.adjust(Duration.seconds(120))
+          yield* TestClock.adjust(Duration.seconds(120))
+          expect((yield* Fiber.join(fiber)).message).toContain("120 seconds without data")
+          expect(requests).toHaveLength(1)
+        }),
+    )
+  }
+
+  it.effect("enforces the total deadline even while image bytes keep arriving", () =>
+    Effect.gen(function* () {
+      const layer = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Effect.sync(() => {
+            const response = HttpClientResponse.fromWeb(request, Response.json({}))
+            return {
+              ...response,
+              headers: response.headers,
+              cookies: response.cookies,
+              stream: Stream.fromIterable(Array.from({ length: 20 }, () => new TextEncoder().encode(" "))).pipe(
+                Stream.mapEffect((part) => Effect.sleep("60 seconds").pipe(Effect.as(part))),
+              ),
+            }
+          }),
+        ),
+      )
+      const fiber = yield* ImageGeneration.generate(
+        { model: "local-image", baseURL: "http://image.test/v1", headers: {} },
+        { prompt: "test" },
+      ).pipe(Effect.provide(layer), Effect.flip, Effect.forkChild)
+      yield* TestClock.adjust(Duration.minutes(10))
+      expect((yield* Fiber.join(fiber)).message).toContain("after 10 minutes")
     }),
   )
 

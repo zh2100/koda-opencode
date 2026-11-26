@@ -50,44 +50,82 @@ function needsOlderTurnRoot(source: readonly SessionMessageInfo[]) {
 function normalizeContextMessages(source: readonly ContextMessage[]): SessionMessageInfo[] {
   return source.flatMap((message): SessionMessageInfo[] => {
     if (message.type === "user")
-      return [{
-        id: message.id,
-        type: "user",
-        text: message.text,
-        time: message.time,
-        files: normalizePromptFiles(message.files),
-        agents: normalizePromptAgents(message.agents),
-      }]
+      return [
+        {
+          id: message.id,
+          type: "user",
+          text: message.text,
+          time: message.time,
+          files: normalizePromptFiles(message.files),
+          agents: normalizePromptAgents(message.agents),
+        },
+      ]
     if (message.type === "assistant") {
       const content = message.content.flatMap((part): SessionMessageAssistant["content"] => {
         if (part.type === "text") return [{ type: "text", id: part.id, text: part.text }]
         if (part.type === "reasoning") return [{ type: "reasoning", id: part.id, text: part.text, time: part.time }]
+        if (part.type === "tool") {
+          const state = part.state
+          return [
+            {
+              type: "tool",
+              id: part.id,
+              name: part.name,
+              time: part.time,
+              state:
+                state.status === "pending"
+                  ? { status: "streaming", input: state.input }
+                  : state.status === "running"
+                    ? { status: "running", input: state.input, metadata: state.structured ?? {} }
+                    : state.status === "completed"
+                      ? {
+                          status: "completed",
+                          input: state.input,
+                          content: state.content.map((item) => ({ ...item })),
+                          metadata: state.structured,
+                        }
+                      : {
+                          status: "error",
+                          input: state.input,
+                          content: state.content.map((item) => ({ ...item })),
+                          error: state.error,
+                        },
+            },
+          ]
+        }
         return [] as SessionMessageAssistant["content"]
       })
-      return [{
-        id: message.id,
-        type: "assistant",
-        agent: message.agent,
-        model: message.model,
-        time: message.time,
-        content,
-        snapshot: message.snapshot && { ...message.snapshot, files: message.snapshot.files ? [...message.snapshot.files] : undefined },
-        finish: message.finish,
-        cost: message.cost,
-        tokens: message.tokens,
-        error: message.error,
-      }]
+      return [
+        {
+          id: message.id,
+          type: "assistant",
+          agent: message.agent,
+          model: message.model,
+          time: message.time,
+          content,
+          snapshot: message.snapshot && {
+            ...message.snapshot,
+            files: message.snapshot.files ? [...message.snapshot.files] : undefined,
+          },
+          finish: message.finish,
+          cost: message.cost,
+          tokens: message.tokens,
+          error: message.error,
+        },
+      ]
     }
     if (message.type === "shell")
-      return [{
-        id: message.id,
-        type: "shell",
-        shellID: message.callID,
-        command: message.command,
-        status: message.output ? "completed" : "running",
-        output: message.output,
-        time: message.time,
-      }]
+      return [
+        {
+          id: message.id,
+          type: "shell",
+          shellID: message.callID,
+          command: message.command,
+          status: message.output ? "completed" : "running",
+          output: message.output,
+          time: message.time,
+        },
+      ]
     if (message.type === "compaction") return [{ ...message, status: "completed" }]
     if (message.type === "agent-switched" || message.type === "model-switched") return [message]
     if (message.type === "synthetic") return [{ ...message, description: message.text }]
@@ -608,20 +646,29 @@ export function createServerSession(
 
   const fetchMessages = async (sessionID: string, limit: number, before?: string, onAttempt?: () => void) => {
     if (messageApi && (await options?.protocol) !== "v1") {
+      // The retained cache size is a total, not the protocol's per-request limit.
+      const pageSize = Math.min(limit, 200)
       const request = (cursor?: string) =>
         (options?.retry ?? retry)(() => {
           onAttempt?.()
-          return messageApi.list(cursor ? { sessionID, limit, cursor } : { sessionID, limit, order: "desc" })
+          return messageApi.list(
+            cursor ? { sessionID, limit: pageSize, cursor } : { sessionID, limit: pageSize, order: "desc" },
+          )
         })
       const first = await request(before)
       const pages = [first]
-      while (pages.at(-1)?.cursor.next && needsOlderTurnRoot(normalizeContextMessages(pages.flatMap((page) => page.data).toReversed()))) {
+      while (
+        pages.at(-1)?.cursor.next &&
+        (pages.reduce((count, page) => count + page.data.length, 0) < limit ||
+          needsOlderTurnRoot(normalizeContextMessages(pages.flatMap((page) => page.data).toReversed())))
+      ) {
         const response = await request(pages.at(-1)!.cursor.next ?? undefined)
         pages.push(response)
         if (!response.data.length) break
       }
       const response = pages.at(-1)!
-       const source = normalizeContextMessages(pages.flatMap((page) => page.data).toReversed())
+      const source = normalizeContextMessages(pages.flatMap((page) => page.data).toReversed())
+      if (needsOlderTurnRoot(source)) throw new Error("Session history is missing the user turn root")
       const normalized = normalizeSessionMessages(sessionID, source)
       return {
         session: normalized.messages.sort(compareMessages),
@@ -659,7 +706,7 @@ export function createServerSession(
         onAttempt?.()
         return sessionApi.message({ sessionID, messageID })
       })
-       const normalized = normalizeSessionMessages(sessionID, normalizeContextMessages([response]))
+      const normalized = normalizeSessionMessages(sessionID, normalizeContextMessages([response]))
       const message = normalized.messages[0]
       if (!message) throw new Error(`Message not found: ${messageID}`)
       return { message, parts: normalized.parts.get(messageID) ?? [] }
@@ -754,9 +801,9 @@ export function createServerSession(
           const existing = data.session_message[sessionID] ?? []
           const current = existing.filter((message) => !incoming.has(message.id))
           const live = new Map(existing.map((message) => [message.id, message]))
-          return (page.sourceMode === "older" ? [...page.source, ...current] : [...current, ...page.source]).map(
-            (message) => (load?.touchedSource.has(message.id) ? (live.get(message.id) ?? message) : message),
-          )
+          return (page.sourceMode === "older" ? [...page.source, ...current] : [...current, ...page.source])
+            .sort(compareMessages)
+            .map((message) => (load?.touchedSource.has(message.id) ? (live.get(message.id) ?? message) : message))
         })()
       : undefined
     const projected =
@@ -906,8 +953,10 @@ export function createServerSession(
   }
 
   const messageForce = new Set<string>()
+  const dirty = new Set<string>()
   const sync = (sessionID: string, options?: { force?: boolean; messageLimit?: number }) => {
     touch(sessionID)
+    if (dirty.has(sessionID)) messageForce.add(sessionID)
     if (options?.force) messageForce.add(sessionID)
     return runInflight(inflight, sessionID, async () => {
       let force = messageForce.delete(sessionID) || options?.force === true
@@ -920,7 +969,10 @@ export function createServerSession(
             ? Promise.resolve()
             : loadMessages(sessionID, options?.messageLimit ?? meta.limit[sessionID] ?? initialMessagePageSize),
         ])
-        if (!messageForce.has(sessionID)) return
+        if (!messageForce.has(sessionID)) {
+          dirty.delete(sessionID)
+          return
+        }
         force = messageForce.delete(sessionID)
       }
     })
@@ -989,8 +1041,8 @@ export function createServerSession(
         for (const part of next) {
           apply({ type: "message.part.updated", properties: { sessionID: reduction.sessionID, part } })
         }
-        for (const part of data.part[messageID] ?? []) {
-          if (nextIDs.has(part.id)) continue
+        // Removal splices the live array; collect stale parts before dispatching removals.
+        for (const part of (data.part[messageID] ?? []).filter((part) => !nextIDs.has(part.id))) {
           apply({
             type: "message.part.removed",
             properties: { sessionID: reduction.sessionID, messageID, partID: part.id },
@@ -1006,7 +1058,10 @@ export function createServerSession(
       .message({ sessionID, messageID })
       .then((message) => {
         const current = data.session_message[sessionID] ?? []
-        const messages = [...current.filter((item) => item.id !== message.id), ...normalizeContextMessages([message])].sort(compareMessages)
+        const messages = [
+          ...current.filter((item) => item.id !== message.id),
+          ...normalizeContextMessages([message]),
+        ].sort(compareMessages)
         projectV2({ sessionID, messages, touched: [message.id] })
       })
       .catch(() => {})
@@ -1037,10 +1092,7 @@ export function createServerSession(
     //   evict([sessionID])
     // }
     if (current.type === "session.next.step.started") setData("session_status", sessionID, { type: "busy" })
-    if (
-      current.type === "session.next.step.ended" ||
-      current.type === "session.next.step.failed"
-    )
+    if (current.type === "session.next.step.ended" || current.type === "session.next.step.failed")
       setData("session_status", sessionID, { type: "idle" })
     if (current.type === "session.next.retried")
       setData("session_status", sessionID, {
@@ -1409,6 +1461,10 @@ export function createServerSession(
       },
     },
     sync,
+    async recover() {
+      Object.keys(data.message).forEach((sessionID) => dirty.add(sessionID))
+      await Promise.all([...pinned.keys()].map((sessionID) => sync(sessionID, { force: true })))
+    },
     prefetch,
     shouldPrefetch(sessionID: string, limit: number) {
       if (data.message[sessionID] === undefined) return true
@@ -1486,15 +1542,19 @@ export function createServerSession(
         const load = () => {
           const active = generation(sessionID)
           const version = todoVersions.get(sessionID) ?? 0
-          return (options?.protocol ?? Promise.resolve("v1")).then((protocol) =>
-            protocol === "v2" && sessionApi
-              ? sessionApi.todo({ sessionID })
-              : (options?.retry ?? retry)(() => client.session.todo({ sessionID })).then((result) => result.data ?? []),
-          ).then((todos) => {
-            if (generations.get(sessionID) !== active) return
-            if ((todoVersions.get(sessionID) ?? 0) !== version) return
-            setData("todo", sessionID, [...(todos ?? [])])
-          })
+          return (options?.protocol ?? Promise.resolve("v1"))
+            .then((protocol) =>
+              protocol === "v2" && sessionApi
+                ? sessionApi.todo({ sessionID })
+                : (options?.retry ?? retry)(() => client.session.todo({ sessionID })).then(
+                    (result) => result.data ?? [],
+                  ),
+            )
+            .then((todos) => {
+              if (generations.get(sessionID) !== active) return
+              if ((todoVersions.get(sessionID) ?? 0) !== version) return
+              setData("todo", sessionID, [...(todos ?? [])])
+            })
         }
 
         const refresh = async () => {

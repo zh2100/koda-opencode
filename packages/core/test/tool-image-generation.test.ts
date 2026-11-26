@@ -1,4 +1,5 @@
 import { describe, expect } from "bun:test"
+import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Layer } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { Catalog } from "@opencode-ai/core/catalog"
@@ -193,6 +194,28 @@ function fixture(
 }
 
 describe("ImageGenerationTool", () => {
+  for (const mode of ["allowed", "declined", "no-key"] as const)
+    it.effect(`official illustration transport: ${mode}`, () => {
+      const state = fixture({ key: mode === "no-key" ? "" : undefined })
+      return Effect.gen(function* () {
+        const registry = yield* ToolRegistry.Service
+        const tools = yield* registry.materialize()
+        expect(tools.guardedIllustrations).toBe(true)
+        const reserved: string[] = []
+        yield* tools.settle({
+          ...call,
+          beforeImagePost: (model, api) =>
+            Effect.gen(function* () {
+              expect(state.requests).toEqual([])
+              expect(state.assertions).toHaveLength(1)
+              if (mode === "declined") return yield* new ToolFailure({ message: "No approval" })
+              reserved.push(`${model}:${api}`)
+            }),
+        })
+        expect(reserved).toEqual(mode === "allowed" ? ["local/image:openai-images"] : [])
+        expect(state.requests).toHaveLength(mode === "allowed" ? 1 : 0)
+      }).pipe(Effect.provide(state.layer))
+    })
   it.effect("uses only the independent model and returns durable file content without duplicate base64", () => {
     const state = fixture()
     return Effect.gen(function* () {

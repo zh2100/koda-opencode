@@ -65,6 +65,49 @@ export const SessionTable = sqliteTable(
   ],
 )
 
+// Operational billing records are independent of replayable session projections.
+export const ImageAttemptTable = sqliteTable(
+  "image_attempt",
+  {
+    session_id: text()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    task_id: text().notNull(),
+    slot: text().notNull(),
+    call_id: text().notNull(),
+    model: text().notNull(),
+    digest: text(), // NULL: request reserved, no durable verified receipt yet. Never automatically retry.
+  },
+  (table) => [primaryKey({ columns: [table.session_id, table.task_id, table.slot] })],
+)
+
+// Private edit attachments are deliberately not part of replayable chat history.
+// Retained for databases created before the image edit API was withdrawn.
+export const ImageEditTable = sqliteTable("image_edit", {
+  id: text().primaryKey(),
+  session_id: text().notNull().references(() => SessionTable.id, { onDelete: "cascade" }),
+  state: text().notNull(),
+  binding: text().notNull(),
+  source_ref: text().notNull(),
+  source_digest: text().notNull(),
+  preview: text({mode:"json"}),
+  prompt: text().notNull(),
+  model: text().notNull(),
+  endpoint: text().notNull(),
+  expires: integer().notNull(),
+  status: integer(),
+  result: text({mode:"json"}),
+  digest: text(),
+}, (table) => [index("image_edit_session_idx").on(table.session_id, table.expires)])
+
+export const MaskedImageEditTable = sqliteTable("masked_image_edit", {
+  id: text().primaryKey(),
+  scope: text().notNull(),
+  session_id: text().$type<SessionSchema.ID>().references(() => SessionTable.id, { onDelete: "cascade" }),
+  fingerprint: text().notNull(),
+  result: text({ mode: "json" }).$type<{ mime: string; data: string }>(),
+}, (table) => [index("masked_image_edit_session_idx").on(table.session_id)])
+
 export const MessageTable = sqliteTable(
   "message",
   {
@@ -149,6 +192,7 @@ export const SessionInputTable = sqliteTable(
     delivery: text().$type<SessionInput.Delivery>().notNull(),
     admitted_seq: integer().notNull(),
     promoted_seq: integer(),
+    invalidated_seq: integer(),
     time_created: integer()
       .notNull()
       .$default(() => Date.now()),

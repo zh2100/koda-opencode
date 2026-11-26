@@ -78,6 +78,17 @@ afterEach(async () => {
 })
 
 describe("v2 location HttpApi", () => {
+  test("reports no masked editor without an explicit location configuration", async () => {
+    await using tmp = await tmpdir()
+    const path = new URLSearchParams({ "location[directory]": tmp.path })
+    const response = await request(`/api/image-edit/target?${path}`, tmp.path)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toBeNull()
+    const status = await request(`/api/image-edit/status?${path}`, tmp.path)
+    expect(status.status).toBe(200)
+    expect(await status.json()).toEqual({ generation: { state: "unconfigured" }, editor: { state: "unconfigured" } })
+  })
+
   test("decodes EventV2 location refs without resolved project metadata", () => {
     expect(
       Schema.decodeUnknownSync(Event)({

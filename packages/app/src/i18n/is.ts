@@ -46,7 +46,7 @@ const desktop = [
   "Deila ábendingu",
   "Um Koda",
   "Koda Desktop v{{version}}",
-  "Aðlagað með OpenCode sem grunn\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+  "Aðlagað með OpenCode sem grunn\nGitHub: https://github.com/zh2100/koda-opencode",
   "Koda v{{version}} er í boði. Opna útgáfusíðuna til að uppfæra?",
   "Opna útgáfusíðu",
   "Tilkynna villu",

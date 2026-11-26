@@ -1,0 +1,342 @@
+/* Only the image editor opts into this size; public dialog defaults are unchanged. */
+[data-component="dialog"] [data-slot="dialog-container"]:has(> .image-edit-dialog) {
+  width: min(calc(100vw - 32px), 1280px);
+  height: min(calc(100dvh - 32px), 960px);
+}
+
+[data-component="dialog"] [data-slot="dialog-content"].image-edit-dialog {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+
+  > [data-slot="dialog-header"] {
+    position: absolute;
+    inset-block-start: 8px;
+    inset-inline-end: 8px;
+    padding: 0;
+    z-index: 5;
+    pointer-events: none;
+
+    [data-slot="dialog-title"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    [data-slot="dialog-close-button"] {
+      pointer-events: auto;
+    }
+  }
+
+  > [data-slot="dialog-body"] {
+    min-height: 0;
+  }
+}
+
+[data-component="masked-image-editor"] {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  padding: 8px;
+  gap: 8px;
+  color: var(--text-base);
+
+  button,
+  summary,
+  a {
+    -webkit-app-region: no-drag;
+  }
+  button,
+  summary,
+  a[download] {
+    cursor: pointer;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+  button:disabled,
+  summary[aria-disabled="true"] {
+    opacity: 0.4;
+    cursor: default;
+  }
+  button:focus-visible,
+  summary:focus-visible,
+  a:focus-visible,
+  textarea:focus-visible,
+  input:focus-visible {
+    outline: 2px solid var(--text-interactive-base, #7855df);
+    outline-offset: 2px;
+  }
+  button[aria-pressed="true"] {
+    color: #8253d9;
+    background: #8253d922;
+  }
+  summary {
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  details {
+    position: relative;
+    min-width: 0;
+  }
+  p {
+    overflow-wrap: anywhere;
+  }
+
+  [data-slot="image-edit-stage"] {
+    position: relative;
+    min-height: 0;
+    min-width: 0;
+  }
+  [data-slot="image-edit-viewport"] {
+    display: flex;
+    height: 100%;
+    width: 100%;
+    overflow: auto;
+    border-radius: 8px;
+    background: var(--surface-base);
+  }
+  [data-slot="image-edit-image"] {
+    position: relative;
+    flex-shrink: 0;
+    margin: auto;
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      user-select: none;
+      max-width: none;
+    }
+    img.image-edit-loading {
+      object-fit: contain;
+    }
+  }
+  [data-slot="image-edit-tools"],
+  [data-slot="image-edit-view"] {
+    position: absolute;
+    inset-block-start: 8px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+    border: 1px solid var(--border-weak-base);
+    border-radius: 10px;
+    background: var(--surface-raised-stronger-non-alpha);
+    box-shadow: var(--shadow-sm-border-base);
+    z-index: 2;
+    min-width: 0;
+    button,
+    summary,
+    a[download] {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+    }
+    &[data-bottom] {
+      inset-block-start: auto;
+      inset-block-end: 8px;
+    }
+  }
+  [data-slot="image-edit-tools"] {
+    inset-inline-start: 8px;
+  }
+  [data-slot="image-edit-tools"]:has(details[open]) {
+    z-index: 3;
+  }
+  [data-slot="image-edit-drag"] {
+    touch-action: none;
+    cursor: move;
+  }
+  [data-slot="image-edit-view"] {
+    inset-inline-end: 44px;
+  }
+  [data-slot="image-edit-zoom"] {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    input {
+      width: 64px;
+    }
+    bdi {
+      font-size: 12px;
+      min-width: 32px;
+    }
+  }
+  [data-slot="image-edit-popup"] {
+    position: absolute;
+    inset-block-start: calc(100% + 8px);
+    inset-inline-end: 0;
+    width: min(280px, calc(100vw - 48px));
+    max-height: min(240px, 35dvh);
+    overflow: auto;
+    padding: 12px;
+    border: 1px solid var(--border-weak-base);
+    border-radius: 8px;
+    background: var(--surface-raised-stronger-non-alpha);
+    box-shadow: var(--shadow-lg-border-base);
+    z-index: 6;
+    label {
+      display: grid;
+      gap: 8px;
+    }
+    p {
+      margin-block-start: 8px;
+      font-size: 12px;
+    }
+  }
+  [data-slot="image-edit-tools"][data-bottom] [data-slot="image-edit-popup"],
+  [data-slot="image-edit-versions"] [data-slot="image-edit-popup"] {
+    inset-block-start: auto;
+    inset-block-end: calc(100% + 8px);
+  }
+  [data-slot="image-edit-footer"] {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  [data-slot="image-edit-meta"] {
+    display: flex;
+    gap: 12px;
+    align-items: start;
+    font-size: 12px;
+  }
+  [data-slot="image-edit-status"] {
+    flex: 1;
+  }
+  [data-slot="image-edit-status-body"] {
+    max-height: 20dvh;
+    overflow: auto;
+  }
+  [data-slot="image-edit-versions"] [data-slot="image-edit-popup"] {
+    inset-inline-start: 0;
+    inset-inline-end: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    button {
+      padding: 6px;
+      text-align: start;
+    }
+  }
+  [data-slot="image-edit-compose"] {
+    display: flex;
+    align-items: end;
+    gap: 12px;
+    label {
+      flex: 1;
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+      font-size: 13px;
+    }
+    textarea {
+      width: 100%;
+      height: 64px;
+      resize: none;
+      overflow: auto;
+      padding: 8px;
+      border: 1px solid var(--border-weak-base);
+      border-radius: 8px;
+    }
+  }
+  [data-primary] {
+    background: #7855d7;
+    color: white;
+    padding: 12px 16px;
+  }
+  [data-slot="image-edit-consent"] {
+    max-height: 15dvh;
+    overflow: auto;
+    font-size: 12px;
+  }
+  [data-slot="image-edit-actions"] {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  [role="alert"] {
+    max-height: 10dvh;
+    overflow: auto;
+  }
+}
+
+/* When floating groups would collide, reserve a compact row outside the image. */
+@media (max-width: 900px) {
+  [data-component="masked-image-editor"] {
+    [data-slot="image-edit-stage"] {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 6px;
+    }
+    [data-slot="image-edit-tools"] {
+      position: relative;
+      inset: auto;
+      grid-row: 1;
+      justify-self: start;
+      margin-inline-end: 32px;
+      flex-wrap: wrap;
+    }
+    [data-slot="image-edit-view"] {
+      position: relative;
+      inset: auto;
+      grid-row: 2;
+      justify-self: end;
+    }
+    [data-slot="image-edit-viewport"] {
+      grid-row: 3;
+      min-height: 0;
+    }
+    [data-slot="image-edit-tools"][data-bottom],
+    [data-slot="image-edit-view"][data-bottom] {
+      inset: auto;
+    }
+    [data-slot="image-edit-tools"] > [data-slot="image-edit-drag"],
+    [data-slot="image-edit-view"] > [data-slot="image-edit-move-view"] {
+      display: none;
+    }
+    [data-slot="image-edit-tools"] {
+      gap: 0;
+      padding: 3px;
+      button,
+      summary {
+        width: 28px;
+        height: 30px;
+      }
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  [data-component="dialog"] [data-slot="dialog-container"]:has(> .image-edit-dialog) {
+    width: calc(100vw - 12px);
+    height: calc(100dvh - 12px);
+  }
+  [data-component="masked-image-editor"] {
+    [data-slot="image-edit-compose"] {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+    }
+    [data-slot="image-edit-zoom"] input {
+      width: 48px;
+    }
+    [data-slot="image-edit-settings"] [data-slot="image-edit-popup"],
+    [data-slot="image-edit-versions"] [data-slot="image-edit-popup"] {
+      position: fixed;
+      inset-inline: 18px;
+      inset-block-start: 100px;
+      inset-block-end: auto;
+      width: auto;
+    }
+  }
+}

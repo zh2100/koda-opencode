@@ -1,4 +1,5 @@
 import { ImageGeneration } from "@opencode-ai/schema/image-generation"
+import { ImageEdit } from "@opencode-ai/schema/image-edit"
 export * as ConfigV1 from "./config"
 
 import { Schema } from "effect"
@@ -76,6 +77,7 @@ export const Info = Schema.Struct({
     description: "Model to use in the format of provider/model, eg anthropic/claude-2",
   }),
   image_generation: Schema.optional(ImageGeneration.Config),
+  image_edit: Schema.optional(ImageEdit.Config),
   small_model: Schema.optional(Schema.String).annotate({
     description: "Small model to use for tasks like title generation in the format of provider/model",
   }),

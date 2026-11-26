@@ -46,7 +46,7 @@ const desktop = [
   "Pošalji povratne informacije",
   "O aplikaciji Koda",
   "Koda Desktop v{{version}}",
-  "Prilagođeno na temelju OpenCodea\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+  "Prilagođeno na temelju OpenCodea\nGitHub: https://github.com/zh2100/koda-opencode",
   "Dostupna je Koda v{{version}}. Otvoriti stranicu izdanja za nadogradnju?",
   "Otvori stranicu izdanja",
   "Prijavi pogrešku",

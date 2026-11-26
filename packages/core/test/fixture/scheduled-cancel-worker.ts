@@ -51,6 +51,7 @@ const layer = AppNodeBuilder.build(LayerNode.group([ScheduledTaskStore.node, Dat
         context: () => Effect.succeed([]),
         events: () => Stream.die("unused"),
         history: () => Effect.succeed({ events: [], hasMore: false }),
+        pending: () => Effect.die("unused"),
         switchAgent: () => Effect.void,
         switchModel: () => Effect.void,
         notice: () => Effect.void,

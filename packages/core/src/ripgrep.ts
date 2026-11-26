@@ -59,6 +59,7 @@ export interface FindInput {
 }
 
 export interface GlobInput {
+  readonly requireComplete?: boolean
   readonly cwd: string
   readonly pattern: string
   readonly limit: number
@@ -176,13 +177,17 @@ const layer = Layer.effect(
                 .replaceAll("\\", "/"),
             ),
         }).pipe(
-          Effect.map((result) =>
-            result.items.map((relative) =>
-              Entry.make({
-                path: RelativePath.make(relative),
-                type: "file",
-              }),
-            ),
+          Effect.flatMap((result) =>
+            input.requireComplete && result.partial
+              ? Effect.fail(failure("Project image inventory was incomplete"))
+              : Effect.succeed(
+                  result.items.map((relative) =>
+                    Entry.make({
+                      path: RelativePath.make(relative),
+                      type: "file",
+                    }),
+                  ),
+                ),
           ),
           Effect.catchTag("Ripgrep.InvalidPatternError", (cause) => Effect.fail(failure(cause.message, cause))),
         ),

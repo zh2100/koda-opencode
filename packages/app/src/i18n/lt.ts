@@ -95,7 +95,7 @@ export const dict = {
   "desktop.menu.about": "Apie Koda",
   "desktop.about.title": "Koda darbalaukio programa v{{version}}",
   "desktop.about.detail":
-    "Modifikuota naudojant OpenCode kaip pagrindą\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+    "Modifikuota naudojant OpenCode kaip pagrindą\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Pasiekiama Koda v{{version}}. Atverti leidimo puslapį, kad atnaujintumėte?",
   "desktop.koda.update.open": "Atverti leidimo puslapį",
   "command.project.create": "Naujas projektas",

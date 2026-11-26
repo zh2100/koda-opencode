@@ -12,12 +12,15 @@ import { ApplicationTools } from "./application-tools"
 import { definition, permission, settle, validateName, type AnyTool, type RegistrationError } from "./tool"
 import { Tools } from "./tools"
 import { makeLocationNode } from "../effect/app-node"
+import type { Tool } from "./tool"
+import { guardedImageTools, inventoryTools } from "./illustration-capability"
 
 export type ExecuteInput = {
   readonly sessionID: SessionSchema.ID
   readonly agent: AgentV2.ID
   readonly assistantMessageID: SessionMessage.ID
   readonly call: ToolCall
+  readonly beforeImagePost?: Tool.Context["beforeImagePost"]
 }
 
 export interface Interface {
@@ -27,6 +30,8 @@ export interface Interface {
 }
 
 export interface Materialization {
+  readonly guardedIllustrations?: boolean
+  readonly projectInventory?: boolean
   readonly definitions: ReadonlyArray<ToolDefinition>
   readonly settle: (input: ExecuteInput) => Effect.Effect<Settlement, ToolOutputStore.Error>
 }
@@ -64,6 +69,7 @@ const registryLayer = Layer.effect(
         agent: input.agent,
         assistantMessageID: input.assistantMessageID,
         toolCallID: input.call.id,
+        beforeImagePost: input.beforeImagePost,
       }).pipe(
         Effect.map((output) => ({ output })),
         Effect.catchTag("LLM.ToolFailure", (failure) =>
@@ -111,8 +117,12 @@ const registryLayer = Layer.effect(
         }
         for (const [name, registration] of registrations)
           if (whollyDisabled(permission(registration.tool, name), permissions)) registrations.delete(name)
+        const image = registrations.get("image_generation")
+        const glob = registrations.get("glob")
         return {
           definitions: Array.from(registrations, ([name, registration]) => definition(name, registration.tool)),
+          guardedIllustrations: !!image && guardedImageTools.has(image.tool),
+          projectInventory: !!glob && inventoryTools.has(glob.tool),
           settle: (input) => {
             const registration = registrations.get(input.call.name)
             if (registration) return settleWith(input, registration.identity)

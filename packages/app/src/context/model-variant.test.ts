@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test"
-import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
+import { cycleModelVariant, getConfiguredAgentVariant, modelVariantLabelKey, resolveModelVariant } from "./model-variant"
 
 describe("model variant", () => {
+  test("labels native efforts without treating independent Ultra presets as xhigh", () => {
+    expect(modelVariantLabelKey("low")).toBe("model.variant.low")
+    expect(modelVariantLabelKey("xhigh")).toBe("model.variant.xhigh")
+    expect(modelVariantLabelKey("max")).toBe("model.variant.max")
+    expect(modelVariantLabelKey("native-ultra")).toBe("model.variant.ultra")
+    expect(modelVariantLabelKey("none")).toBe("model.variant.none")
+    expect(modelVariantLabelKey("ultra")).toBeUndefined()
+    expect(modelVariantLabelKey("custom")).toBeUndefined()
+  })
   test("resolves configured agent variant when model matches", () => {
     const value = getConfiguredAgentVariant({
       agent: {

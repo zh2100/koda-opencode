@@ -1,4 +1,4 @@
-import { ImagePreview } from "@opencode-ai/ui/image-preview"
+import { useImageEditor } from "@/components/dialog-image-edit"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
@@ -15,7 +15,6 @@ import type { PromptInputProps } from "@/components/prompt-input/contracts"
 import { normalizePromptHistoryEntry, promptLength, type PromptHistoryComment } from "@/components/prompt-input/history"
 import { createPersistedPromptInputHistory } from "@/components/prompt-input/history-store"
 import { promptDesignPlaceholder, promptPlaceholder } from "@/components/prompt-input/placeholder"
-import { CollaborationToggle } from "@/components/prompt-input/collaboration-toggle"
 import { ComputerUseToggle } from "@/components/prompt-input/computer-use-toggle"
 import { createPromptSubmit } from "@/components/prompt-input/submit"
 
@@ -23,6 +22,7 @@ import { selectionFromLines, type SelectedLineRange, useFile } from "@/context/f
 import { useComments } from "@/context/comments"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
+import { modelVariantLabelKey } from "@/context/model-variant"
 import { useLayout } from "@/context/layout"
 import { usePermission } from "@/context/permission"
 import { type ImageAttachmentPart, usePrompt } from "@/context/prompt"
@@ -50,7 +50,6 @@ export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "sub
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
   readonly project?: PromptInputProps["project"]
-  readonly collaboration: ReturnType<typeof createPromptSubmit>["collaboration"]
 }
 
 export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
@@ -97,10 +96,8 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
         trailingControl={
           <>
             <ComputerUseToggle />
-            <CollaborationToggle control={props.controller.collaboration} />
           </>
         }
-
         onVoice={voice ? toggleVoice : undefined}
         voiceListening={listening()}
         voiceLabel={language.t("prompt.action.voice")}
@@ -127,6 +124,7 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
 
 export function usePromptInputV2Controller(props: PromptInputV2ControllerProps): PromptInputV2ComposerController {
   const sdk = useSDK()
+  const openImageEditor = useImageEditor(() => props.controls.session.id)
   const sync = useSync()
   const files = useFile()
   const layout = useLayout()
@@ -291,7 +289,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     Object.values(sync().data.mcp_resource).map((resource) => ({
       id: `resource:${resource.server}:${resource.uri}`,
       kind: "resource" as const,
-       label: `@${resource.name ?? resource.uri}`,
+      label: `@${resource.name ?? resource.uri}`,
       path: resource.uri,
       description: resource.description,
       mention: {
@@ -300,39 +298,45 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
         content: `@${resource.name}`,
         start: 0,
         end: 0,
-         mime: resource.mime ?? "text/plain",
+        mime: resource.mime ?? "text/plain",
         filename: resource.name ?? resource.uri,
         url: resource.uri,
         source: {
           type: "resource" as const,
-         text: { value: `@${resource.name ?? resource.uri}`, start: 0, end: (resource.name ?? resource.uri).length + 1 },
+          text: {
+            value: `@${resource.name ?? resource.uri}`,
+            start: 0,
+            end: (resource.name ?? resource.uri).length + 1,
+          },
           clientName: resource.server,
           uri: resource.uri,
         },
       },
-       resource,
+      resource,
     })),
   )
-  const context = createMemo(() => [
-    ...references(),
-    ...props.controls.agents.available
-      .filter((agent) => !agent.hidden && agent.mode !== "primary")
-      .map((agent) => ({
-        id: `agent:${agent.name}`,
-        kind: "agent" as const,
-        label: `@${agent.name}`,
-        mention: { type: "agent" as const, name: agent.name, content: `@${agent.name}`, start: 0, end: 0 },
+  const context = createMemo(() =>
+    [
+      ...references(),
+      ...props.controls.agents.available
+        .filter((agent) => !agent.hidden && agent.mode !== "primary")
+        .map((agent) => ({
+          id: `agent:${agent.name}`,
+          kind: "agent" as const,
+          label: `@${agent.name}`,
+          mention: { type: "agent" as const, name: agent.name, content: `@${agent.name}`, start: 0, end: 0 },
+        })),
+      ...resources(),
+      ...recent().map((path) => ({
+        id: `file:${path}`,
+        kind: "file" as const,
+        label: path,
+        path,
+        recent: true,
+        mention: { type: "file" as const, path, content: `@${path}`, start: 0, end: 0 },
       })),
-    ...resources(),
-    ...recent().map((path) => ({
-      id: `file:${path}`,
-      kind: "file" as const,
-      label: path,
-      path,
-      recent: true,
-      mention: { type: "file" as const, path, content: `@${path}`, start: 0, end: 0 },
-    })),
-  ].map((item) => item as PromptInputV2Suggestion))
+    ].map((item) => item as PromptInputV2Suggestion),
+  )
   const slashCommands = createMemo(() => [
     ...sync().data.command.map((item) => ({
       id: `custom.${item.name}`,
@@ -391,7 +395,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       if (item?.commentID) comments.remove(item.path, item.commentID)
     },
     openAttachment: (attachment) =>
-      dialog.show(() => <ImagePreview src={attachment.blob.url} alt={attachment.filename} mime={attachment.mime} />),
+      openImageEditor({ src: attachment.blob.url, alt: attachment.filename, mime: attachment.mime }),
     openContext(key) {
       const item = controller.contextItem(key)
       if (item) openComment(item, props, sync, layout, files, comments)
@@ -441,7 +445,13 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
           : undefined
       },
       variant: {
-        options: () => variants().map((value) => ({ id: value, label: value })),
+        options: () =>
+          variants().map((value) => {
+            // Managed relays historically named xhigh "ultra"; preserve its ID.
+            const body = props.controls.model.selection.current()?.variants?.[value]
+            const key = modelVariantLabelKey(value === "ultra" && body?.reasoning_effort === "xhigh" ? "xhigh" : value)
+            return { id: value, label: key ? language.t(key) : value }
+          }),
         current: () => props.controls.model.selection.variant.current() ?? "default",
         onSelect: (value) => props.controls.model.selection.variant.set(value === "default" ? undefined : value),
         keybind: () => command.keybindParts("model.variant.cycle"),
@@ -461,9 +471,6 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
   })
   Object.defineProperty(controller, "model", { get: () => props.controls.model })
   Object.defineProperty(controller, "project", { get: () => props.project })
-  Object.defineProperty(controller, "collaboration", { value: submission.collaboration })
-  const canSubmit = controller.canSubmit
-  controller.canSubmit = () => !submission.collaboration.blocked() && canSubmit()
 
   command.register("prompt-input", () => [
     {

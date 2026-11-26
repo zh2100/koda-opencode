@@ -60,6 +60,7 @@ type Scenario = {
   requests: number
   exposed: boolean
   pending?: boolean
+  revoke?: boolean
 }
 
 const scenarios: Scenario[] = [
@@ -78,6 +79,15 @@ const scenarios: Scenario[] = [
     reply: "reject",
     requests: 0,
     exposed: true,
+  },
+  {
+    name: "implicit request revoked while permission approval is pending",
+    mode: "ask",
+    permissions: [{ action: "*", resource: "*", effect: "ask" }],
+    reply: "once",
+    requests: 0,
+    exposed: true,
+    revoke: true,
   },
   {
     name: "ask pending",
@@ -145,6 +155,7 @@ function run(scenario: Scenario & { scheduled?: boolean }) {
       Effect.gen(function* () {
         const directory = AbsolutePath.make(tmp.path)
         const requests: Array<{ url: string; body: unknown }> = []
+        const reservations: string[] = []
         const http = Layer.succeed(
           HttpClient.HttpClient,
           HttpClient.make((request) =>
@@ -333,11 +344,25 @@ function run(scenario: Scenario & { scheduled?: boolean }) {
                 name: "image_generation",
                 input: { prompt: "a local test image" },
               },
+              ...(scenario.revoke
+                ? {
+                    beforeImagePost: (model: string) =>
+                      Effect.sync(() => {
+                        reservations.push(model)
+                      }),
+                  }
+                : {}),
             })
             .pipe(Effect.exit, Effect.forkScoped)
           if (scenario.reply) {
             const request = yield* Deferred.await(asked).pipe(Effect.timeout("3 seconds"))
             expect(requests).toHaveLength(0)
+            if (scenario.revoke)
+              yield* agents.transform((draft) =>
+                draft.update(agentID, (agent) => {
+                  agent.permissions = [{ action: "image_generation", resource: "*", effect: "deny" }]
+                }),
+              )
             yield* permissions.reply({ requestID: request.id, reply: scenario.reply })
           }
           if (scenario.pending) {
@@ -349,6 +374,7 @@ function run(scenario: Scenario & { scheduled?: boolean }) {
           }
           const exit = yield* Fiber.join(running)
           expect(requests).toHaveLength(scenario.requests)
+          if (scenario.revoke) expect(reservations).toEqual([])
           if (scenario.requests === 1) {
             expect(Exit.isSuccess(exit)).toBe(true)
             expect(requests[0]?.url).toBe("http://image.test/v1/images/generations")

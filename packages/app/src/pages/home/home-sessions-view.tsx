@@ -42,6 +42,7 @@ export type HomeSessionsViewProps = {
   groups: Accessor<HomeSessionGroup[]>
   showProjectName: Accessor<boolean>
   server: Accessor<ServerConnection.Key>
+  currentSessionID: Accessor<string | undefined>
   canCreateSession: Accessor<boolean>
   searchValue: Accessor<string>
   searchPlaceholder: Accessor<string>
@@ -181,7 +182,7 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
               />
             }
           >
-            <div ref={props.onSetContent} class="flex flex-col pt-3 pr-3 pb-16">
+            <div ref={props.onSetContent} class="flex flex-col pt-3 pe-3 pb-16">
               <For each={props.groups()}>
                 {(group, index) => (
                   <>
@@ -194,7 +195,7 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
                     <div
                       class={`flex min-w-0 flex-col gap-px pt-4 ${index() === props.groups().length - 1 ? "" : "mb-6"}`}
                     >
-                      <For each={group.sessions}>{(record) => <HomeSessionRow {...props} record={record} />}</For>
+                      <For each={group.sessions}>{(row) => <HomeSessionRow {...props} record={row.record()} />}</For>
                     </div>
                   </>
                 )}
@@ -242,12 +243,13 @@ function HomeSessionLeading(props: {
     <div class="relative shrink-0">
       <Show when={props.open}>
         <span
+          data-slot="open-session-indicator"
           aria-hidden="true"
           class={`
             pointer-events-none absolute top-1/2 h-3 w-0.5 -translate-y-1/2
             rounded-[2px] bg-v2-background-bg-layer-04
           `}
-          style={{ right: "calc(100% + 4px)" }}
+          style={{ "inset-inline-end": "calc(100% + 4px)" }}
         />
       </Show>
       <SessionTabAvatarView
@@ -479,6 +481,7 @@ function HomeSessionGroupHeader(props: {
 
 function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionRecord }) {
   const title = createMemo(() => sessionTitle(props.record.session.title) || props.record.session.id)
+  const current = () => props.currentSessionID() === props.record.session.id
   const showProjectName = () => props.showProjectName() && props.record.projectName
   const [state, setState] = createStore({ editing: false, draft: "", saving: false })
 
@@ -511,16 +514,18 @@ function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionReco
   return (
     <div
       class="group/session relative flex h-10 min-w-0 items-center rounded-[6px]"
-      classList={{ group: !!showProjectName() }}
+      classList={{ group: !!showProjectName(), "bg-v2-background-bg-layer-03": current() }}
     >
       <button
         type="button"
         data-component="home-session-row"
+        aria-current={current() ? "page" : undefined}
         class={`
           flex h-10 min-w-0 w-full flex-1 shrink-0 cursor-default items-center gap-2 rounded-[6px] border-0
-          bg-transparent py-3 pl-3 pr-16 text-left text-v2-text-text-muted [font-weight:530]
-          transition-[background-color,color,box-shadow] duration-[120ms] ease-in-out
-          hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none
+          bg-transparent py-3 ps-3 pe-16 text-start text-v2-text-text-muted [font-weight:530]
+          transition-colors duration-[120ms] ease-in-out
+          hover:bg-v2-overlay-simple-overlay-hover focus-visible:outline-2 focus-visible:-outline-offset-2
+          focus-visible:outline-v2-border-border-focus aria-[current=page]:hover:bg-transparent
         `}
         classList={{ "pointer-events-none opacity-0": state.editing }}
         onMouseDown={(event) => {
@@ -539,7 +544,7 @@ function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionReco
           record={props.record}
           revealProjectOnHover={!!showProjectName()}
         />
-        <HomeSessionTitle title={title()} showProjectName={!!showProjectName()} />
+        <HomeSessionTitle title={title()} showProjectName={!!showProjectName()} current={current()} />
         <Show when={showProjectName()}>
           <HomeSessionProjectName name={props.record.projectName} />
         </Show>
@@ -638,11 +643,14 @@ function HomeSessionRow(props: HomeSessionsViewProps & { record: HomeSessionReco
   )
 }
 
-function HomeSessionTitle(props: { title: string; showProjectName: boolean; search?: boolean }) {
+function HomeSessionTitle(props: { title: string; showProjectName: boolean; search?: boolean; current?: boolean }) {
   return (
     <span
-      class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-v2-text-text-base [font-weight:530]"
+      dir="auto"
+      class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-v2-text-text-base"
       classList={{
+        "[font-weight:600]": !!props.current,
+        "[font-weight:530]": !props.current,
         "text-[13px] leading-4 tracking-[-0.04px]": !!props.search,
         "max-w-[min(70%,480px)] flex-[0_1_auto]": props.showProjectName,
         "flex-[1_1_auto]": !props.showProjectName,

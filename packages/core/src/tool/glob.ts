@@ -12,6 +12,7 @@ import { PermissionV2 } from "../permission"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
+import { inventoryPattern, inventoryTools } from "./illustration-capability"
 
 export const name = "glob"
 
@@ -42,59 +43,56 @@ const layer = Layer.effectDiscard(
     const location = yield* Location.Service
     const permission = yield* PermissionV2.Service
 
-    yield* tools
-      .register({
-        [name]: Tool.make({
-          description:
-            "Find files by glob pattern within the active Location. Returns concise relative file resources. Use a relative path to narrow the search and limit to bound the result count.",
-          input: Input,
-          output: Output,
-          toModelOutput: ({ output }) => [
-            {
-              type: "text",
-              text: toModelOutput(
-                output.map((entry) => ({ ...entry, path: path.resolve(location.directory, entry.path) })),
-              ),
+    const tool = Tool.make({
+      description:
+        "Find files by glob pattern within the active Location. Returns concise relative file resources. Use a relative path to narrow the search and limit to bound the result count.",
+      input: Input,
+      output: Output,
+      toModelOutput: ({ output }) => [
+        {
+          type: "text",
+          text: toModelOutput(
+            output.map((entry) => ({ ...entry, path: path.resolve(location.directory, entry.path) })),
+          ),
+        },
+      ],
+      execute: (input, context) =>
+        Effect.gen(function* () {
+          yield* permission.assert({
+            action: name,
+            resources: [input.pattern],
+            save: ["*"],
+            metadata: {
+              root: input.path ?? ".",
+              path: input.path,
+              limit: input.limit,
             },
-          ],
-          execute: (input, context) =>
-            Effect.gen(function* () {
-              yield* permission.assert({
-                action: name,
-                resources: [input.pattern],
-                save: ["*"],
-                metadata: {
-                  root: input.path ?? ".",
-                  path: input.path,
-                  limit: input.limit,
-                },
-                sessionID: context.sessionID,
-                agent: context.agent,
-                source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
-              })
-              const cwd = path.resolve(location.directory, input.path ?? ".")
-              return yield* ripgrep
-                .glob({
-                  cwd,
-                  pattern: input.pattern,
-                  limit: input.limit ?? Number.MAX_SAFE_INTEGER,
-                })
-                .pipe(
-                  Effect.map((result) =>
-                    result.map((entry) =>
-                      FileSystem.Entry.make({
-                        ...entry,
-                        path: RelativePath.make(path.relative(location.directory, path.resolve(cwd, entry.path))),
-                      }),
-                    ),
-                  ),
-                )
-            }).pipe(
-              Effect.mapError(() => new ToolFailure({ message: `Unable to find files matching ${input.pattern}` })),
-            ),
-        }),
-      })
-      .pipe(Effect.orDie)
+            sessionID: context.sessionID,
+            agent: context.agent,
+            source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
+          })
+          const cwd = path.resolve(location.directory, input.path ?? ".")
+          return yield* ripgrep
+            .glob({
+              cwd,
+              pattern: input.pattern,
+              requireComplete: input.pattern === inventoryPattern,
+              limit: input.limit ?? Number.MAX_SAFE_INTEGER,
+            })
+            .pipe(
+              Effect.map((result) =>
+                result.map((entry) =>
+                  FileSystem.Entry.make({
+                    ...entry,
+                    path: RelativePath.make(path.relative(location.directory, path.resolve(cwd, entry.path))),
+                  }),
+                ),
+              ),
+            )
+        }).pipe(Effect.mapError(() => new ToolFailure({ message: `Unable to find files matching ${input.pattern}` }))),
+    })
+    inventoryTools.add(tool)
+    yield* tools.register({ [name]: tool }).pipe(Effect.orDie)
   }),
 )
 

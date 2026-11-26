@@ -60,6 +60,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     onNavigateToSession?: NavigateToSessionFn
     onSessionHref?: SessionHrefFn
     onRetrySession?: RetrySessionFn
+    onOpenGeneratedImage?: (image: { src: string; alt?: string; mime?: string }, source: { sessionID: string; messageID: string; callID: string }) => void
   }) => {
     return {
       get store() {
@@ -74,6 +75,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       navigateToSession: props.onNavigateToSession,
       sessionHref: props.onSessionHref,
       retrySession: props.onRetrySession,
+      openGeneratedImage: props.onOpenGeneratedImage,
     }
   },
 })

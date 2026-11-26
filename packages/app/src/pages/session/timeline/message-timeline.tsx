@@ -336,6 +336,10 @@ export function MessageTimeline(props: {
     sessionMessages: projectedMessages,
     parts: getMsgParts,
     status: sessionStatus,
+    waiting: () => {
+      const id = sessionID()
+      return !!id && (!!sync().data.permission[id]?.length || !!sync().data.question[id]?.length)
+    },
     showReasoningSummaries: settings.general.showReasoningSummaries,
     inlineComments: settings.general.newLayoutDesigns,
   })
@@ -1215,6 +1219,17 @@ export function MessageTimeline(props: {
           <TimelineRowFrame row={retryRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
               <SessionRetry status={sessionStatus()} show={activeMessageID() === retryRow().userMessageID} />
+            </div>
+          </TimelineRowFrame>
+        )
+      }
+      case "TaskStatus": {
+        const task = row as Accessor<TimelineRowByTag<"TaskStatus">>
+        const running = () => task().state === "running"
+        return (
+          <TimelineRowFrame row={task}>
+            <div class="w-full px-4 md:px-5 text-12-medium" data-slot="turn-task-status" data-state={task().state}>
+              {running() ? language.t("session.task.running") : language.t("session.task.completed")}
             </div>
           </TimelineRowFrame>
         )

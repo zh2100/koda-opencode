@@ -13,8 +13,6 @@ import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { PtyTicket } from "@opencode-ai/core/pty/ticket"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
-import { TaskOrchestrator } from "@opencode-ai/core/task-orchestrator"
-import { TesterIsolation } from "@opencode-ai/core/tester-isolation"
 import { LocationServiceMap } from "@opencode-ai/core/location-service-map"
 import { SessionExecutionLocal } from "@opencode-ai/core/session/execution/local"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
@@ -30,7 +28,6 @@ import { schemaErrorLayer } from "./middleware/schema-error"
 import { PtyEnvironment } from "./pty-environment"
 import { layer as locationLayer } from "./location"
 import { sessionLocationLayer } from "./middleware/session-location"
-import { ServerTesterIsolation } from "./tester-isolation"
 
 const applicationServices = LayerNode.group([
   Database.node,
@@ -48,14 +45,14 @@ const applicationServices = LayerNode.group([
   ScheduledTaskStore.node,
   PtyEnvironment.node,
   LocationServiceMap.node,
-  TaskOrchestrator.node,
 ])
 
-export function createRoutes(password?: string) {
+export function createRoutes(password?: string, replacements: LayerNode.Replacements = []) {
   return makeRoutes(
     password
       ? ServerAuth.Config.configLayer({ username: "opencode", password: Option.some(password) })
       : ServerAuth.Config.layer,
+    replacements,
   )
 }
 
@@ -63,10 +60,13 @@ export function createEmbeddedRoutes() {
   return makeRoutes(ServerAuth.Config.configLayer({ username: "opencode", password: Option.none() }))
 }
 
-function makeRoutes<AuthError, AuthServices>(auth: Layer.Layer<ServerAuth.Config, AuthError, AuthServices>) {
+function makeRoutes<AuthError, AuthServices>(
+  auth: Layer.Layer<ServerAuth.Config, AuthError, AuthServices>,
+  replacements: LayerNode.Replacements = [],
+) {
   const serviceLayer = AppNodeBuilder.build(applicationServices, [
     [SessionExecution.node, SessionExecutionLocal.node],
-    [TesterIsolation.node, ServerTesterIsolation.node],
+    ...replacements,
   ])
 
   return HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(

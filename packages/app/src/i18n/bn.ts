@@ -1,7 +1,7 @@
 export const dict: Record<string, string> = {
   "desktop.menu.about": "Koda সম্পর্কে",
   "desktop.about.title": "Koda ডেস্কটপ v{{version}}",
-  "desktop.about.detail": "OpenCode-কে ভিত্তি করে পরিবর্তিত\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+  "desktop.about.detail": "OpenCode-কে ভিত্তি করে পরিবর্তিত\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Koda v{{version}} উপলব্ধ। হালনাগাদ করতে রিলিজ পাতা খুলবেন?",
   "desktop.koda.update.open": "রিলিজ পাতা খুলুন",
   "command.project.create": "নতুন প্রকল্প",

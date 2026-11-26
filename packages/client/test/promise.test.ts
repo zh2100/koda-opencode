@@ -1,6 +1,175 @@
 import { expect, test } from "bun:test"
 import { isSessionNotFoundError, isUnauthorizedError, OpenCode } from "../src"
 
+test("sessions.pending reads the durable inbox view without submitting a prompt", async () => {
+  const calls: { method: string; pathname: string }[] = []
+  const snapshot = { sessionID: "ses_pending_client", sequence: 12, inputs: [] }
+  const client = OpenCode.make({
+    baseUrl: "http://localhost",
+    fetch: async (input, init) => {
+      calls.push({
+        method: init?.method ?? (input instanceof Request ? input.method : "GET"),
+        pathname: new URL(input instanceof Request ? input.url : String(input)).pathname,
+      })
+      return Response.json({ data: snapshot })
+    },
+  })
+  expect(await client.sessions.pending({ sessionID: snapshot.sessionID })).toEqual(snapshot)
+  expect(calls).toEqual([{ method: "GET", pathname: "/api/session/ses_pending_client/input" }])
+})
+
+test("SSE large image events use per-subscription byte limits and retain following events", async () => {
+  const image = {
+    type: "session.next.tool.success",
+    data: { content: [{ type: "file", mime: "image/png", uri: "data:image/png;base64," + "A".repeat(3_932_872) }] },
+  }
+  const wire = new TextEncoder().encode(
+    `data: ${JSON.stringify(image)}\r\n\r\ndata: ${JSON.stringify(modelSwitchedEvent)}\n\n`,
+  )
+  for (const chunkSize of [wire.length, 4093]) {
+    const client = OpenCode.make({
+      baseUrl: "http://localhost",
+      fetch: async () => {
+        let offset = 0
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (offset === wire.length) return controller.close()
+              controller.enqueue(wire.slice(offset, offset + chunkSize))
+              offset = Math.min(wire.length, offset + chunkSize)
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        )
+      },
+    })
+    let ready = false
+    const events = []
+    for await (const event of client.events.subscribe({
+      maxEventBytes: 8 * 1024 * 1024,
+      onReady: () => {
+        ready = true
+      },
+    })) {
+      expect(ready).toBe(true)
+      events.push(event)
+    }
+    expect(events).toEqual([image, modelSwitchedEvent])
+    await expect(client.events.subscribe()[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+      reason: "MalformedResponse",
+      cause: { reason: "SseEventTooLarge", limit: 1_048_576 },
+    })
+  }
+})
+
+test("SSE counts UTF-8 bytes per event, handles split line endings, EOF and cancellation", async () => {
+  const line = `data: ${JSON.stringify({ text: "江南" })}\r\n`
+  const bytes = new TextEncoder().encode(line)
+  for (const ending of ["\r\n", ""]) {
+    let cancelled = false
+    const client = OpenCode.make({
+      baseUrl: "http://localhost",
+      fetch: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              for (const byte of new TextEncoder().encode(line + ending)) controller.enqueue(new Uint8Array([byte]))
+              if (!ending) controller.close()
+            },
+            cancel() {
+              cancelled = true
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    })
+    for await (const event of client.events.subscribe({ maxEventBytes: bytes.length })) {
+      expect(event).toEqual({ text: "江南" })
+      break
+    }
+    if (ending) expect(cancelled).toBe(true)
+    await expect(
+      client.events
+        .subscribe({ maxEventBytes: bytes.length - 1 })
+        [Symbol.asyncIterator]()
+        .next(),
+    ).rejects.toMatchObject({ reason: "MalformedResponse" })
+  }
+})
+
+test("SSE accepts many valid events in a single chunk larger than the limit", async () => {
+  const wire = Array.from({ length: 100 }, () => 'data: {"ok":true}\n\n').join("")
+  const client = OpenCode.make({
+    baseUrl: "http://localhost",
+    fetch: async () => new Response(wire, { headers: { "content-type": "text/event-stream" } }),
+  })
+  const events = []
+  for await (const event of client.events.subscribe({ maxEventBytes: 32 })) events.push(event)
+  expect(events).toHaveLength(100)
+})
+
+test("SSE ready waits for response validation, not iterator construction or a business event", async () => {
+  for (const response of [
+    new Response("unauthorized", { status: 401 }),
+    new Response("not SSE"),
+    new Response(null, { headers: { "content-type": "text/event-stream" } }),
+  ]) {
+    let ready = false
+    const client = OpenCode.make({ baseUrl: "http://localhost", fetch: async () => response })
+    const iterator = client.events
+      .subscribe({
+        onReady: () => {
+          ready = true
+        },
+      })
+      [Symbol.asyncIterator]()
+    expect(ready).toBe(false)
+    await expect(iterator.next()).rejects.toBeDefined()
+    expect(ready).toBe(false)
+  }
+  const connected = Promise.withResolvers<void>()
+  const stream = new TransformStream<Uint8Array, Uint8Array>()
+  const client = OpenCode.make({
+    baseUrl: "http://localhost",
+    fetch: async () => new Response(stream.readable, { headers: { "content-type": "text/event-stream" } }),
+  })
+  const iterator = client.events.subscribe({ onReady: () => connected.resolve() })[Symbol.asyncIterator]()
+  const pending = iterator.next()
+  await connected.promise
+  await stream.writable.getWriter().close()
+  expect((await pending).done).toBe(true)
+})
+
+test("SSE rejects oversized unterminated events and releases the reader", async () => {
+  let cancelled = false
+  const client = OpenCode.make({
+    baseUrl: "http://localhost",
+    fetch: async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("data: " + "x".repeat(100)))
+          },
+          cancel() {
+            cancelled = true
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+  })
+  await expect(client.events.subscribe({ maxEventBytes: 32 })[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+    cause: { reason: "SseEventTooLarge", limit: 32 },
+  })
+  expect(cancelled).toBe(true)
+})
+
+test("SSE preserves comments, multiline data and CR-only framing", async () => {
+  const client = OpenCode.make({ baseUrl: "http://localhost", fetch: async () => new Response(': keepalive\rdata: {\rdata: "ok":true}\r\r', { headers: { "content-type": "text/event-stream" } }) })
+  const events = []
+  for await (const event of client.events.subscribe()) events.push(event)
+  expect(events).toEqual([{ ok: true }])
+})
+
 test("exposes every standard HTTP API group", () => {
   const client = OpenCode.make({ baseUrl: "http://localhost:3000" })
 
@@ -17,6 +186,7 @@ test("exposes every standard HTTP API group", () => {
     "server.relay",
     "server.scheduledTask",
     "imageGeneration",
+    "imageEdit",
     "permissions",
     "files",
     "commands",
@@ -26,7 +196,6 @@ test("exposes every standard HTTP API group", () => {
     "questions",
     "references",
     "projectCopies",
-    "server.orchestrator",
   ])
   expect(Object.keys(client.messages)).toEqual(["list"])
   expect(Object.keys(client.integrations)).toEqual([

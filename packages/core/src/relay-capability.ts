@@ -2,7 +2,7 @@ export * as RelayCapability from "./relay-capability"
 
 import { Relay } from "@opencode-ai/schema/relay"
 
-export const version = 2
+export const version = 4
 
 type Efforts = ReadonlyArray<Relay.Effort>
 
@@ -51,8 +51,21 @@ const modelEfforts: Record<string, ReadonlyArray<readonly [RegExp, Efforts]>> = 
   kimi: [[/thinking|reason/, kimi.full]],
 }
 
+// Exact upstream IDs work with user-named OpenAI-compatible relays too.
+// These describe upstream capabilities, not a guarantee of relay acceptance.
+const exactEfforts: Record<string, Efforts> = {
+  "gpt-6.2-astra": ["low", "medium", "high", "xhigh", "max", "ultra"],
+  "gpt-6.2-sol": ["low", "medium", "high", "xhigh", "max"],
+  "gpt-6-astra": ["low", "medium", "high", "xhigh", "max"],
+  "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"],
+  "gpt-6.1-terra": ["none", "low", "medium", "high", "xhigh", "max"],
+  "grok-4.6": ["low", "medium", "high", "xhigh"],
+  "grok-4.7": ["low", "medium", "high", "xhigh"],
+}
+
 export function efforts(vendorId: string, modelId: string): Efforts {
   const id = modelId.toLowerCase()
+  if (Object.hasOwn(exactEfforts, id)) return exactEfforts[id]
   for (const [pattern, value] of modelEfforts[vendorId] ?? []) {
     if (pattern.test(id)) return value
   }
@@ -66,7 +79,8 @@ function reasoningModel(modelId: string) {
 
 export function variants(vendorId: string, modelId: string) {
   return efforts(vendorId, modelId).map((id) => ({
-    id: id === "xhigh" ? "ultra" : id,
+    // Saved "ultra" selections mean xhigh. Give native Ultra a separate variant ID.
+    id: id === "ultra" ? "native-ultra" : id === "xhigh" ? "ultra" : id,
     headers: {},
     body: { reasoning_effort: id },
   }))

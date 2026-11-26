@@ -1,7 +1,7 @@
 export const dict = {
   "desktop.menu.about": "Koda အကြောင်း",
   "desktop.about.title": "Koda Desktop v{{version}}",
-  "desktop.about.detail": "OpenCode ကို အခြေခံ၍ ပြင်ဆင်ထားသည်\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+  "desktop.about.detail": "OpenCode ကို အခြေခံ၍ ပြင်ဆင်ထားသည်\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Koda v{{version}} ရရှိနိုင်ပါပြီ။ အဆင့်မြှင့်ရန် ထုတ်ဝေမှုစာမျက်နှာကို ဖွင့်မလား။",
   "desktop.koda.update.open": "ထုတ်ဝေမှုစာမျက်နှာကို ဖွင့်ရန်",
   "command.project.create": "ပရောဂျက်အသစ်",

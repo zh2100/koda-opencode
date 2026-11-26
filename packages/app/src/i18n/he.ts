@@ -44,7 +44,7 @@ export const dict = {
   "desktop.menu.shareFeedback": "שתפי משוב",
   "desktop.menu.about": "אודות Koda",
   "desktop.about.title": "Koda Desktop v{{version}}",
-  "desktop.about.detail": "שונה מ - OpenCode כליבה שלו\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+  "desktop.about.detail": "שונה מ - OpenCode כליבה שלו\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Koda v{{version}} זמין. לפתוח את דף השחרור כדי לשדרג?",
   "desktop.koda.update.open": "פתיחת דף השקה",
   "desktop.menu.reportBug": "דווח על תקלה",

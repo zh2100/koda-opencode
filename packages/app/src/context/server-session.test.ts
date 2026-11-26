@@ -163,6 +163,37 @@ function setup(sessions: Record<string, Session>) {
 }
 
 describe("server session", () => {
+  test.each([1, 2])("replaces optimistic parts on V2 promotion with %i identical screenshot(s)", (count) => {
+    const ctx = setup({})
+    const user = userMessage("msg_user")
+    const files = Array.from({ length: count }, () => ({ uri: "data:image/png;base64,AAA", name: "screen.png", mime: "image/png" }))
+    ctx.store.optimistic.add({
+      sessionID: user.sessionID,
+      message: user,
+      parts: [
+        textPart(user.id, { id: "prt_text" }),
+        ...files.map((file, i) => ({
+          id: `prt_upload_${i}`,
+          messageID: user.id,
+          sessionID: user.sessionID,
+          type: "file" as const,
+          url: file.uri,
+          filename: file.name,
+          mime: file.mime,
+        })),
+      ],
+    })
+    ctx.store.applyV2({
+      type: "session.next.prompted",
+      id: "evt_promoted",
+      data: { timestamp: 2, sessionID: user.sessionID, messageID: user.id, delivery: "steer", prompt: { text: "text", files } },
+    })
+    expect(ctx.store.data.part[user.id]?.map((part) => part.id)).toEqual([
+      ...files.map((_, i) => `${user.id}:file:${i}`),
+      `${user.id}:text:0`,
+    ])
+  })
+
   test("projects attachments from admitted V2 prompts without losing URI or mention data", () => {
     const ctx = setup({ child: session("child") })
     const files = [
@@ -181,11 +212,13 @@ describe("server session", () => {
         input: { type: "user", delivery: "steer", data: { text: "@note.txt", files } },
       },
     } as unknown as OpenCodeEvent)
-    expect(() => ctx.store.applyV2({
-      id: "evt_promoted",
-      type: "session.input.promoted",
-      data: { sessionID: "child", inputID: "msg_user" },
-    } as unknown as OpenCodeEvent)).not.toThrow()
+    expect(() =>
+      ctx.store.applyV2({
+        id: "evt_promoted",
+        type: "session.input.promoted",
+        data: { sessionID: "child", inputID: "msg_user" },
+      } as unknown as OpenCodeEvent),
+    ).not.toThrow()
     expect(ctx.store.data.part.msg_user?.filter((part) => part.type === "file")).toMatchObject([
       { url: "data:image/png;base64,AAA", filename: "image.png" },
       { url: "data:text/plain;base64,aGVsbG8=", filename: "legacy.txt" },
@@ -194,20 +227,30 @@ describe("server session", () => {
   })
 
   test("hydrates mixed attachment formats through the V2 message endpoint", async () => {
-    const store = createServerSession({} as OpencodeClient, {} as SessionApi, {
-      list: async () => ({ data: [{
-        id: "msg_user",
-        type: "user",
-        text: "hello",
-        time: { created: 1 },
-        files: [
-          { uri: "data:text/plain,hello,world", mime: "text/plain" },
-          { data: "AAA", mime: "image/png", name: "legacy.png" },
-          { mime: "image/png" },
-          null,
-        ],
-      }], cursor: { previous: null, next: null } }),
-    } as unknown as MessageApi, { protocol: Promise.resolve("v2") })
+    const store = createServerSession(
+      {} as OpencodeClient,
+      {} as SessionApi,
+      {
+        list: async () => ({
+          data: [
+            {
+              id: "msg_user",
+              type: "user",
+              text: "hello",
+              time: { created: 1 },
+              files: [
+                { uri: "data:text/plain,hello,world", mime: "text/plain" },
+                { data: "AAA", mime: "image/png", name: "legacy.png" },
+                { mime: "image/png" },
+                null,
+              ],
+            },
+          ],
+          cursor: { previous: null, next: null },
+        }),
+      } as unknown as MessageApi,
+      { protocol: Promise.resolve("v2") },
+    )
     store.remember(session("child"))
 
     await store.sync("child")
@@ -259,7 +302,13 @@ describe("server session", () => {
       created: 4,
       type: "session.next.text.delta",
       location: { directory: "/repo" },
-      data: { sessionID: "child", timestamp: 4, assistantMessageID: "msg_2_assistant", textID: "text_1", delta: "world" },
+      data: {
+        sessionID: "child",
+        timestamp: 4,
+        assistantMessageID: "msg_2_assistant",
+        textID: "text_1",
+        delta: "world",
+      },
     })
 
     const assistantMessage = ctx.store.data.session_message.child?.at(-1)
@@ -325,6 +374,42 @@ describe("server session", () => {
     expect(store.data.message.root.map((message) => message.id)).toEqual([user.id, assistant.id])
   })
 
+  test("paginates retained history larger than the current API request limit", async () => {
+    const messages = Array.from({ length: 730 }, (_, index) => ({
+      id: `msg_${String(index).padStart(4, "0")}`,
+      type: "user" as const,
+      text: `message ${index}`,
+      time: { created: index + 1 },
+    }))
+    const requests: unknown[] = []
+    const messageApi = {
+      list: async (input: { limit: number; cursor?: string }) => {
+        requests.push(input)
+        if (input.limit > 200) throw new Error("request limit exceeds 200")
+        const offset = Number(input.cursor ?? 0)
+        return {
+          data: messages.toReversed().slice(offset, offset + input.limit),
+          cursor: { previous: null, next: offset + input.limit < messages.length ? String(offset + input.limit) : null },
+        }
+      },
+    } as unknown as MessageApi
+    const store = createServerSession({} as OpencodeClient, {} as SessionApi, messageApi)
+    store.remember(session("root"))
+
+    await store.prefetch("root", 730)
+
+    expect(requests).toEqual([
+      { sessionID: "root", limit: 200, order: "desc" },
+      { sessionID: "root", limit: 200, cursor: "200" },
+      { sessionID: "root", limit: 200, cursor: "400" },
+      { sessionID: "root", limit: 200, cursor: "600" },
+    ])
+    expect(store.data.session_message.root.map((message) => message.id).sort()).toEqual(
+      messages.map((message) => message.id).sort(),
+    )
+    expect(store.data.message.root).toHaveLength(730)
+  })
+
   test("extends a current page to include the user for split assistant turns", async () => {
     const user = { id: "msg_1_user", type: "user", text: "hello", time: { created: 1 } } as const
     const assistant = (id: string, created: number) => ({
@@ -365,6 +450,145 @@ describe("server session", () => {
       ...assistants.map((item) => item.id),
     ])
     expect(assistants.map((item) => store.data.part[item.id]?.[0]?.type)).toEqual(["text", "text", "text"])
+  })
+
+  test("recovers missed image results read-only and backfills their user turn", async () => {
+    const user = { id: "msg_user", type: "user", text: "draw", time: { created: 1 } } as const
+    const image = {
+      id: "msg_image",
+      type: "assistant",
+      agent: "build",
+      model: { id: "model", providerID: "provider" },
+      time: { created: 2, completed: 3 },
+      content: [
+        {
+          type: "tool",
+          id: "image_call",
+          name: "image_generation",
+          time: { created: 2, completed: 3 },
+          state: {
+            status: "completed",
+            input: {},
+            content: [{ type: "file", mime: "image/png", uri: "data:image/png;base64,AAAA" }],
+          },
+        },
+      ],
+    } as const
+    const requests: unknown[] = []
+    const pages = [
+      { data: [user], cursor: { next: null, previous: null } },
+      { data: [image], cursor: { next: "older", previous: null } },
+      { data: [user], cursor: { next: null, previous: null } },
+    ]
+    const store = createServerSession(
+      {} as OpencodeClient,
+      { get: async () => session("root") } as unknown as SessionApi,
+      {
+        list: async (input: unknown) => {
+          requests.push(input)
+          return pages.shift()!
+        },
+      } as unknown as MessageApi,
+    )
+    store.remember(session("root"))
+    store.pin("root")
+    await store.sync("root")
+    await store.recover()
+    expect(requests).toHaveLength(3)
+    expect(requests[2]).toEqual({ sessionID: "root", limit: 1, cursor: "older" })
+    expect(store.data.session_message.root.map((message) => message.id)).toEqual([user.id, image.id])
+    expect(store.data.part[image.id]).toContainEqual(
+      expect.objectContaining({
+        type: "tool",
+        state: expect.objectContaining({
+          status: "completed",
+          attachments: [expect.objectContaining({ mime: "image/png", url: "data:image/png;base64,AAAA" })],
+        }),
+      }),
+    )
+  })
+
+  test("marks unpinned histories dirty for their next sync without eagerly reading them", async () => {
+    let reads = 0
+    const store = createServerSession(
+      {} as OpencodeClient,
+      { get: async () => session("root") } as unknown as SessionApi,
+      {
+        list: async () => {
+          reads++
+          return { data: [], cursor: { next: null, previous: null } }
+        },
+      } as unknown as MessageApi,
+    )
+    store.remember(session("root"))
+    await store.sync("root")
+    await store.recover()
+    expect(reads).toBe(1)
+    await store.sync("root")
+    expect(reads).toBe(2)
+  })
+
+  test("does not let a recovery snapshot overwrite newer V2 events", async () => {
+    const user = { id: "msg_user", type: "user", text: "hello", time: { created: 1 } } as const
+    const assistant = {
+      id: "msg_assistant",
+      type: "assistant",
+      agent: "build",
+      model: { id: "model", providerID: "provider" },
+      content: [{ type: "text", id: "text", text: "old" }],
+      time: { created: 2 },
+    } as const
+    const snapshot = { data: [assistant, user], cursor: { next: null, previous: null } }
+    const pending = Promise.withResolvers<typeof snapshot>()
+    let reads = 0
+    const store = createServerSession(
+      {} as OpencodeClient,
+      { get: async () => session("root") } as unknown as SessionApi,
+      {
+        list: async () => (++reads === 1 ? snapshot : pending.promise),
+      } as unknown as MessageApi,
+    )
+    store.remember(session("root"))
+    store.pin("root")
+    await store.sync("root")
+    const recovery = store.recover()
+    while (reads < 2) await Bun.sleep(0)
+    store.applyV2({
+      id: "evt_delta",
+      created: 4,
+      type: "session.next.text.delta",
+      location: { directory: "/repo" },
+      data: { sessionID: "root", timestamp: 4, assistantMessageID: assistant.id, textID: "text", delta: " new" },
+    } as OpenCodeEvent)
+    pending.resolve(snapshot)
+    await recovery
+    expect(store.data.part[assistant.id]?.[0]).toMatchObject({ type: "text", text: "old new" })
+    expect(JSON.stringify(store.data.session_message.root.at(-1))).toContain('"text":"old new"')
+  })
+
+  test("does not report a missing durable user turn as successful recovery", async () => {
+    const store = createServerSession(
+      {} as OpencodeClient,
+      { get: async () => session("root") } as unknown as SessionApi,
+      {
+        list: async () => ({
+          data: [
+            {
+              id: "assistant",
+              type: "assistant",
+              agent: "build",
+              model: { id: "m", providerID: "p" },
+              content: [],
+              time: { created: 2 },
+            },
+          ],
+          cursor: { next: null, previous: null },
+        }),
+      } as unknown as MessageApi,
+    )
+    store.remember(session("root"))
+    store.pin("root")
+    await expect(store.recover()).rejects.toThrow("Session history is missing the user turn root")
   })
 
   test("indexes V1 messages for the current timeline projection", async () => {
@@ -451,7 +675,12 @@ describe("server session", () => {
     const forced = store.sync("child", { force: true })
     first.resolve(response([{ info: oldMessage, parts: [] }]))
     await client.requested(2)
-    second.resolve(response([{ info: oldMessage, parts: [] }, { info: nextMessage, parts: [] }]))
+    second.resolve(
+      response([
+        { info: oldMessage, parts: [] },
+        { info: nextMessage, parts: [] },
+      ]),
+    )
     await Promise.all([loading, forced])
     expect(store.data.message.child?.map((item) => item.id)).toEqual([nextMessage.id, oldMessage.id])
   })

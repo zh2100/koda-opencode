@@ -2,7 +2,7 @@ export const dict = {
   "desktop.menu.about": "Koda އާއި ބެހޭ",
   "desktop.about.title": "Koda ޑެސްކްޓޮޕް v{{version}}",
   "desktop.about.detail":
-    "OpenCode ބިންގާއެއްގެ ގޮތުގައި ބޭނުންކޮށް ބަދަލުކުރެވިފައި\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+    "OpenCode ބިންގާއެއްގެ ގޮތުގައި ބޭނުންކޮށް ބަދަލުކުރެވިފައި\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Koda v{{version}} ލިބެން އެބަހުރި. އަޕްގްރޭޑް ކުރުމަށް ރިލީޒް ޞަފްޙާ ހުޅުވަންވީތޯ؟",
   "desktop.koda.update.open": "ރިލީޒް ޞަފްޙާ ހުޅުވާ",
   "command.project.create": "އައު ޕްރޮޖެކްޓެއް",

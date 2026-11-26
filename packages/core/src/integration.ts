@@ -146,9 +146,10 @@ export interface Interface extends State.Transformable<Draft> {
   readonly connection: {
     /** Returns the active connection for one integration. */
     readonly active: (id: ID) => Effect.Effect<IntegrationConnection.Info | undefined>
-    /** Resolves a connection into usable credential material. */
+    /** Resolves credential material, refreshing OAuth unless explicitly disabled. */
     readonly resolve: (
       connection: IntegrationConnection.Info,
+      options?: { refreshOAuth?: false },
     ) => Effect.Effect<Credential.Value | undefined, AuthorizationError>
     /** Runs a key method and stores the resulting credential. */
     readonly key: (input: {
@@ -382,14 +383,14 @@ export const locationLayer = Layer.effect(
           const entry = state.get().integrations.get(id)
           return resolveConnections(entry, yield* credentials.list(id))[0]
         }),
-        resolve: Effect.fn("Integration.connection.resolve")(function* (connection) {
+        resolve: Effect.fn("Integration.connection.resolve")(function* (connection, options) {
           if (connection.type === "env") {
             const key = process.env[connection.name]
             return key ? Credential.Key.make({ type: "key", key }) : undefined
           }
           const credential = yield* credentials.get(connection.id)
           if (!credential) return undefined
-          if (credential.value.type === "key") return credential.value
+          if (credential.value.type === "key" || options?.refreshOAuth === false) return credential.value
           const implementation = state
             .get()
             .integrations.get(credential.integrationID)

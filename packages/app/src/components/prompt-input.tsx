@@ -85,7 +85,7 @@ import { promptPlaceholder } from "./prompt-input/placeholder"
 import { createPromptInputTransientState } from "./prompt-input/transient-state"
 import { showToast } from "@/utils/toast"
 import { recognizeSpeech, speechSupported } from "./prompt-input/speech"
-import { ImagePreview } from "@opencode-ai/ui/image-preview"
+import { useImageEditor } from "@/components/dialog-image-edit"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
 
 export { createPromptInputHistory }
@@ -121,6 +121,7 @@ const EXAMPLES = [
 
 export const PromptInput: Component<PromptInputProps> = (props) => {
   const sdk = useSDK()
+  const openImageEditor = useImageEditor(() => props.controls.session.id)
 
   const sync = useSync()
   const files = useFile()
@@ -1264,8 +1265,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       model: props.controls.model.selection,
     })
   const { abort, handleSubmit } = submission
-  const collaboration = () => submission.collaboration
-
   const handleKeyDown = (event: KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "u") {
       event.preventDefault()
@@ -1525,11 +1524,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         />
         <PromptImageAttachments
           attachments={imageAttachments()}
-          onOpen={(attachment) =>
-            dialog.show(() => (
-              <ImagePreview src={attachment.blob.url} alt={attachment.filename} mime={attachment.mime} />
-            ))
-          }
+          onOpen={(attachment) => openImageEditor({ src: attachment.blob.url, alt: attachment.filename, mime: attachment.mime })}
           onRemove={removeAttachment}
           removeLabel={language.t("prompt.attachment.remove")}
           fileLabel={language.t("ui.common.file")}
@@ -1646,7 +1641,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     event.preventDefault()
                     void abort()
                   }}
-                  disabled={!stopping() && (collaboration()?.blocked() || (!working() && blank()))}
+                  disabled={!stopping() && ((!working() && blank()))}
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}
                   variant="primary"

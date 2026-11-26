@@ -1,12 +1,12 @@
 # Koda Desktop
 
-Koda 是数元AI维护的 AI 编程桌面应用。打开本地项目后，你可以在同一个工作空间里与 AI 讨论代码、查看文件和修改记录、运行终端命令，也可以通过 MCP 服务和技能接入项目需要的工具。
+Koda 是一款 AI 编程桌面应用。打开本地项目后，你可以在同一个工作空间里与 AI 讨论代码、查看文件和修改记录、运行终端命令，也可以通过 MCP 服务和技能接入项目需要的工具。
 
 **安装桌面版** · [下载最新公开版本](https://github.com/zh2100/koda-opencode/releases/latest)
 
 截至 2026 年 11 月 21 日，GitHub 最新公开安装包为 **v1.0.5**，提供 Windows x64 安装程序、macOS Apple 芯片 DMG，以及 Linux amd64 和 arm64 的 DEB 包。Windows 用户请在发布页的 **Assets** 中下载并运行 `Koda-desktop-win-x64.exe`。已安装的用户可以从 **帮助 → 检查更新** 查看新版本。
 
-当前 `dev` 分支的桌面源码为 **v1.0.6**。要使用下文的提供商模型列表和独立图像生成设置，可以按本文末尾的步骤从源码构建。
+当前 `dev` 分支的桌面源码为 **v1.0.7**。要使用下文的提供商模型列表和独立图像生成设置，可以按本文末尾的步骤从源码构建。
 
 ## 连接提供商并选择模型
 
@@ -56,4 +56,4 @@ bun run package:win -- --x64 --publish never
 
 报告问题时请附上 Koda 版本、操作系统、复现步骤和相关错误提示，并从日志或截图中移除 API 密钥。[提交 GitHub Issue](https://github.com/zh2100/koda-opencode/issues/new)
 
-本项目由数元AI维护，采用 [MIT 许可证](LICENSE)。
+本项目采用 [MIT 许可证](LICENSE)。

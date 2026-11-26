@@ -62,6 +62,7 @@ const recordingSession = (
       context: () => Effect.succeed([]),
       events: () => Stream.die("unused"),
       history: () => Effect.succeed({ events: [], hasMore: false }),
+      pending: () => Effect.die("unused"),
       switchAgent: () => Effect.void,
       switchModel: () => Effect.void,
       notice: () => Effect.void,
@@ -721,6 +722,8 @@ describe("ScheduledTask cancel epoch", () => {
         }),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
     ),
+    // Includes Bun worker startup and the bounded 10s ready / 15s release handshake.
+    30_000,
   )
 
   it.live("T10 releases the project lock after create, prompt, and resume failures", () =>

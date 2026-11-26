@@ -8,6 +8,7 @@ import { useServerSDK } from "@/context/server-sdk"
 import { createImageGenerationSettings } from "./settings-image-generation-state"
 
 const decodeApi = Schema.decodeUnknownOption(ImageGeneration.Api)
+const apis = ImageGeneration.Api.literals.filter((api) => api !== "openai-chat")
 
 export function SettingsImageGeneration() {
   const language = useLanguage()
@@ -46,13 +47,18 @@ function ImageGenerationForm(props: {
   const models = useModels()
   const [model, setModel] = createSignal(props.config.model ?? "")
   const [enabled, setEnabled] = createSignal(props.config.enabled === true)
-  const [api, setApi] = createSignal<ImageGeneration.Api | "">(props.config.api ?? "")
+  const [automatic, setAutomatic] = createSignal(props.config.automaticIllustrations === true)
+  const [limit, setLimit] = createSignal(props.config.taskRequestLimit ?? 2)
+  const [api, setApi] = createSignal<ImageGeneration.Api | "">(apis.find((item) => item === props.config.api) ?? "")
   const [pending, setPending] = createSignal(false)
   const [status, setStatus] = createSignal<"saved" | "error">()
   const selected = createMemo(() => models.list().find((item) => `${item.provider.id}/${item.id}` === model()))
   const suggested = createMemo(() => {
     const item = selected()
-    return item ? ImageGeneration.apiForProvider({ providerID: item.provider.id, npm: item.api.npm }) : undefined
+    const protocol = item
+      ? ImageGeneration.apiForProvider({ providerID: item.provider.id, npm: item.api.npm })
+      : undefined
+    return apis.find((api) => api === protocol)
   })
   const hint = createMemo(() => {
     const item = selected()
@@ -64,7 +70,13 @@ function ImageGenerationForm(props: {
     }).source
     return `settings.imageGeneration.source.${source}` as const
   })
-  const valid = createMemo(() => !enabled() || (/^[^/\s]+\/\S+$/.test(model().trim()) && api()))
+  const valid = createMemo(
+    () =>
+      (!enabled() || (/^[^/\s]+\/\S+$/.test(model().trim()) && api())) &&
+      Number.isInteger(limit()) &&
+      limit() >= 1 &&
+      limit() <= 10,
+  )
   const save = async (event: SubmitEvent) => {
     event.preventDefault()
     if (pending() || !valid()) return
@@ -73,6 +85,8 @@ function ImageGenerationForm(props: {
     const selectedApi = api()
     const config: ImageGeneration.Config = {
       enabled: enabled(),
+      automaticIllustrations: enabled() && automatic(),
+      taskRequestLimit: limit(),
       ...(model().trim() ? { model: model().trim() } : {}),
       ...(selectedApi ? { api: selectedApi } : {}),
     }
@@ -96,6 +110,26 @@ function ImageGenerationForm(props: {
           <input type="checkbox" checked={enabled()} onChange={(event) => setEnabled(event.currentTarget.checked)} />
           {language.t("settings.imageGeneration.enabled")}
         </label>
+        <label class="flex items-center gap-2">
+          <input
+            type="checkbox"
+            disabled={!enabled()}
+            checked={automatic()}
+            onChange={(event) => setAutomatic(event.currentTarget.checked)}
+          />
+          {language.t("settings.imageGeneration.automatic")}
+        </label>
+        <label class="flex flex-col gap-1">
+          {language.t("settings.imageGeneration.limit")}
+          <input
+            class="rounded border border-border-weak-base p-2"
+            type="number"
+            min="1"
+            max="10"
+            value={limit()}
+            onInput={(event) => setLimit(event.currentTarget.valueAsNumber)}
+          />
+        </label>
         <label class="flex flex-col gap-1">
           {language.t("settings.imageGeneration.catalog")}
           <select
@@ -105,8 +139,10 @@ function ImageGenerationForm(props: {
               const value = event.currentTarget.value
               setModel(value)
               const item = models.list().find((candidate) => `${candidate.provider.id}/${candidate.id}` === value)
-              const protocol = item ? ImageGeneration.apiForProvider({ providerID: item.provider.id, npm: item.api.npm }) : undefined
-              if (protocol) setApi(protocol)
+              const protocol = item
+                ? ImageGeneration.apiForProvider({ providerID: item.provider.id, npm: item.api.npm })
+                : undefined
+              setApi(apis.find((api) => api === protocol) ?? "")
             }}
           >
             <option value="">{language.t("settings.imageGeneration.manual")}</option>
@@ -143,7 +179,7 @@ function ImageGenerationForm(props: {
             onChange={(event) => setApi(Option.getOrElse(decodeApi(event.currentTarget.value), () => ""))}
           >
             <option value="">{language.t("settings.imageGeneration.api.unselected")}</option>
-            <For each={ImageGeneration.Api.literals}>
+            <For each={apis}>
               {(item) => <option value={item}>{language.t(`settings.imageGeneration.api.${item}`)}</option>}
             </For>
           </select>
@@ -151,7 +187,9 @@ function ImageGenerationForm(props: {
         <Show when={suggested()}>
           {(protocol) => (
             <p class="text-12-regular text-text-weak">
-              {language.t("settings.imageGeneration.api.suggested", { api: language.t(`settings.imageGeneration.api.${protocol()}`) })}
+              {language.t("settings.imageGeneration.api.suggested", {
+                api: language.t(`settings.imageGeneration.api.${protocol()}`),
+              })}
             </p>
           )}
         </Show>

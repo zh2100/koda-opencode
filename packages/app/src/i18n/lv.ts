@@ -2,7 +2,7 @@ export const dict = {
   "desktop.menu.about": "Par Koda",
   "desktop.about.title": "Koda darbvirsmas lietotne v{{version}}",
   "desktop.about.detail":
-    "Pārveidots, izmantojot OpenCode kā pamatu\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+    "Pārveidots, izmantojot OpenCode kā pamatu\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Pieejama Koda v{{version}}. Atvērt laidiena lapu, lai atjauninātu?",
   "desktop.koda.update.open": "Atvērt laidiena lapu",
   "command.project.create": "Jauns projekts",

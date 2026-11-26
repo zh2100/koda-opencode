@@ -25,6 +25,7 @@ describe("current session timeline rows", () => {
         agent: "build",
         model: { id: "model", providerID: "provider" },
          content: [{ id: "part_2", type: "text", text: "answer" }],
+        finish: "stop",
         time: { created: 2, completed: 3 },
       },
       { id: "msg_3", type: "user", text: "second", time: { created: 4 } },
@@ -54,9 +55,11 @@ describe("current session timeline rows", () => {
     expect(result.rows.map(TimelineRow.key)).toEqual([
       "user-message:msg_1",
       "assistant-part:msg_1:msg_2:text:0",
+      "task-status:msg_1",
       "turn-gap:msg_3",
       "user-message:msg_3",
       "assistant-part:msg_3:msg_4:reasoning:0",
+      "task-status:msg_3",
     ])
   })
 
@@ -203,6 +206,30 @@ describe("current session timeline rows", () => {
       normalized.messages.filter((message) => message.role === "user"),
     )
 
-    expect(result.rows.map((row) => row._tag)).toEqual(["UserMessage", "AssistantPart"])
+    expect(result.rows.map((row) => row._tag)).toEqual(["UserMessage", "AssistantPart", "TaskStatus"])
+  })
+
+  test("tracks the reply before its first token without borrowing a queued user's row", () => {
+    const user = { id: "u1", type: "user", text: "hello", time: { created: 1 } } as const
+    const assistant = {
+      id: "a1", type: "assistant", agent: "build", model: { id: "m", providerID: "p" },
+      content: [], time: { created: 2 },
+    } satisfies SessionMessageInfo
+    const queued = { ...user, id: "u2", time: { created: 3 } }
+    const project = (reply: SessionMessageInfo, status: "busy" | "idle" | "retry", waiting = false) => {
+      const source = [user, reply]
+      const normalized = normalizeSessionMessages("s", [...source, queued])
+      return Timeline.constructSessionMessageRows(source, id => normalized.messages.find(m => m.id === id),
+        id => normalized.parts.get(id) ?? [], true, status, true,
+        normalized.messages.filter(m => m.role === "user"), waiting).rows.flatMap(row =>
+          row._tag === "TaskStatus" ? [[row.userMessageID, row.state]] : [])
+    }
+    expect(project(assistant, "busy")).toEqual([["u1", "running"]])
+    expect(project(assistant, "busy", true)).toEqual([])
+    expect(project(assistant, "retry")).toEqual([])
+    const settled = { ...assistant, time: { created: 2, completed: 3 } }
+    expect(project({ ...settled, finish: "tool-calls" }, "idle")).toEqual([])
+    expect(project({ ...settled, finish: "stop" }, "idle")).toEqual([["u1", "completed"]])
+    expect(project({ ...settled, finish: "error", error: { type: "abort", message: "Stopped" } }, "idle")).toEqual([])
   })
 })

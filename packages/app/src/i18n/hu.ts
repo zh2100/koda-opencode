@@ -46,7 +46,7 @@ const desktop = [
   "Visszajelzés küldése",
   "A Koda névjegye",
   "Koda Desktop v{{version}}",
-  "Az OpenCode alapjaira épülő módosított változat\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+  "Az OpenCode alapjaira épülő módosított változat\nGitHub: https://github.com/zh2100/koda-opencode",
   "Elérhető a Koda v{{version}}. Megnyitja a kiadás oldalát a frissítéshez?",
   "Kiadás oldalának megnyitása",
   "Hiba jelentése",

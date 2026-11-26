@@ -34,6 +34,7 @@ export type PromptProjectControls = {
   directory: string
   server?: string
   select: (worktree: string, server?: string) => void
+  remove: (project: PromptProject) => void
   add: (title: string, server?: string) => void
   create: (server?: string) => void
 }
@@ -146,6 +147,7 @@ export function createPromptProjectController(input: {
       clear: () => language.t("common.clear"),
       new: () => language.t("session.new.project.new"),
       search: () => language.t("session.new.project.search"),
+      remove: (project: PromptProject) => language.t("session.new.project.remove", { name: displayName(project) }),
     },
     add,
     create: (server?: string) => {
@@ -153,6 +155,7 @@ export function createPromptProjectController(input: {
       input.controls().create(server)
     },
     select,
+    remove: (project: PromptProject) => input.controls().remove(project),
     setOpen(open: boolean) {
       if (open) {
         setStore({ open: true, active: initialActive() })
@@ -551,38 +554,50 @@ function ProjectItem(props: {
 }) {
   const key = () => props.controller.projectKey(props.project)
   return (
-    <DropdownMenu.RadioItem
-      id={key()}
-      value={key()}
-      data-option-key={key()}
-      class="h-7 gap-2 rounded-sm px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-base data-[highlighted]:!bg-v2-overlay-simple-overlay-hover"
-      classList={{ "!bg-v2-overlay-simple-overlay-hover": props.controller.active() === key() }}
-      style={{
-        "font-family": "var(--v2-font-family-sans)",
-        "font-size": "13px",
-        "font-weight": 440,
-        "line-height": "20px",
-        "letter-spacing": "-0.04px",
-        color: "var(--v2-text-text-base)",
-        padding: "0 12px",
-      }}
-      closeOnSelect
-      onMouseEnter={() => {
-        props.controller.setActive(key())
-        props.controller.focusSearch()
-      }}
-      onSelect={() => props.onSelect(props.project)}
-    >
-      <ProjectAvatar
-        fallback={displayName(props.project)}
-        src={getProjectAvatarSource(props.project.id, props.project.icon)}
-        variant={getProjectAvatarVariant(props.project.icon?.color)}
-      />
-      <DropdownMenu.ItemLabel class="min-w-0 truncate leading-5">{displayName(props.project)}</DropdownMenu.ItemLabel>
-      <DropdownMenu.ItemIndicator style={{ width: "14px", height: "14px", right: "12px" }}>
-        <IconV2 name="check" size="small" class="shrink-0 text-v2-icon-icon-base" />
-      </DropdownMenu.ItemIndicator>
-    </DropdownMenu.RadioItem>
+    <div class="flex items-center">
+      <DropdownMenu.RadioItem
+        id={key()}
+        value={key()}
+        data-option-key={key()}
+        class="h-7 min-w-0 flex-1 gap-2 rounded-sm px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-base data-[highlighted]:!bg-v2-overlay-simple-overlay-hover"
+        classList={{ "!bg-v2-overlay-simple-overlay-hover": props.controller.active() === key() }}
+        style={{
+          "font-family": "var(--v2-font-family-sans)",
+          "font-size": "13px",
+          "font-weight": 440,
+          "line-height": "20px",
+          "letter-spacing": "-0.04px",
+          color: "var(--v2-text-text-base)",
+          padding: "0 12px",
+        }}
+        closeOnSelect
+        onMouseEnter={() => {
+          props.controller.setActive(key())
+          props.controller.focusSearch()
+        }}
+        onSelect={() => props.onSelect(props.project)}
+      >
+        <ProjectAvatar
+          fallback={displayName(props.project)}
+          src={getProjectAvatarSource(props.project.id, props.project.icon)}
+          variant={getProjectAvatarVariant(props.project.icon?.color)}
+        />
+        <DropdownMenu.ItemLabel class="min-w-0 truncate pe-4 leading-5">
+          {displayName(props.project)}
+        </DropdownMenu.ItemLabel>
+        <DropdownMenu.ItemIndicator style={{ width: "14px", height: "14px" }}>
+          <IconV2 name="check" size="small" class="shrink-0 text-v2-icon-icon-base" />
+        </DropdownMenu.ItemIndicator>
+      </DropdownMenu.RadioItem>
+      <DropdownMenu.Item
+        aria-label={props.controller.labels.remove(props.project)}
+        title={props.controller.labels.remove(props.project)}
+        class="flex size-7 shrink-0 items-center justify-center rounded-sm text-v2-icon-icon-muted data-[highlighted]:!bg-v2-overlay-simple-overlay-hover"
+        onSelect={() => props.controller.remove(props.project)}
+      >
+        <Icon name="trash" size="small" />
+      </DropdownMenu.Item>
+    </div>
   )
 }
 

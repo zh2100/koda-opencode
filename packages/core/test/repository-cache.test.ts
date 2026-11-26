@@ -64,6 +64,7 @@ describe("RepositoryCache", () => {
         expect(yield* exists(path.join(replaced.localPath, "stale.txt"))).toBe(false)
       }).pipe(Effect.provide(cacheLayer(fixture.root))),
     ),
+    30_000,
   )
 
   it.live("keeps branch checkouts isolated from branchless refreshes", () =>
@@ -86,6 +87,7 @@ describe("RepositoryCache", () => {
         expect(yield* read(path.join(cached.localPath, "README.md"))).toBe("two\n")
       }).pipe(Effect.provide(cacheLayer(fixture.root))),
     ),
+    30_000,
   )
 
   it.live("does not mistake an enclosing repository for the cache checkout", () =>

@@ -1652,15 +1652,21 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                       type="button"
                       class="max-w-full rounded border border-border-weak-base bg-background-base"
                       aria-label={attachment.filename ?? i18n.t("ui.imagePreview.alt")}
-                      onClick={() =>
-                        dialog.show(() => (
+                      onClick={() => {
+                        const tool = part()
+                        const preview = { src: attachment.url, alt: attachment.filename, mime: attachment.mime }
+                        if (tool.tool === "image_generation" && data.openGeneratedImage) {
+                          data.openGeneratedImage(preview, { sessionID: tool.sessionID, messageID: tool.messageID, callID: tool.callID })
+                          return
+                        }
+                        void dialog.show(() => (
                           <ImagePreview
                             src={attachment.url}
                             alt={attachment.filename ?? i18n.t("ui.imagePreview.alt")}
                             mime={attachment.mime}
                           />
                         ))
-                      }
+                      }}
                     >
                       <img
                         src={attachment.url}

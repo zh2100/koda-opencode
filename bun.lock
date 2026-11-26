@@ -347,7 +347,11 @@
         "gray-matter": "4.0.3",
         "htmlparser2": "8.0.2",
         "ignore": "7.0.5",
+        "image-size": "1.2.1",
         "immer": "11.1.4",
+        "jszip": "3.10.2",
+        "pptxgenjs": "4.0.1",
+        "saxes": "5.0.1",
         "jsonc-parser": "3.3.1",
         "mime-types": "3.0.2",
         "minimatch": "10.2.5",
@@ -385,7 +389,7 @@
     },
     "packages/desktop": {
       "name": "@opencode-ai/desktop",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "dependencies": {
         "@zip.js/zip.js": "2.7.62",
         "drizzle-orm": "catalog:",

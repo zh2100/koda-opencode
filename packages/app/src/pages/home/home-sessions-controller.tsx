@@ -2,8 +2,8 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { preloadMarkdown } from "@opencode-ai/session-ui/markdown-cache"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useQuery } from "@tanstack/solid-query"
-import { type Accessor, createEffect, createMemo, createRoot, type JSX, startTransition } from "solid-js"
-import { createStore, produce } from "solid-js/store"
+import { type Accessor, createComputed, createEffect, createMemo, createRoot, type JSX, on, startTransition } from "solid-js"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { useCommand } from "@/context/command"
 import {
   loadHomeSessionIndex,
@@ -11,7 +11,7 @@ import {
   retainHomeSessions,
   type HomeSessionEvents,
 } from "@/context/global-sync/home-session-index"
-import type { LocalProject } from "@/context/layout"
+import { type LocalProject, useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { ServerConnection } from "@/context/server"
 import { sessionHasOpenTab, useTabs } from "@/context/tabs"
@@ -35,16 +35,22 @@ export type HomeSessionRecord = {
 export type HomeSessionGroup = {
   id: string
   title: string
-  sessions: HomeSessionRecord[]
+  sessions: { id: string; record: Accessor<HomeSessionRecord> }[]
 }
 
 export type OpenSessionOptions = { background?: boolean }
 
 export function createHomeSessionsController(home: HomeController) {
   const tabs = useTabs()
+  const layout = useLayout()
   const command = useCommand()
   const dialog = useDialog()
   const language = useLanguage()
+  const currentSessionID = createMemo(() => {
+    const route = layout.route()
+    const server = home.server.focused()
+    if (route.type === "session" && server && route.server === ServerConnection.key(server)) return route.sessionId
+  })
   const projectDirectories = createMemo(() => home.project.list().flatMap(directories))
   const projectByID = createMemo(
     () => new Map(home.project.list().flatMap((project) => (project.id ? [[project.id, project] as const] : []))),
@@ -113,7 +119,16 @@ export function createHomeSessionsController(home: HomeController) {
   const records = createMemo(() => allRecords().slice(0, HOME_SESSION_LIMIT))
   const [pins, setPins] = persisted(Persist.global("home.session.pins", ["home.session.pins.v1"]), createStore({ ids: [] as string[] }))
   const pinned = createMemo(() => new Set(pins.ids))
-  const groups = createMemo(() => groupSessions(records(), pinned(), language))
+  const nextGroups = createMemo(() => groupSessions(records(), pinned(), language))
+  const [list, setList] = createStore<{ groups: HomeSessionGroup[] }>({ groups: [] })
+  createComputed(
+    on([home.server.focusedContext, nextGroups], ([scope, groups], previous) => {
+      if (scope !== previous?.[0]) setList("groups", [])
+      // Keep row identity across index updates without reconciling shared session/project data.
+      setList("groups", reconcile(groups, { key: "id" }))
+    }),
+  )
+  const groups = () => list.groups
   const prefetched = new Set<string>()
 
   createEffect(() => {
@@ -194,6 +209,7 @@ export function createHomeSessionsController(home: HomeController) {
     session: {
       showProjectName: () => true,
       server: () => home.selection.value().server,
+      currentID: currentSessionID,
       canCreate: () => !!home.project.newSession(),
       create: home.project.openNewSession,
       open: (session: Session, options?: OpenSessionOptions) => {
@@ -379,7 +395,7 @@ function groupSessions(
   records: HomeSessionRecord[],
   pinned: Set<string>,
   language: ReturnType<typeof useLanguage>,
-): HomeSessionGroup[] {
+) {
   const pinnedSessions = records.filter((record) => pinned.has(record.session.id))
   const rest = records.filter((record) => !pinned.has(record.session.id))
   const byProject = new Map<string, HomeSessionRecord[]>()
@@ -400,8 +416,12 @@ function groupSessions(
     if (!left || !right) return a.title.localeCompare(b.title)
     return compareSessionTime(left, right)
   })
-  if (pinnedSessions.length === 0) return groups
-  return [{ id: "pinned", title: language.t("common.pin"), sessions: pinnedSessions }, ...groups]
+  if (pinnedSessions.length > 0) groups.unshift({ id: "pinned", title: language.t("common.pin"), sessions: pinnedSessions })
+  return groups.map((group) => ({
+    id: group.id,
+    title: group.title,
+    sessions: group.sessions.map((record) => ({ id: record.session.id, record: () => record })),
+  }))
 }
 
 export type HomeSessionsController = ReturnType<typeof createHomeSessionsController>

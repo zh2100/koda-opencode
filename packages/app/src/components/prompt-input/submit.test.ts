@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { createStore } from "solid-js/store"
+import { createRoot } from "solid-js"
 import type { Prompt, PromptStore } from "@/context/prompt"
 import type { ModelSelection } from "@/context/local"
 import type { Session } from "@opencode-ai/sdk/v2/client"
@@ -7,7 +8,6 @@ import { Worktree } from "@/utils/worktree"
 import { ServerScope } from "@/utils/server-scope"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
-let resetCollaborationState: typeof import("./submit").resetCollaborationState
 
 const deliveries: Array<{ kind: string; directory: string; server: string }> = []
 let activeServer = "server-a"
@@ -55,8 +55,6 @@ let permissionServer = "server-a"
 let createSessionGate: Promise<void> | undefined
 let resolveSessionGate: Promise<void> | undefined
 let releaseResolveSession: (() => void) | undefined
-let worker = "provider/worker"
-let collaborationEnabled = false
 let launchStatus = 200
 let launchGate: Promise<void> | undefined
 const launches: Array<{ url: string; body: Record<string, unknown> }> = []
@@ -207,23 +205,11 @@ beforeAll(async () => {
     },
     dismissToast: () => {},
   }))
-  mock.module("@/context/settings", () => ({
-    useSettings: () => ({
-      collaboration: {
-        models: {
-          get worker() {
-            return worker
-          },
-        },
-        enabled: () => collaborationEnabled,
-        ready: () => true,
-      },
-    }),
-  }))
   mock.module("@/context/server-sdk", () => ({
     useServerSDK: () => () => {
       const server = activeServer
       return {
+        scope: server,
         server: { http: { url: "http://localhost:4096" } },
         ensureDirSdkContext: (directory: string) => {
           const client = clientFor(directory, server)
@@ -439,11 +425,9 @@ beforeAll(async () => {
   mock.module("@/context/prompt", () => ({ usePrompt: () => prompt, isPromptEqual }))
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
-  resetCollaborationState = mod.resetCollaborationState
 })
 
 beforeEach(() => {
-  resetCollaborationState()
   legacyAbort.mockClear()
   interrupted.length = 0
   deliveries.length = 0
@@ -476,238 +460,12 @@ beforeEach(() => {
   releaseResolveSession = undefined
   launchGate = undefined
   launchStatus = 200
-  worker = "provider/worker"
   launches.length = 0
   sessions.clear()
   resolvedSessions.length = 0
   toasts.length = 0
   serverSessionSyncs = 0
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
-})
-
-describe("collaboration submission", () => {
-  const parallel = "refactor src/api/a.ts and src/web/b.ts in parallel"
-  const make = (working = () => false) =>
-    createPromptSubmit({
-      prompt,
-      info: () => (params.id ? sessions.get(params.id) : undefined),
-      imageAttachments: () => [],
-      commentCount: () => 0,
-      autoAccept: () => false,
-      mode: () => "normal",
-      working,
-      editor: () => undefined,
-      queueScroll: () => undefined,
-      promptLength: () => 2,
-      addToHistory: () => undefined,
-      resetHistoryNavigation: () => undefined,
-      setMode: () => undefined,
-      setPopover: () => undefined,
-      newSessionWorktree: () => selected,
-      shouldQueue: () => true,
-      onQueue: () => {
-        throw new Error("must not queue collaboration")
-      },
-    })
-
-  test("promotes a fresh draft and launches only the current task in the selected workspace", async () => {
-    promptValue = [{ type: "text", content: parallel, start: 0, end: parallel.length }]
-    search = { draftId: "draft" }
-    const submit = make()
-    collaborationEnabled = true
-    await submit.handleSubmit(new Event("submit"))
-    expect(launches).toHaveLength(1)
-    expect(launches[0].body).toMatchObject({
-      sessionID: "session-1",
-      projectID: "project",
-      prompt: parallel,
-      workspaceKey: "directory:/repo/worktree-a",
-      models: { worker: "provider/worker" },
-    })
-    expect(sessionCreateInputs[0].model).toMatchObject({ id: "worker", providerID: "provider" })
-    expect(promotedDrafts).toHaveLength(1)
-    expect(sentPrompts).toHaveLength(0)
-    expect(sentCommands).toHaveLength(0)
-    expect(promptValue[0]).toMatchObject({ content: "" })
-    expect(submit.collaboration.state.busy).toBe(false)
-  })
-
-  test("keeps collaboration enabled when the composer remounts for the promoted session", async () => {
-    search = { draftId: "draft" }
-    collaborationEnabled = true
-    const draft = make()
-    await draft.handleSubmit(new Event("submit"))
-
-    params = { id: "session-1" }
-    const session = make()
-    expect(collaborationEnabled).toBe(true)
-  })
-
-  test("keeps collaboration enabled when an existing session composer remounts", () => {
-    params = { id: "session-1" }
-    collaborationEnabled = true
-    const first = make()
-    const second = make()
-    expect(collaborationEnabled).toBe(true)
-  })
-
-  test.each(["v1", "v2"] as const)("stops the running session using the %s server protocol", async (kind) => {
-    protocol = kind
-    params = { id: "running-session" }
-    await make(() => true).abort()
-    expect(legacyAbort.mock.calls.map(([input]) => input.sessionID)).toEqual(kind === "v1" ? ["running-session"] : [])
-    expect(interrupted).toEqual(kind === "v2" ? ["running-session"] : [])
-    expect(toasts).toHaveLength(0)
-  })
-
-  test("reports a rejected v1 stop without sending a v2 interrupt", async () => {
-    protocol = "v1"
-    params = { id: "running-session" }
-    legacyAbort.mockRejectedValueOnce(new Error("Stop request failed"))
-    await make(() => true).abort()
-    expect(legacyAbort).toHaveBeenCalledTimes(1)
-    expect(interrupted).toHaveLength(0)
-    expect(toasts).toEqual([{ title: "prompt.action.stop", description: "Stop request failed" }])
-  })
-
-  test("keeps interrupt available with collaboration enabled without launching another task", async () => {
-    interrupted.length = 0
-    params = { id: "running-session" }
-    const submit = make(() => true)
-    collaborationEnabled = true
-    expect(submit.collaboration.blocked()).toBe(true)
-    await submit.handleSubmit(new Event("submit"))
-    expect(interrupted).toHaveLength(0)
-    promptValue = [{ type: "text", content: "", start: 0, end: 0 }]
-    worker = ""
-    await submit.handleSubmit(new Event("submit"))
-    expect(interrupted).toEqual(["running-session"])
-    expect(launches).toHaveLength(0)
-    expect(createdSessions).toHaveLength(0)
-    expect(sentPrompts).toHaveLength(0)
-  })
-
-  test.each([400, 500, 0])("preserves task and releases busy on launch failure %s", async (status) => {
-    promptValue = [{ type: "text", content: parallel, start: 0, end: parallel.length }]
-    launchStatus = status
-    const submit = make()
-    collaborationEnabled = true
-    await submit.handleSubmit(new Event("submit"))
-    expect(promptValue[0]).toMatchObject({ content: parallel })
-    expect(submit.collaboration.state.busy).toBe(false)
-    expect(sentPrompts).toHaveLength(0)
-  })
-
-  test("blocks double submission during session creation and preserves concurrent edits", async () => {
-    promptValue = [{ type: "text", content: parallel, start: 0, end: parallel.length }]
-    let release!: () => void
-    createSessionGate = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    const submit = make()
-    collaborationEnabled = true
-    const first = submit.handleSubmit(new Event("submit"))
-    await submit.handleSubmit(new Event("submit"))
-    promptValue = [{ type: "text", content: "next", start: 0, end: 4 }]
-    release()
-    await first
-    expect(createdSessions).toHaveLength(1)
-    expect(launches).toHaveLength(1)
-    expect(launches[0].body.prompt).toBe(parallel)
-    expect(promptValue[0]).toMatchObject({ content: "next" })
-  })
-
-  test("requires worker and rejects non-text inputs before creating a session", async () => {
-    promptValue = [{ type: "text", content: parallel, start: 0, end: parallel.length }]
-    const submit = make()
-    collaborationEnabled = true
-    worker = ""
-    await submit.handleSubmit(new Event("submit"))
-    worker = "provider/worker"
-    promptValue = [{ type: "agent", name: "build", content: `@build ${parallel}`, start: 0, end: parallel.length + 7 }]
-    await submit.handleSubmit(new Event("submit"))
-    expect(createdSessions).toHaveLength(0)
-    expect(launches).toHaveLength(0)
-  })
-
-  test("uses the existing session directory and does not interpret slash commands", async () => {
-    promptValue = [{ type: "text", content: parallel, start: 0, end: parallel.length }]
-    collaborationEnabled = true
-    const initial = make()
-    await initial.handleSubmit(new Event("submit"))
-    params = { id: "session-1" }
-    promptValue = [{ type: "text", content: `/review ${parallel}`, start: 0, end: parallel.length + 8 }]
-    commands.push({ name: "review" })
-    const submit = make()
-    expect(collaborationEnabled).toBe(true)
-    await submit.handleSubmit(new Event("submit"))
-    expect(createdSessions).toHaveLength(1)
-    expect(launches[1].body).toMatchObject({
-      sessionID: "session-1",
-      workspaceKey: "directory:/repo/worktree-a",
-      prompt: `/review ${parallel}`,
-    })
-    expect(sentCommands).toHaveLength(0)
-    expect(sentPrompts).toHaveLength(0)
-  })
-
-  test("preserves edits and blocks duplicate sends while the launch is pending", async () => {
-    promptValue = [{ type: "text", content: parallel, start: 0, end: parallel.length }]
-    let release!: () => void
-    launchGate = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    const submit = make()
-    collaborationEnabled = true
-    const first = submit.handleSubmit(new Event("submit"))
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    await submit.handleSubmit(new Event("submit"))
-    promptValue = [{ type: "text", content: "next", start: 0, end: 4 }]
-    release()
-    await first
-    expect(launches).toHaveLength(1)
-    expect(promptValue[0]).toMatchObject({ content: "next" })
-    expect(submit.collaboration.state.busy).toBe(false)
-  })
-
-  test("allows interrupt while a collaboration launch is pending but still blocks duplicate launch", async () => {
-    promptValue = [{ type: "text", content: parallel, start: 0, end: parallel.length }]
-    interrupted.length = 0
-    let working = false
-    let release!: () => void
-    launchGate = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    const submit = make(() => working)
-    collaborationEnabled = true
-    const first = submit.handleSubmit(new Event("submit"))
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    params.id = "session-1"
-    working = true
-    await submit.handleSubmit(new Event("submit"))
-    promptValue = [{ type: "text", content: "", start: 0, end: 0 }]
-    await submit.handleSubmit(new Event("submit"))
-    expect(interrupted).toEqual(["session-1"])
-    expect(submit.collaboration.state.busy).toBe(true)
-    release()
-    await first
-    expect(launches).toHaveLength(1)
-    expect(submit.collaboration.state.busy).toBe(false)
-  })
-
-  test("waits for a newly created worktree before launch", async () => {
-    promptValue = [{ type: "text", content: parallel, start: 0, end: parallel.length }]
-    selected = "create"
-    const submit = make()
-    collaborationEnabled = true
-    const result = submit.handleSubmit(new Event("submit"))
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(launches).toHaveLength(0)
-    Worktree.ready(ServerScope.local, "/repo/main/new")
-    await result
-    expect(launches[0].body.workspaceKey).toBe("directory:/repo/main/new")
-    expect(submit.collaboration.state.busy).toBe(false)
-  })
 })
 
 describe("prompt submit worktree selection", () => {
@@ -855,7 +613,8 @@ describe("prompt submit worktree selection", () => {
     expect(promptInputs).toEqual([expect.objectContaining({ sessionID: recovered.id })])
   })
 
-  test("reads the latest worktree accessor value per submit", async () => {
+  test("uses the selected worktree for each explicitly opened draft", async () => {
+    search.draftId = "draft-a"
     const submit = createPromptSubmit({
       prompt,
       info: () => undefined,
@@ -879,6 +638,7 @@ describe("prompt submit worktree selection", () => {
     const event = { preventDefault: () => undefined } as unknown as Event
 
     await submit.handleSubmit(event)
+    search.draftId = "draft-b"
     selected = "/repo/worktree-b"
     promptValue = [{ type: "text", content: "ls", start: 0, end: 2 }]
     await submit.handleSubmit(event)
@@ -923,6 +683,141 @@ describe("prompt submit worktree selection", () => {
     ])
     expect(syncedDirectories).toEqual(["/repo/worktree-a", "/repo/worktree-a", "/repo/worktree-b", "/repo/worktree-b"])
   })
+
+  test.each(["shell", "prompt", "command"] as const)(
+    "keeps promoted session ownership on %s followups",
+    async (kind) => {
+      if (kind === "command") {
+        protocol = "v1"
+        commands.push({ name: "test" })
+      }
+      const submit = createPromptSubmit({
+        prompt,
+        info: () => undefined,
+        imageAttachments: () => [],
+        commentCount: () => 0,
+        autoAccept: () => false,
+        mode: () => (kind === "shell" ? "shell" : "normal"),
+        working: () => false,
+        editor: () => undefined,
+        queueScroll: () => undefined,
+        promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+        addToHistory: () => undefined,
+        resetHistoryNavigation: () => undefined,
+        setMode: () => undefined,
+        setPopover: () => undefined,
+        newSessionWorktree: () => selected,
+      })
+      const text = kind === "command" ? "/test" : "ls"
+      promptValue = [{ type: "text", content: text, start: 0, end: text.length }]
+      await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+      await Bun.sleep(0)
+      selected = "/repo/worktree-b"
+      promptValue = [{ type: "text", content: text, start: 0, end: text.length }]
+      await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+      await Bun.sleep(0)
+
+      expect(createdSessions).toEqual(["/repo/worktree-a"])
+      expect(deliveries).toEqual([
+        { kind, directory: "/repo/worktree-a", server: "server-a" },
+        { kind, directory: "/repo/worktree-a", server: "server-a" },
+      ])
+      const requests = kind === "shell" ? sentShell : kind === "command" ? sentCommands : promptInputs
+      expect(requests).toEqual([
+        expect.objectContaining({ sessionID: "session-1" }),
+        expect.objectContaining({ sessionID: "session-1" }),
+      ])
+      if (kind === "prompt")
+        expect(optimistic.map((item) => item.directory)).toEqual(["/repo/worktree-a", "/repo/worktree-a"])
+    },
+  )
+
+  test("creates separate sessions for different drafts in the same worktree", async () => {
+    search.draftId = "draft-a"
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: () => 2,
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    search.draftId = "draft-b"
+    promptValue = [{ type: "text", content: "ls", start: 0, end: 2 }]
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    expect(createdSessions).toEqual(["/repo/worktree-a", "/repo/worktree-a"])
+    expect(sentShell.map((item) => item.sessionID)).toEqual(["session-1", "session-2"])
+    expect(promotedDrafts.map((item) => item.draftID)).toEqual(["draft-a", "draft-b"])
+  })
+
+  test.each(["switch", "dispose"] as const)(
+    "does not affect another draft after %s during creation",
+    async (change) => {
+      search.draftId = "draft-a"
+      let release = () => {}
+      createSessionGate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const next = {
+        ...prompt,
+        current: () => [{ type: "text" as const, content: "keep me", start: 0, end: 7 }],
+        reset: mock(() => undefined),
+      }
+      let current = prompt
+      const source = { ...prompt, capture: () => current }
+      const onSubmit = mock(() => undefined)
+      const setMode = mock(() => undefined)
+      let dispose = () => {}
+      const submit = createRoot((cleanup) => {
+        dispose = cleanup
+        return createPromptSubmit({
+          prompt: source,
+          info: () => undefined,
+          imageAttachments: () => [],
+          commentCount: () => 0,
+          autoAccept: () => false,
+          mode: () => "shell",
+          working: () => false,
+          editor: () => undefined,
+          queueScroll: () => undefined,
+          promptLength: () => 2,
+          addToHistory: () => undefined,
+          resetHistoryNavigation: () => undefined,
+          setMode,
+          setPopover: () => undefined,
+          newSessionWorktree: () => selected,
+          onSubmit,
+        })
+      })
+      const result = submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+      await Bun.sleep(0)
+      if (change === "switch") {
+        search.draftId = "draft-b"
+        current = next
+      }
+      if (change === "dispose") dispose()
+      release()
+      await result
+      expect(promotedDrafts).toEqual([])
+      expect(promoted).toEqual([])
+      expect(next.reset).not.toHaveBeenCalled()
+      expect(onSubmit).not.toHaveBeenCalled()
+      expect(setMode).not.toHaveBeenCalled()
+      expect(sentShell).toEqual([expect.objectContaining({ sessionID: "session-1" })])
+      expect(deliveries).toEqual([{ kind: "shell", directory: "/repo/worktree-a", server: "server-a" }])
+      dispose()
+    },
+  )
 
   test("applies auto-accept to newly created sessions", async () => {
     const submit = createPromptSubmit({
@@ -1018,7 +913,7 @@ describe("prompt submit worktree selection", () => {
 
     const submit = createPromptSubmit({
       prompt,
-      info: () => ({ id: "session-1" }) as Session,
+      info: () => ({ id: "session-1", directory: "/repo/main" }) as Session,
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,
@@ -1062,7 +957,7 @@ describe("prompt submit worktree selection", () => {
 
     const submit = createPromptSubmit({
       prompt,
-      info: () => ({ id: "session-1" }) as Session,
+      info: () => ({ id: "session-1", directory: "/repo/main" }) as Session,
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,
@@ -1097,7 +992,7 @@ describe("prompt submit worktree selection", () => {
     } as unknown as ModelSelection
     const submit = createPromptSubmit({
       prompt,
-      info: () => ({ id: "session-1" }) as Session,
+      info: () => ({ id: "session-1", directory: "/repo/main" }) as Session,
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,

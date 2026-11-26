@@ -4,6 +4,7 @@ const emptyList = new Set(["/skill", "/command", "/lsp", "/formatter", "/vcs/sta
 const emptyObject = new Set(["/global/config", "/config", "/provider/auth", "/mcp", "/experimental/resource"])
 
 export interface MockServerConfig {
+  origin?: string
   protocol?: "v1" | "v2"
   provider: unknown | (() => unknown)
   integrationMethods?: Record<string, unknown[]>
@@ -66,7 +67,8 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     const appPort = new URL(
       process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${process.env.PLAYWRIGHT_PORT ?? "3000"}`,
     ).port
-    if (url.port !== targetPort && url.port !== appPort) return route.fallback()
+    if (config.origin ? url.origin !== config.origin : url.port !== targetPort && url.port !== appPort)
+      return route.fallback()
 
     const path = url.pathname
     if (path === "/global/event" || path === "/event" || path === "/api/event") {
@@ -354,6 +356,9 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       if (message === undefined) return json(route, { error: "Message not found" }, undefined, 404)
       return json(route, message)
     }
+
+    const currentTodoMatch = path.match(/^\/api\/session\/([^/]+)\/todo$/)
+    if (currentTodoMatch) return json(route, { data: config.todos?.(currentTodoMatch[1]) ?? [] })
 
     const todoMatch = path.match(/^\/session\/([^/]+)\/todo$/)
     if (todoMatch) return json(route, config.todos?.(todoMatch[1]!) ?? [])

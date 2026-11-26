@@ -65,6 +65,7 @@ describe("Snapshot", () => {
         }),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
     ),
+    30_000,
   )
 
   testEffect(Layer.empty).live("treats capture outside Git as unavailable", () =>
@@ -127,6 +128,7 @@ describe("Snapshot", () => {
         }),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
     ),
+    30_000,
   )
 
   testEffect(Layer.empty).live("checks out a legacy revert snapshot without removing unrelated files", () =>

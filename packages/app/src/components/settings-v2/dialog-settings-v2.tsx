@@ -12,7 +12,6 @@ import { SettingsServersV2 } from "./servers"
 import { SettingsSkillsV2 } from "./skills"
 import { SettingsMcpV2 } from "./mcp"
 import { SettingsScheduledV2 } from "./scheduled"
-import { SettingsCollaboration } from "../settings-collaboration"
 import { SettingsComputerUse } from "../settings-computer-use"
 import { useRelayGates } from "@/hooks/use-relay-gates"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -93,10 +92,6 @@ export const DialogSettings: Component<{
                       <Icon name="sliders" />
                       {language.t("settings.computerUse.title")}
                     </TabsV2.Trigger>
-                    <TabsV2.Trigger value="collaboration">
-                      <Icon name="brain" />
-                      {language.t("settings.tab.collaboration")}
-                    </TabsV2.Trigger>
                     <Show when={gates().relaySkills}>
                       <TabsV2.Trigger value="skills">
                         <Icon name="checklist" />
@@ -121,7 +116,6 @@ export const DialogSettings: Component<{
             </div>
              <div class="settings-v2-nav-footer">
                <span>{language.t("app.name.desktop")}</span>
-               <span>数元AI</span>
                <span>v{import.meta.env.VITE_KODA_VERSION}</span>
              </div>
           </div>
@@ -143,9 +137,6 @@ export const DialogSettings: Component<{
         </TabsV2.Content>
         <TabsV2.Content value="computer-use" class="settings-v2-panel">
           <SettingsComputerUse />
-        </TabsV2.Content>
-        <TabsV2.Content value="collaboration" class="settings-v2-panel">
-          <SettingsCollaboration />
         </TabsV2.Content>
         <Show when={gates().relaySkills}>
           <TabsV2.Content value="skills" class="settings-v2-panel">

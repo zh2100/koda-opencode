@@ -41,6 +41,7 @@ export namespace Timeline {
     status: SessionStatus["type"],
     inlineComments: boolean,
     projectedUserMessages: UserMessage[],
+    waiting = false,
   ) {
     const turns: { user: UserMessage; assistants: AssistantMessage[] }[] = []
     const turnByUserID = new Map<string, (typeof turns)[number]>()
@@ -80,7 +81,10 @@ export namespace Timeline {
       if (index >= 0) turns.splice(index, 0, turn)
       turnByUserID.set(user.id, turn)
     })
-    const activeMessageID = turns.at(-1)?.user.id
+    // An optimistic or queued user message can follow the assistant that is still streaming.
+    const latest = turns.findLast((turn) => turn.assistants.length)?.assistants.at(-1)
+    const activeMessageID =
+      status !== "idle" && latest && latest.time.completed === undefined ? latest.parentID : turns.at(-1)?.user.id
     return {
       activeMessageID,
       rows: turns.flatMap((turn, index) =>
@@ -93,6 +97,7 @@ export namespace Timeline {
           status,
           turn.user.id === activeMessageID,
           inlineComments,
+          waiting,
         ),
       ),
     }
@@ -108,6 +113,7 @@ export namespace Timeline {
     isActive: boolean,
     // v2 renders comments inside the user message attachments row instead of a strip row
     inlineComments: boolean,
+    waiting = false,
   ) {
     const rows: TimelineRow.TimelineRow[] = []
 
@@ -190,7 +196,17 @@ export namespace Timeline {
       assistantGroupIndex += 1
     })
 
-    if (isActive && status === "busy" && !error && (showReasoning ? assistantPartRefs.length === 0 : true)) {
+    const last = assistantMessages.at(-1)
+    const running = last && !last.error && isActive && status === "busy" && !waiting && last.time.completed === undefined
+    // A tool-bearing step can still require a provider continuation, even if the tool itself succeeded.
+    const completed =
+      last &&
+      !last.error &&
+      last.finish === "stop" &&
+      last.time.completed !== undefined &&
+      !getMessageParts(last.id).some((part) => part.type === "tool")
+
+    if (!running && !waiting && !completed && isActive && status === "busy" && !latestError && (!showReasoning || !assistantPartRefs.length)) {
       const heading = assistantMessages
         .flatMap((message) => getMessageParts(message.id))
         .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
@@ -228,6 +244,9 @@ export namespace Timeline {
       )
     }
 
+    if (!compaction && (running || completed)) {
+      rows.push(new TimelineRow.TaskStatus({ userMessageID: userMessage.id, state: completed ? "completed" : "running" }))
+    }
     return rows
   }
 

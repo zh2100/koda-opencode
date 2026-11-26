@@ -1,7 +1,7 @@
 export const dict = {
   "desktop.menu.about": "ກ່ຽວກັບ Koda",
   "desktop.about.title": "Koda Desktop v{{version}}",
-  "desktop.about.detail": "ດັດແປງໂດຍໃຊ້ OpenCode ເປັນແກນຫຼັກ\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+  "desktop.about.detail": "ດັດແປງໂດຍໃຊ້ OpenCode ເປັນແກນຫຼັກ\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "ມີ Koda v{{version}} ແລ້ວ. ເປີດໜ້າລຸ້ນເພື່ອອັບເກຣດບໍ?",
   "desktop.koda.update.open": "ເປີດໜ້າລຸ້ນ",
   "command.project.create": "ໂຄງການໃໝ່",

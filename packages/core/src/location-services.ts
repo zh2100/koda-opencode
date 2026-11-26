@@ -15,6 +15,7 @@ import { Integration } from "./integration"
 import { Location } from "./location"
 import { LocationMutation } from "./location-mutation"
 import { LocationServiceMap } from "./location-service-map"
+import { MaskedImageEdit } from "./masked-image-edit"
 import { PermissionV2 } from "./permission"
 import { PluginV2 } from "./plugin"
 import { PluginInternal } from "./plugin/internal"
@@ -36,13 +37,11 @@ import { BuiltInTools } from "./tool/builtins"
 import { ReadToolFileSystem } from "./tool/read-filesystem"
 import { ToolRegistry } from "./tool/registry"
 import { ToolOutputStore } from "./tool-output-store"
-import { TesterIsolation } from "./tester-isolation"
 
 export { LocationServiceMap } from "./location-service-map"
 
 export const locationServices = LayerNode.group([
   Location.node,
-  TesterIsolation.node,
   Policy.node,
   Config.node,
   AgentV2.node,
@@ -69,6 +68,7 @@ export const locationServices = LayerNode.group([
   ToolRegistry.node,
   ToolRegistry.toolsNode,
   Image.node,
+  MaskedImageEdit.node,
   SkillGuidance.node,
   ReferenceGuidance.node,
   SessionTodo.node,

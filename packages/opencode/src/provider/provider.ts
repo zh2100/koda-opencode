@@ -2043,7 +2043,7 @@ const layer = Layer.effect(
         model: model.api.id,
         baseURL: baseURL.replace(/\$\{([^}]+)\}/g, (item, key: string) => vars[key] ?? envs[key] ?? item),
         headers,
-        api: ImageGeneration.apiForProvider({ providerID, npm: model.api.npm }),
+        api: ImageGeneration.apiForProvider({ providerID, npm: model.api.npm, modelID: model.api.id }),
       }
     })
 

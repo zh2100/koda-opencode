@@ -11,6 +11,8 @@ export interface Context {
   readonly agent: AgentV2.ID
   readonly assistantMessageID: SessionMessage.ID
   readonly toolCallID: string
+  /** Core-only gate invoked after all preflight checks, immediately before the image POST. */
+  readonly beforeImagePost?: (model: string, api: string) => Effect.Effect<void, ToolFailure>
 }
 
 export type SchemaType<A> = Schema.Codec<A, any, never, never>

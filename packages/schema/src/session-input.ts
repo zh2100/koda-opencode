@@ -20,4 +20,13 @@ export const Admitted = Schema.Struct({
   delivery: Delivery,
   timeCreated: DateTimeUtcFromMillis,
   promotedSeq: NonNegativeInt.pipe(optional),
+  invalidatedSeq: NonNegativeInt.pipe(optional),
 }).annotate({ identifier: "SessionInput.Admitted" })
+
+/** A transactionally consistent inbox view. Sequence -1 denotes a Session with no durable events. */
+export interface Pending extends Schema.Schema.Type<typeof Pending> {}
+export const Pending = Schema.Struct({
+  sessionID: SessionID,
+  sequence: Schema.Int.check(Schema.isGreaterThanOrEqualTo(-1)),
+  inputs: Schema.Array(Admitted),
+}).annotate({ identifier: "SessionInput.Pending" })

@@ -3,7 +3,7 @@ import { showToast } from "@/utils/toast"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router"
-import { batch, startTransition, type Accessor } from "solid-js"
+import { batch, getOwner, onCleanup, startTransition, type Accessor } from "solid-js"
 import { useTabs } from "@/context/tabs"
 import { useServerSync, type ServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
@@ -31,16 +31,8 @@ import { createPromptSubmissionState } from "./submission-state"
 import { normalizeSessionInfo } from "@/utils/session"
 import { Event } from "@opencode-ai/schema/event"
 import { blobDataUrl } from "@/utils/draft-store"
-import { createStore } from "solid-js/store"
-import { useSettings } from "@/context/settings"
 import { useServerSDK } from "@/context/server-sdk"
 import { usePlatform } from "@/context/platform"
-import {
-  collaborationModels,
-  collaborationRoute,
-  collaborationUnsupported,
-  startCollaboration,
-} from "@/utils/collaboration"
 
 type PendingPrompt = {
   abort: AbortController
@@ -48,8 +40,6 @@ type PendingPrompt = {
 }
 
 const pending = new Map<string, PendingPrompt>()
-
-export function resetCollaborationState() {}
 
 export type FollowupDraft = {
   sessionID: string
@@ -304,20 +294,21 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const params = useParams()
   const [search] = useSearchParams<{ draftId?: string }>()
   const tabs = useTabs()
-  const settings = useSettings()
   const serverSDK = useServerSDK()
   const platform = usePlatform()
-  const [collaboration, setCollaboration] = createStore({ busy: false })
-  let promotedSession: Session | undefined
-  const reason = () => {
-    if (collaborationUnsupported(prompt.current(), prompt.context.items()))
-      return language.t("prompt.collaboration.attachments")
-    if (input.mode() !== "normal") return language.t("prompt.collaboration.shell")
-    if (!settings.collaboration.ready() || !collaborationModels(settings.collaboration.models))
-      return language.t("prompt.collaboration.workerRequired")
-    if (input.working()) return language.t("prompt.collaboration.working")
-    return ""
-  }
+  let disposed = false
+  if (getOwner())
+    onCleanup(() => {
+      disposed = true
+    })
+  let promotedSession:
+    | {
+        session: Session
+        scope: ReturnType<typeof serverSDK>["scope"]
+        draftID: string | undefined
+        target: ReturnType<typeof prompt.capture>
+      }
+    | undefined
   const pendingKey = (scope: ReturnType<typeof sdk>["scope"], sessionID: string) => ScopedKey.from(scope, sessionID)
 
   const errorMessage = (err: unknown) => {
@@ -395,7 +386,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     })
   }
 
-  const handleSubmit = async (event: Event, models?: NonNullable<ReturnType<typeof collaborationModels>>) => {
+  const handleSubmit = async (event: Event) => {
     event.preventDefault()
 
     const submissionSDK = sdk()
@@ -403,11 +394,28 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const submissionServerSync = serverSync()
     const submissionServerSDK = serverSDK()
     const routedSessionID = params.id
+    const draftID = search.draftId
+    const draftServer = draftID ? tabs.draft(draftID).server : undefined
     const submissionInfo = input.info()
     let submissionDirectorySDK = submissionSDK
     let submissionDirectorySync = submissionSync
 
     const target = prompt.capture()
+    const ownsInput = () =>
+      !disposed &&
+      serverSDK().scope === submissionServerSDK.scope &&
+      params.id === routedSessionID &&
+      search.draftId === draftID &&
+      prompt.capture() === target
+    const promoted =
+      promotedSession?.scope === submissionServerSDK.scope &&
+      promotedSession.draftID === draftID &&
+      promotedSession.target === target
+        ? promotedSession.session
+        : undefined
+    const worktreeSelection = input.newSessionWorktree?.() || "main"
+    const permissionState = permission.currentServerState()
+    const autoAccept = input.autoAccept()
     const submission = createPromptSubmissionState({
       target,
       prompt: target.current(),
@@ -437,18 +445,19 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     if (routedSessionID && submissionInfo?.id !== routedSessionID && !routedSession) return
 
     const modelSelection = input.model ?? local.model
-    const separator = models?.worker.indexOf("/") ?? -1
-    const sessionSelection = submissionInfo?.id === routedSessionID ? submissionInfo : routedSession
+    const sessionSelection = routedSessionID
+      ? submissionInfo?.id === routedSessionID
+        ? submissionInfo
+        : routedSession
+      : promoted
     const currentModel =
-      models && separator > 0
-        ? { id: models.worker.slice(separator + 1), provider: { id: models.worker.slice(0, separator) } }
-        : (modelSelection.current() ??
-          (sessionSelection?.model
-            ? { id: sessionSelection.model.id, provider: { id: sessionSelection.model.providerID } }
-            : undefined))
+      modelSelection.current() ??
+      (sessionSelection?.model
+        ? { id: sessionSelection.model.id, provider: { id: sessionSelection.model.providerID } }
+        : undefined)
     const currentAgent =
       local.agent.current() ?? (sessionSelection?.agent ? { name: sessionSelection.agent } : undefined)
-    const variant = models ? undefined : (modelSelection.variant.current() ?? sessionSelection?.model?.variant)
+    const variant = modelSelection.variant.current() ?? sessionSelection?.model?.variant
     const directory = submissionSDK.directory
     const connection = submissionServerSDK.server.http
     const registered = layout.projects
@@ -477,10 +486,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     input.resetHistoryNavigation()
 
     const projectDirectory = submissionSDK.directory
-    const permissionState = permission.currentServerState()
-    const isNewSession = !routedSessionID && (!promotedSession || !models)
-    const shouldAutoAccept = isNewSession && input.autoAccept()
-    const worktreeSelection = input.newSessionWorktree?.() || "main"
+    const isNewSession = !sessionSelection
+    const shouldAutoAccept = isNewSession && autoAccept
 
     let sessionDirectory = projectDirectory
     let client = submissionSDK.client
@@ -520,19 +527,17 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         submissionDirectorySync = submissionServerSync.ensureDirSyncContext(sessionDirectory)
       }
 
-      input.onNewSessionWorktreeReset?.()
+      if (ownsInput()) input.onNewSessionWorktreeReset?.()
     }
 
-    let session = routedSessionID
-      ? submissionInfo?.id === routedSessionID
-        ? submissionInfo
-        : routedSession
-      : (submissionInfo ?? (models ? promotedSession : undefined))
-    if (session && routedSession && submissionInfo?.id !== routedSessionID) {
+    let session = sessionSelection
+    if (session) {
       sessionDirectory = session.directory
-      submissionDirectorySDK = submissionServerSDK.ensureDirSdkContext(session.directory)
-      submissionDirectorySync = submissionServerSync.ensureDirSyncContext(session.directory)
-      seed(submissionServerSync, sessionDirectory, session)
+      if (sessionDirectory !== projectDirectory) {
+        submissionDirectorySDK = submissionServerSDK.ensureDirSdkContext(sessionDirectory)
+        submissionDirectorySync = submissionServerSync.ensureDirSyncContext(sessionDirectory)
+      }
+      if (routedSession) seed(submissionServerSync, sessionDirectory, session)
     }
     if (!session && isNewSession) {
       const created = await client.v2.session
@@ -552,22 +557,21 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       if (created) {
         seed(submissionServerSync, sessionDirectory, created)
         session = created
-        promotedSession = created
+        if (ownsInput()) promotedSession = { session: created, scope: submissionServerSDK.scope, draftID, target }
 
         await startTransition(() => {
           if (!session) return
           if (shouldAutoAccept) permissionState.enableAutoAccept(session.id, sessionDirectory)
+          if (!ownsInput()) return
           local.session.promote(sessionDirectory, session.id, {
             agent: currentAgent.name,
             model: { providerID: currentModel.provider.id, modelID: currentModel.id },
             variant: variant ?? null,
           })
           layout.handoff.setTabs(base64Encode(sessionDirectory), session.id)
-          const draftID = search.draftId
-          if (draftID) tabs.promoteDraft(draftID, { server: tabs.draft(draftID).server, sessionId: session.id })
+          if (draftID && draftServer) tabs.promoteDraft(draftID, { server: draftServer, sessionId: session.id })
           else navigate(`/${base64Encode(sessionDirectory)}/session/${session.id}`)
           submission.retarget(prompt.capture({ dir: base64Encode(sessionDirectory), id: session.id }))
-          if (models) submission.target().set(target.current(), input.promptLength(target.current()))
         })
       }
     }
@@ -578,8 +582,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
       return
     }
-    if (models && promotedSession?.id === session.id) sessionDirectory = promotedSession.directory
-
     const model = {
       modelID: currentModel.id,
       providerID: currentModel.provider.id,
@@ -597,6 +599,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     const clearInput = () => {
       submission.clear()
+      if (disposed || !submission.current(prompt.capture())) return
       input.setMode("normal")
       input.setPopover(null)
     }
@@ -605,7 +608,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       const restored = submission.restore()
       if (!restored) return false
       restored.target.set(restored.prompt, input.promptLength(restored.prompt))
-      if (!submission.current(prompt.capture())) return true
+      if (disposed || !submission.current(prompt.capture())) return true
       input.setMode(mode)
       input.setPopover(null)
       requestAnimationFrame(() => {
@@ -618,53 +621,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return true
     }
 
-    if (models) {
-      const current =
-        submissionServerSync.session.get(session.id) ??
-        (promotedSession?.id === session.id ? promotedSession : undefined)
-      if (!current) throw new Error(language.t("settings.collaboration.failed"))
-      const worktree = WorktreeState.get(submissionSDK.scope, current.directory)
-      if (worktree?.status === "pending") {
-        const timeout = { current: undefined as ReturnType<typeof setTimeout> | undefined }
-        const result = await Promise.race([
-          WorktreeState.wait(submissionSDK.scope, current.directory),
-          new Promise<never>((_, reject) => {
-            const timer = setTimeout(() => reject(new Error(language.t("workspace.error.stillPreparing"))), 300_000)
-            timeout.current = timer
-          }),
-        ]).finally(() => clearTimeout(timeout.current))
-        if (result.status === "failed") throw new Error(result.message)
-      }
-      if (worktree?.status === "failed") throw new Error(worktree.message)
-      await startCollaboration({
-        server: connection,
-        fetch: platform.fetch ?? globalThis.fetch,
-        session: current,
-        prompt: text,
-        models,
-        mode: "parallel",
-        failure: language.t("settings.collaboration.failed"),
-      })
-      // Do not erase edits made while the launch request was in flight.
-      if (
-        isPromptEqual(submission.target().current(), currentPrompt) &&
-        isPromptEqual(target.current(), currentPrompt) &&
-        !submission.target().context.items().length &&
-        !target.context.items().length
-      )
-        clearInput()
-      input.onSubmit?.()
-      return
-    }
-
-    if (!isNewSession && mode === "normal" && input.shouldQueue?.()) {
+    if (!isNewSession && mode === "normal" && ownsInput() && input.shouldQueue?.()) {
       input.onQueue?.(draft)
       clearContext(submission.target())
       clearInput()
       return
     }
 
-    input.onSubmit?.()
+    if (!disposed && submission.current(prompt.capture())) input.onSubmit?.()
 
     if (mode === "shell") {
       clearInput()
@@ -815,16 +779,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
   return {
     abort,
-    collaboration: {
-      state: collaboration,
-      reason,
-      enabled: () => settings.collaboration.enabled(),
-      blocked: () => collaboration.busy || (settings.collaboration.enabled() && !!reason()),
-      toggle() {
-        if (collaboration.busy) return
-        settings.collaboration.setEnabled(!settings.collaboration.enabled())
-      },
-    },
     handleSubmit: async (event: Event) => {
       event.preventDefault()
       if (
@@ -834,35 +788,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         input.commentCount() === 0
       )
         return abort()
-      if (collaboration.busy) return
-      if (!settings.collaboration.enabled()) return handleSubmit(event)
-      if (
-        collaborationRoute(
-          prompt
-            .current()
-            .map((part) => ("content" in part ? part.content : ""))
-            .join("\n"),
-        ) === "single"
-      )
-        return handleSubmit(event)
-      if (reason()) {
-        showToast({ title: language.t("settings.collaboration.failed"), description: reason() })
-        return
-      }
-      const models = collaborationModels(settings.collaboration.models)
-      if (!models) return
-      setCollaboration("busy", true)
-      try {
-        await handleSubmit(event, models)
-      } catch (error) {
-        showToast({
-          title: language.t("settings.collaboration.failed"),
-          description: errorMessage(error),
-          variant: "error",
-        })
-      } finally {
-        setCollaboration("busy", false)
-      }
+      return handleSubmit(event)
     },
   }
 }

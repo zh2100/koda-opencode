@@ -953,7 +953,7 @@ export default function Page() {
           todoTimer = undefined
           if (sdk().directory !== dir || params.id !== id) return
           untrack(() => {
-            void sync().session.todo(id, cached ? { force: true } : undefined)
+            void sync().session.todo(id, cached ? { force: true } : undefined).catch(fail)
           })
         }, 0)
       },
@@ -1728,6 +1728,10 @@ export default function Page() {
 
   const merge = (next: NonNullable<ReturnType<typeof info>>, target = sync()) => target.session.remember(next)
 
+  const refreshTodos = () => {
+    if (params.id) void sync().session.todo(params.id, { force: true }).catch(fail)
+  }
+
   const roll = (sessionID: string, next: NonNullable<ReturnType<typeof info>>["revert"], target = sync()) => {
     const session = target.session.get(sessionID)
     if (!session) return
@@ -2184,7 +2188,11 @@ export default function Page() {
             centered,
             todo: {
               collapsed: () => view().todoCollapsed.get(),
-              onToggle: () => view().todoCollapsed.set(!view().todoCollapsed.get()),
+              onToggle: () => {
+                const collapsed = !view().todoCollapsed.get()
+                view().todoCollapsed.set(collapsed)
+                if (!collapsed) refreshTodos()
+              },
             },
             followup: () =>
               params.id && !isChildSession()
@@ -2386,6 +2394,7 @@ export default function Page() {
             <SessionRightPanel
               hasProject={hasRegisteredProject()}
               todos={composer.todos()}
+              onViewTasks={refreshTodos}
               git={gitSummary()}
               changes={
                 <Suspense>
@@ -2427,6 +2436,7 @@ export default function Page() {
               <SessionRightPanel
                 hasProject={hasRegisteredProject()}
                 todos={composer.todos()}
+                onViewTasks={refreshTodos}
                 git={gitSummary()}
                 changes={
                   <Suspense>

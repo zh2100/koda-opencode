@@ -4,7 +4,13 @@ import { createRoot, createSignal } from "solid-js"
 import { createImageGenerationSettings } from "../src/components/settings-image-generation-state"
 import { createGeneratedApiForServer, createSdkForServer } from "../src/utils/server"
 
-const config = { enabled: true, model: "images/local", api: "openai-images" } as const
+const config = {
+  enabled: true,
+  model: "images/local",
+  api: "openai-images",
+  automaticIllustrations: true,
+  taskRequestLimit: 3,
+} as const
 
 function server(
   name: string,

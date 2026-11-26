@@ -30,6 +30,7 @@ const execution = Layer.succeed(
   SessionExecution.Service,
   SessionExecution.Service.of({
     active: Effect.sync(() => new Set(activeSessions)),
+    withBarrier: () => (effect) => effect,
     resume: (sessionID) =>
       Effect.sync(() => {
         executionCalls.push(sessionID)
@@ -271,7 +272,7 @@ describe("SessionV2.prompt", () => {
     }),
   )
 
-  it.effect("wakes execution when an exact prompt retry recovers a committed message", () =>
+  it.effect("does not wake execution when an exact retry returns an admitted prompt", () =>
     Effect.gen(function* () {
       yield* setup
       const session = yield* SessionV2.Service
@@ -287,7 +288,256 @@ describe("SessionV2.prompt", () => {
       const retried = yield* session.prompt({ ...input, resume: true })
 
       expect(retried).toEqual(first)
+      expect(wakeCalls).toEqual([])
+    }),
+  )
+
+  it.effect("wakes only once for concurrent exact retries", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const input = { sessionID, id: messageID, prompt: Prompt.make({ text: "Run once" }) }
+      wakeCalls.length = 0
+      interruptCalls.length = 0
+
+      const results = yield* Effect.all([session.prompt(input), session.prompt(input)], { concurrency: "unbounded" })
+
+      expect(results[1]).toEqual(results[0])
+      expect(yield* admittedCount).toBe(1)
+      expect(yield* eventCount(EventV2.versionedType(SessionEvent.PromptAdmitted.type, 1))).toBe(1)
       expect(wakeCalls).toEqual([sessionID])
+      expect(interruptCalls).toEqual([])
+    }),
+  )
+
+  it.effect("rejects ordinary sends while a revert is staged without changing history or scheduling work", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const target = SessionMessage.ID.create()
+      const prompt = Prompt.make({ text: "Original history" })
+      yield* events.publish(SessionEvent.Prompted, {
+        sessionID,
+        messageID: target,
+        timestamp: yield* DateTime.now,
+        prompt,
+        delivery: "steer",
+      })
+      yield* events.publish(SessionEvent.RevertEvent.Staged, {
+        sessionID,
+        timestamp: yield* DateTime.now,
+        revert: { messageID: target, files: [] },
+      })
+      wakeCalls.length = 0
+      interruptCalls.length = 0
+
+      const failure = yield* session
+        .prompt({ sessionID, id: messageID, prompt: Prompt.make({ text: "Stale window draft" }) })
+        .pipe(Effect.flip)
+
+      expect(failure).toMatchObject({ _tag: "Session.PromptConflictError", sessionID, messageID })
+      expect(yield* admitted(messageID)).toBeUndefined()
+      expect(yield* admittedCount).toBe(1)
+      expect(yield* eventCount(EventV2.versionedType(SessionEvent.PromptAdmitted.type, 1))).toBe(0)
+      expect(yield* session.messages({ sessionID })).toMatchObject([{ id: target, text: prompt.text }])
+      expect((yield* session.get(sessionID)).revert).toMatchObject({ messageID: target })
+      expect(wakeCalls).toEqual([])
+      expect(interruptCalls).toEqual([])
+    }),
+  )
+
+  it.effect("returns a previously admitted prompt even after another window stages a revert", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const input = { sessionID, id: messageID, prompt: Prompt.make({ text: "Already admitted" }) }
+      const first = yield* session.prompt(input)
+      yield* events.publish(SessionEvent.RevertEvent.Staged, {
+        sessionID,
+        timestamp: yield* DateTime.now,
+        revert: { messageID, files: [] },
+      })
+      wakeCalls.length = 0
+      interruptCalls.length = 0
+
+      expect(yield* session.prompt(input)).toEqual(first)
+      expect((yield* session.get(sessionID)).revert).toMatchObject({ messageID })
+      expect(yield* admittedCount).toBe(1)
+      expect(wakeCalls).toEqual([])
+      expect(interruptCalls).toEqual([])
+    }),
+  )
+
+  it.effect("keeps reverted admission identities but never promotes their pending work", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const database = yield* Database.Service
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const target = SessionMessage.ID.create()
+      yield* events.publish(SessionEvent.Prompted, {
+        sessionID,
+        messageID: target,
+        timestamp: yield* DateTime.now,
+        prompt: Prompt.make({ text: "Keep this boundary" }),
+        delivery: "steer",
+      })
+      const input = { sessionID, id: messageID, prompt: Prompt.make({ text: "Discard this steer" }) }
+      const steer = yield* session.prompt(input)
+      const queue = yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Discard this queue" }),
+        delivery: "queue",
+        resume: false,
+      })
+      const committed = yield* events.publish(SessionEvent.RevertEvent.Committed, {
+        sessionID,
+        messageID: target,
+        timestamp: yield* DateTime.now,
+      })
+      if (!committed.durable) return yield* Effect.die("Expected durable revert")
+      wakeCalls.length = 0
+
+      expect(yield* session.prompt(input)).toEqual({ ...steer, invalidatedSeq: committed.durable.seq })
+      expect(yield* admitted(queue.id)).toEqual({ ...queue, invalidatedSeq: committed.durable.seq })
+      expect(yield* SessionInput.hasPending(database.db, sessionID, "steer")).toBe(false)
+      expect(yield* SessionInput.hasPending(database.db, sessionID, "queue")).toBe(false)
+      expect(yield* SessionInput.promoteSteers(database.db, events, sessionID, Number.MAX_SAFE_INTEGER)).toBe(0)
+      expect(yield* SessionInput.promoteNextQueued(database.db, events, sessionID)).toBe(false)
+      expect(yield* session.messages({ sessionID })).toMatchObject([{ id: target }])
+      expect(wakeCalls).toEqual([])
+
+      const failure = yield* session
+        .prompt({ ...input, prompt: Prompt.make({ text: "Reuse discarded ID" }) })
+        .pipe(Effect.flip)
+      expect(failure._tag).toBe("Session.PromptConflictError")
+      expect(yield* admittedCount).toBe(3)
+    }),
+  )
+
+  it.effect(
+    "invalidates queued work admitted before the retained boundary and rejects late promotions atomically",
+    () =>
+      Effect.gen(function* () {
+        yield* setup
+        const database = yield* Database.Service
+        const session = yield* SessionV2.Service
+        const events = yield* EventV2.Service
+        const queued = yield* session.prompt({
+          sessionID,
+          prompt: Prompt.make({ text: "Queued before the retained user message" }),
+          delivery: "queue",
+          resume: false,
+        })
+        const target = SessionMessage.ID.create()
+        yield* events.publish(SessionEvent.Prompted, {
+          sessionID,
+          messageID: target,
+          timestamp: yield* DateTime.now,
+          prompt: Prompt.make({ text: "Keep this boundary" }),
+          delivery: "steer",
+        })
+        const input = {
+          sessionID,
+          id: SessionMessage.ID.create(),
+          prompt: Prompt.make({ text: "Promoted on the discarded branch" }),
+          resume: false,
+        }
+        const recorded = yield* session.prompt(input)
+        yield* SessionInput.promoteSteers(database.db, events, sessionID, Number.MAX_SAFE_INTEGER)
+        const promoted = yield* admitted(recorded.id)
+        if (!promoted) return yield* Effect.die("Expected promoted admission")
+        const committed = yield* events.publish(SessionEvent.RevertEvent.Committed, {
+          sessionID,
+          messageID: target,
+          timestamp: yield* DateTime.now,
+        })
+        if (!committed.durable) return yield* Effect.die("Expected durable revert")
+
+        expect(yield* SessionInput.hasPending(database.db, sessionID, "queue")).toBe(false)
+        expect(yield* session.prompt(input)).toEqual({ ...promoted, invalidatedSeq: committed.durable.seq })
+        const promptedCount = yield* eventCount(SessionEvent.Prompted.type)
+        for (const stored of [queued, recorded]) {
+          const exit = yield* events
+            .publish(SessionEvent.Prompted, {
+              sessionID,
+              messageID: stored.id,
+              timestamp: stored.timeCreated,
+              prompt: stored.prompt,
+              delivery: stored.delivery,
+            })
+            .pipe(Effect.exit)
+          expect(exit._tag).toBe("Failure")
+        }
+        expect(yield* eventCount(SessionEvent.Prompted.type)).toBe(promptedCount)
+        expect(yield* session.messages({ sessionID })).toMatchObject([{ id: target }])
+
+        yield* events.publish(SessionEvent.RevertEvent.Committed, {
+          sessionID,
+          messageID: target,
+          timestamp: yield* DateTime.now,
+        })
+        expect(
+          yield* database.db
+            .select({ invalidated: SessionInputTable.invalidated_seq })
+            .from(SessionInputTable)
+            .where(eq(SessionInputTable.id, queued.id))
+            .get(),
+        ).toEqual({ invalidated: committed.durable?.seq })
+
+        const fresh = yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "New branch" }), resume: false })
+        expect(yield* SessionInput.promoteSteers(database.db, events, sessionID, Number.MAX_SAFE_INTEGER)).toBe(1)
+        expect((yield* session.messages({ sessionID, order: "asc" })).map((message) => message.id)).toEqual([
+          target,
+          fresh.id,
+        ])
+      }),
+  )
+
+  it.effect("reads eligible pending inputs with a durable watermark without promoting or waking execution", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const database = yield* Database.Service
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      wakeCalls.length = 0
+      expect(yield* session.pending(sessionID)).toEqual({ sessionID, sequence: -1, inputs: [] })
+      const first = yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Pending steer" }), resume: false })
+      const second = yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Pending queue" }),
+        delivery: "queue",
+        resume: false,
+      })
+      const other = SessionV2.ID.make("ses_other_inbox")
+      yield* session.create({ id: other, location: { directory: AbsolutePath.make("/project") } })
+      yield* session.prompt({ sessionID: other, prompt: Prompt.make({ text: "Other session" }), resume: false })
+      expect(yield* session.pending(sessionID)).toEqual({
+        sessionID,
+        sequence: second.admittedSeq,
+        inputs: [first, second],
+      })
+      expect(yield* session.messages({ sessionID })).toEqual([])
+      expect(yield* session.context(sessionID)).toEqual([])
+
+      yield* SessionInput.promoteSteers(database.db, events, sessionID, Number.MAX_SAFE_INTEGER)
+      expect((yield* session.pending(sessionID)).inputs).toEqual([second])
+      const committed = yield* events.publish(SessionEvent.RevertEvent.Committed, {
+        sessionID,
+        messageID: first.id,
+        timestamp: yield* DateTime.now,
+      })
+      if (!committed.durable) return yield* Effect.die("Expected durable revert")
+      expect(yield* session.pending(sessionID)).toEqual({
+        sessionID,
+        sequence: committed.durable?.seq,
+        inputs: [],
+      })
+      expect(wakeCalls).toEqual([])
+      const failure = yield* session.pending(SessionV2.ID.make("ses_missing_inbox")).pipe(Effect.flip)
+      expect(failure._tag).toBe("Session.NotFoundError")
     }),
   )
 

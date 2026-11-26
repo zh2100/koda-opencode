@@ -4,6 +4,7 @@ import path from "path"
 import { Effect } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
+import { inventoryPattern } from "@opencode-ai/core/tool/illustration-capability"
 import { RelativePath } from "@opencode-ai/core/schema"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
@@ -11,6 +12,20 @@ import { testEffect } from "./lib/effect"
 const it = testEffect(LayerNode.compile(Ripgrep.node))
 
 describe("Ripgrep", () => {
+  it.live("reports accessible mixed-case illustration candidates without reading image contents", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) =>
+        Effect.gen(function* () {
+          const ripgrep = yield* Ripgrep.Service
+          const query = { cwd: tmp.path, pattern: inventoryPattern, limit: 1, requireComplete: true }
+          expect(yield* ripgrep.glob(query)).toEqual([])
+          yield* Effect.promise(() => Bun.write(path.join(tmp.path, "cover.PnG"), "not image bytes"))
+          expect((yield* ripgrep.glob(query)).map((item) => item.path)).toEqual([RelativePath.make("cover.PnG")])
+        }),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ),
+  )
   it.live("keeps ignored files out of catch-all find results", () =>
     Effect.acquireUseRelease(
       Effect.promise(() => tmpdir()),

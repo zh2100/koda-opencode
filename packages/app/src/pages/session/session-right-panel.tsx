@@ -14,6 +14,7 @@ type Tab = (typeof tabs)[number]
 export function SessionRightPanel(props: {
   changes: JSX.Element
   todos: Todo[]
+  onViewTasks: () => void
   hasProject: boolean
   git?: { branch?: string; dirty: number }
 }) {
@@ -32,6 +33,7 @@ export function SessionRightPanel(props: {
 
   const open = (id: Tab) => {
     setTab(id)
+    if (id === "tasks") props.onViewTasks()
     if (id === "terminal") {
       session.view().terminal.open()
       layout.fileTree.open()

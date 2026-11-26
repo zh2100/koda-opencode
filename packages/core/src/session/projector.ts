@@ -1,6 +1,6 @@
 export * as SessionProjector from "./projector"
 
-import { and, desc, eq, gt, or, sql } from "drizzle-orm"
+import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm"
 import { DateTime, Effect, Layer, Schema } from "effect"
 import { Database } from "../database/database"
 import { EventV2 } from "../event"
@@ -232,12 +232,24 @@ const layer = Layer.effectDiscard(
       }),
     )
     yield* events.project(SessionV1.Event.Updated, (event) =>
-      db
-        .update(SessionTable)
-        .set(sessionRow(event.data.info))
-        .where(eq(SessionTable.id, event.data.sessionID))
-        .run()
-        .pipe(Effect.orDie),
+      Effect.gen(function* () {
+        const row = yield* db
+          .select({ revert: SessionTable.revert })
+          .from(SessionTable)
+          .where(eq(SessionTable.id, event.data.sessionID))
+          .get()
+          .pipe(Effect.orDie)
+        const next = sessionRow(event.data.info)
+        // The compatibility event cannot encode V2 revert file details.
+        if (next.revert && row?.revert?.messageID === next.revert.messageID)
+          next.revert = { ...next.revert, files: row.revert.files }
+        yield* db
+          .update(SessionTable)
+          .set(next)
+          .where(eq(SessionTable.id, event.data.sessionID))
+          .run()
+          .pipe(Effect.orDie)
+      }),
     )
     yield* events.project(SessionEvent.Moved, (event) =>
       Effect.gen(function* () {
@@ -412,6 +424,7 @@ const layer = Layer.effectDiscard(
     )
     yield* events.project(SessionEvent.RevertEvent.Committed, (event) =>
       Effect.gen(function* () {
+        if (event.durable === undefined) return yield* Effect.die("Durable Session event is missing aggregate sequence")
         const boundary = yield* db
           .select({ seq: SessionMessageTable.seq })
           .from(SessionMessageTable)
@@ -432,11 +445,14 @@ const layer = Layer.effectDiscard(
           .run()
           .pipe(Effect.orDie)
         yield* db
-          .delete(SessionInputTable)
+          .update(SessionInputTable)
+          .set({ invalidated_seq: event.durable.seq })
           .where(
             and(
               eq(SessionInputTable.session_id, event.data.sessionID),
-              or(gt(SessionInputTable.admitted_seq, boundary.seq), gt(SessionInputTable.promoted_seq, boundary.seq)),
+              isNull(SessionInputTable.invalidated_seq),
+              // Pending queue entries may predate the retained message but still belong to the discarded branch.
+              or(isNull(SessionInputTable.promoted_seq), gt(SessionInputTable.promoted_seq, boundary.seq)),
             ),
           )
           .run()

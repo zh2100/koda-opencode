@@ -1,7 +1,9 @@
 import { describe, expect } from "bun:test"
 import {
   LLMClient,
+  LLMResponse,
   LLMError,
+  ToolFailure,
   LLMEvent,
   Model,
   TransportReason,
@@ -35,6 +37,13 @@ import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionRunCoordinator } from "@opencode-ai/core/session/run-coordinator"
 import { SessionRunner } from "@opencode-ai/core/session/runner"
 import * as SessionRunnerLLM from "@opencode-ai/core/session/runner/llm"
+import { contextualImageInstruction, imageRoutingInstruction } from "@opencode-ai/core/session/runner/image-intent"
+import { illustrationInstruction, inventoryInstruction } from "@opencode-ai/core/session/runner/illustration-plan"
+import { ImageGenerationSettings } from "@opencode-ai/core/image-generation-settings"
+import { ImageGeneration } from "@opencode-ai/schema/image-generation"
+import { ImageAttemptTable } from "@opencode-ai/core/session/sql"
+import { reserveImage } from "@opencode-ai/core/session/image-attempt"
+import { guardedImageTools, inventoryTools, inventoryPattern } from "@opencode-ai/core/tool/illustration-capability"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
@@ -60,6 +69,8 @@ import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, Schema, Stream }
 import { asc, eq } from "drizzle-orm"
 import { testEffect } from "./lib/effect"
 
+let titleGenerate: (() => Effect.Effect<LLMResponse, LLMError>) | undefined
+let imageDecision: "text" | "new" | "clarify" | "unframed" = "text"
 const requests: LLMRequest[] = []
 let response: LLMEvent[] = []
 let responses: LLMEvent[][] | undefined
@@ -78,14 +89,24 @@ const client = Layer.succeed(
     prepare: () => Effect.die("unused"),
     stream: ((request: LLMRequest) => {
       requests.push(request)
-      if (responseStream) {
-        const stream = responseStream
-        responseStream = undefined
-        return stream
-      }
-      const events = streamFailure
-        ? Stream.fail(streamFailure)
-        : Stream.fromIterable(responses === undefined ? response : (responses.shift() ?? []))
+      const source =
+        responseStream ??
+        (streamFailure
+          ? Stream.fail(streamFailure)
+          : Stream.fromIterable(responses === undefined ? response : (responses.shift() ?? [])))
+      responseStream = undefined
+      let first = imageDecision !== "unframed" && request.system.some((part) => part.text === imageRoutingInstruction)
+      const events = source.pipe(
+        Stream.map((event) => {
+          if (first && "name" in event) first = false
+          if (!first || event.type !== "text-delta") return event
+          first = false
+          return LLMEvent.textDelta({ ...event, text: `[${imageDecision}]\n${event.text}` })
+        }),
+      )
+      // A decision-only provider turn also has a text block, even without an answer body.
+      if (first && imageDecision !== "text" && response.length === 0 && !responses && !streamFailure)
+        return Stream.fromIterable(fragmentFixture("text", "decision", [`[${imageDecision}]`]).completeEvents)
       if (!streamGate) return events
       return Stream.unwrap(
         (streamStarted ? Deferred.succeed(streamStarted, undefined) : Effect.void).pipe(
@@ -94,7 +115,7 @@ const client = Layer.succeed(
         ),
       )
     }) as unknown as LLMClientShape["stream"],
-    generate: () => Effect.die("unused"),
+    generate: () => (titleGenerate ? titleGenerate() : Effect.die("Unexpected extra model request")),
   }),
 )
 const model = Model.make({ id: "fake-model", provider: "fake", route: OpenAIChat.route })
@@ -153,7 +174,7 @@ const echo = Layer.effectDiscard(
   ),
 )
 const echoNode = makeLocationNode({ name: "test/session-runner-tools", layer: echo, deps: [ToolRegistry.node] })
-let modelResolveHook = Effect.void
+let modelResolveHook: Effect.Effect<void, SessionRunnerModel.Error> = Effect.void
 let currentModel = model
 const models = SessionRunnerModel.layerWith((session) =>
   modelResolveHook.pipe(Effect.as(session.model?.id === "replacement" ? replacementModel : currentModel)),
@@ -226,7 +247,20 @@ const config = Layer.succeed(
       ]),
   }),
 )
+let automatic = false
+let imageOverrides: ImageGeneration.Config = {}
+const imageSettings = Layer.mock(ImageGenerationSettings.Service, {
+  get: () =>
+    Effect.succeed({
+      enabled: true,
+      model: "local/image",
+      api: "openai-images",
+      automaticIllustrations: automatic,
+      ...imageOverrides,
+    }),
+})
 const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
+  [ImageGenerationSettings.node, imageSettings],
   [Snapshot.node, Snapshot.noopLayer],
   [LayerNodePlatform.llmClient, client],
   [SessionRunnerModel.node, models],
@@ -249,6 +283,7 @@ const execution = Layer.effect(
       resume: coordinator.run,
       wake: coordinator.wake,
       interrupt: coordinator.interrupt,
+      withBarrier: coordinator.withBarrier,
     })
   }),
 ).pipe(Layer.provide(runnerLayer))
@@ -277,6 +312,7 @@ const it = testEffect(
     ]),
     [
       [LayerNodePlatform.llmClient, client],
+      [ImageGenerationSettings.node, imageSettings],
       [PermissionV2.node, permission],
       [SessionRunnerModel.node, models],
       [SystemContextRegistry.node, systemContext],
@@ -313,6 +349,9 @@ const insertSession = (id: SessionV2.ID) =>
 const setup = Effect.gen(function* () {
   const { db } = yield* Database.Service
   response = []
+  imageDecision = "text"
+  automatic = false
+  imageOverrides = {}
   systemBaseline = "Initial context"
   systemRemoved = false
   systemUnavailable = false
@@ -371,7 +410,19 @@ const languageInstruction =
   "Reply entirely in the same language as the user's latest message, preserving code, identifiers, paths, and quoted text exactly. Do not switch languages unless the user asks you to."
 const withLanguage = (parts: string[]) => [...parts, languageInstruction]
 const expectSystem = (requests: readonly LLMRequest[], expected: string[][]) => {
-  const actual = requests.map((request) => request.system.map((part) => part.text))
+  const actual = requests.map((request) =>
+    request.system
+      .map((part) => part.text)
+      .filter(
+        (part) =>
+          ![
+            imageRoutingInstruction,
+            contextualImageInstruction,
+            illustrationInstruction,
+            inventoryInstruction,
+          ].includes(part),
+      ),
+  )
   expect(actual).toEqual(expected.map(withLanguage))
   for (const parts of actual) {
     expect(parts.filter((part) => part === languageInstruction)).toHaveLength(1)
@@ -721,7 +772,7 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
-  it.effect("retries the first provider turn after system context becomes available", () =>
+  it.effect("explicitly resumes the first provider turn after system context becomes available", () =>
     Effect.gen(function* () {
       yield* setup
       const session = yield* SessionV2.Service
@@ -747,6 +798,8 @@ describe("SessionRunnerLLM", () => {
 
       systemUnavailable = false
       yield* session.prompt({ id: messageID, sessionID, prompt: Prompt.make({ text: "First" }) })
+      expect(requests).toHaveLength(0)
+      yield* session.resume(sessionID)
 
       expect(requests).toHaveLength(1)
       expect(requests[0]?.messages.map((message) => message.role)).toEqual(["user"])
@@ -3274,6 +3327,43 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
+  it.effect("persists a safe terminal failure when the selected model cannot resolve before streaming", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      yield* events.publish(SessionEvent.ModelSwitched, {
+        sessionID,
+        timestamp: DateTime.makeUnsafe(1),
+        messageID: SessionMessage.ID.create(),
+        model: { id: ModelV2.ID.make("missing"), providerID: ProviderV2.ID.make("fake") },
+      })
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Draw a landscape" }), resume: false })
+      const failure = new SessionRunnerModel.ModelUnavailableError({
+        providerID: ProviderV2.ID.make("fake"),
+        modelID: ModelV2.ID.make("missing"),
+      })
+      modelResolveHook = Effect.fail(failure)
+      requests.length = 0
+
+      expect(yield* session.resume(sessionID).pipe(Effect.flip)).toBe(failure)
+      expect(requests).toHaveLength(0)
+      yield* replaySessionProjection(sessionID)
+      expect((yield* session.context(sessionID)).slice(-2)).toMatchObject([
+        { type: "user", text: "Draw a landscape" },
+        {
+          type: "assistant",
+          finish: "error",
+          error: {
+            type: "unknown",
+            message:
+              "The selected conversation model could not be initialized. Check its availability and provider connection. No provider request was sent for this turn.",
+          },
+        },
+      ])
+    }),
+  )
+
   it.effect("projects raw provider stream failures as terminal assistant step failures", () =>
     Effect.gen(function* () {
       yield* setup
@@ -3388,6 +3478,685 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
+  it.effect("clarifies once, binds confirmation to the original subject and never reissues the image on resume", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const sessions = yield* SessionV2.Service
+      const applications = yield* ApplicationTools.Service
+      const calls: string[] = []
+      const pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+      yield* applications.register({
+        image_generation: Tool.make({
+          description: "Local single-image fixture",
+          input: Schema.Struct({ prompt: Schema.String }),
+          output: Schema.String,
+          execute: ({ prompt }) =>
+            Effect.sync(() => {
+              calls.push(prompt)
+              return pixel
+            }),
+          toModelOutput: ({ output }) => [{ type: "file", data: output, mime: "image/png" }],
+        }),
+      })
+      const subject = "帮我设计一下这款咖啡机"
+      imageDecision = "clarify"
+      requests.length = 0
+      yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: subject }), resume: false })
+      yield* sessions.resume(sessionID)
+      yield* sessions.resume(sessionID)
+      expect(calls).toEqual([])
+      expect(yield* sessions.context(sessionID)).toMatchObject([
+        { type: "user" },
+        { content: [{ type: "text", text: "需要我生成一张图片，还是只给文字建议？" }] },
+      ])
+      imageDecision = "new"
+      const confirmation = {
+        id: SessionMessage.ID.create(),
+        sessionID,
+        prompt: Prompt.make({ text: "要效果图" }),
+        resume: false,
+      }
+      yield* sessions.prompt(confirmation)
+      yield* sessions.resume(sessionID)
+      yield* replaySessionProjection(sessionID)
+      yield* sessions.prompt(confirmation)
+      yield* sessions.resume(sessionID)
+      expect(calls).toEqual([subject])
+      expect(requests).toHaveLength(2)
+      expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({
+        content: [
+          {
+            type: "tool",
+            state: { status: "completed", content: [{ type: "file", uri: `data:image/png;base64,${pixel}` }] },
+          },
+        ],
+      })
+    }),
+  )
+
+  for (const outcome of ["approve", "reject", "ambiguous", "bare-new", "empty-preview", "bare-preview"] as const)
+    it.effect(`routes a contextual UI image request without sending the follow-up as its prompt: ${outcome}`, () =>
+      Effect.gen(function* () {
+        yield* setup
+        const sessions = yield* SessionV2.Service
+        const questions = yield* QuestionV2.Service
+        const applications = yield* ApplicationTools.Service
+        const calls: string[] = []
+        yield* applications.register({
+          image_generation: Tool.make({
+            description: "Local preview fixture",
+            input: Schema.Struct({ prompt: Schema.String }),
+            output: Schema.String,
+            execute: ({ prompt }) =>
+              Effect.sync(() => {
+                calls.push(prompt)
+                return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+              }),
+            toModelOutput: ({ output }) => [{ type: "file", data: output, mime: "image/png" }],
+          }),
+        })
+        const preview = "桌面任务管理界面：左侧导航，右侧是任务列表。"
+        response = fragmentFixture("text", "design", [
+          outcome === "ambiguous" ? `${preview} 另一个方案是手机看板。` : preview,
+        ]).completeEvents
+        yield* sessions.prompt({
+          sessionID,
+          prompt: Prompt.make({ text: "讨论任务管理 UI 布局，只需文字。内部备注：测试代号 47。" }),
+          resume: false,
+        })
+        yield* sessions.resume(sessionID)
+        imageDecision = "unframed"
+        response = fragmentFixture(
+          "text",
+          "context",
+          outcome === "ambiguous"
+            ? ["[subject]"]
+            : outcome === "bare-new"
+              ? ["[new]"]
+              : [
+                  "[pre",
+                  "view]\n",
+                  outcome === "empty-preview" ? " " : outcome === "bare-preview" ? "生成吧" : preview,
+                ],
+        ).completeEvents
+        yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: "生成吧" }), resume: false })
+        if (outcome === "approve" || outcome === "reject") {
+          const run = yield* sessions.resume(sessionID).pipe(Effect.forkChild)
+          let pending = yield* questions.list()
+          while (!pending.length) {
+            yield* Effect.yieldNow
+            pending = yield* questions.list()
+          }
+          expect(calls).toEqual([])
+          expect(pending[0].questions[0].question.split("\n\n").at(-1)).toBe(preview)
+          if (outcome === "approve") yield* questions.reply({ requestID: pending[0].id, answers: [["确认生成一张"]] })
+          else yield* questions.reject(pending[0].id)
+          yield* Fiber.join(run)
+          yield* replaySessionProjection(sessionID)
+          yield* sessions.resume(sessionID)
+        } else {
+          yield* sessions.resume(sessionID)
+          expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject(
+            outcome === "empty-preview"
+              ? { finish: "error" }
+              : { content: [{ text: expect.stringContaining("指定方案") }] },
+          )
+        }
+        expect(calls).toEqual(outcome === "approve" ? [preview] : [])
+      }),
+    )
+
+  it.effect("reports an unavailable image tool instead of streaming a model's fabricated delivery", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const sessions = yield* SessionV2.Service
+      imageDecision = "new"
+      requests.length = 0
+      response = fragmentFixture("text", "false-receipt", ["图片已生成"]).completeEvents
+      yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: "我想画一张雨夜水彩画" }), resume: false })
+      yield* sessions.resume(sessionID)
+      expect(requests).toHaveLength(1)
+      expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({
+        content: [{ type: "text", text: expect.stringContaining("没有生成图片") }],
+      })
+    }),
+  )
+
+  it.effect("honors a text-only answer after replaying the image question", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const sessions = yield* SessionV2.Service
+      const applications = yield* ApplicationTools.Service
+      const calls: string[] = []
+      yield* applications.register({
+        image_generation: Tool.make({
+          description: "Local image fixture",
+          input: Schema.Struct({ prompt: Schema.String }),
+          output: Schema.String,
+          execute: ({ prompt }) =>
+            Effect.sync(() => {
+              calls.push(prompt)
+              return "unexpected"
+            }),
+        }),
+      })
+      imageDecision = "clarify"
+      yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: "帮我设计一下这台收音机" }), resume: false })
+      yield* sessions.resume(sessionID)
+      yield* replaySessionProjection(sessionID)
+      imageDecision = "new"
+      response = fragmentFixture("text", "advice", ["把调频旋钮放到右侧。"]).completeEvents
+      yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: "只要文字建议" }), resume: false })
+      yield* sessions.resume(sessionID)
+      expect(calls).toEqual([])
+      expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({ content: [{ text: "把调频旋钮放到右侧。" }] })
+    }),
+  )
+
+  it.effect("does not interpret agreement to a provider's text as image authorization", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const sessions = yield* SessionV2.Service
+      const applications = yield* ApplicationTools.Service
+      const calls: string[] = []
+      yield* applications.register({
+        image_generation: Tool.make({
+          description: "Local receipt fixture",
+          input: Schema.Struct({ prompt: Schema.String }),
+          output: Schema.String,
+          execute: ({ prompt }) =>
+            Effect.sync(() => {
+              calls.push(prompt)
+              return "unexpected"
+            }),
+        }),
+      })
+      const id = SessionMessage.ID.create()
+      yield* sessions.prompt({
+        id,
+        sessionID,
+        prompt: Prompt.make({ text: "比较这两款收音机的续航。" }),
+        resume: false,
+      })
+      response = fragmentFixture("text", `image-intent-clarification:${id}`, ["需要我列个对照表吗？"]).completeEvents
+      yield* sessions.resume(sessionID)
+      expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({
+        content: [{ id: `provider:image-intent-clarification:${id}` }],
+      })
+      imageDecision = "new"
+      yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: "好的" }), resume: false })
+      response = fragmentFixture("text", "answer", ["以下是续航对照表。"]).completeEvents
+      yield* sessions.resume(sessionID)
+      expect(calls).toEqual([])
+      expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({ content: [{ text: "以下是续航对照表。" }] })
+    }),
+  )
+
+  it.effect("does not claim delivery or retry when an explicit product image returns text only", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const sessions = yield* SessionV2.Service
+      const applications = yield* ApplicationTools.Service
+      const calls: string[] = []
+      yield* applications.register({
+        image_generation: Tool.make({
+          description: "Missing image receipt",
+          input: Schema.Struct({ prompt: Schema.String }),
+          output: Schema.String,
+          execute: ({ prompt }) =>
+            Effect.sync(() => {
+              calls.push(prompt)
+              return "已生成，附在上方"
+            }),
+        }),
+      })
+      imageDecision = "new"
+      const prompt = "帮我设计一个咖啡机产品图"
+      requests.length = 0
+      yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: prompt }), resume: false })
+      yield* sessions.resume(sessionID)
+      yield* sessions.resume(sessionID)
+      expect(requests).toHaveLength(1)
+      expect(calls).toEqual([prompt])
+      expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({
+        error: { message: expect.stringContaining("未收到可用图片") },
+        content: [{ type: "tool", state: { status: "error" } }],
+      })
+    }),
+  )
+
+  it.effect("routes a standalone linocut request without visual-screen vocabulary to a real receipt", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const sessions = yield* SessionV2.Service
+      const applications = yield* ApplicationTools.Service
+      const calls: string[] = []
+      const pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+      yield* applications.register({
+        image_generation: Tool.make({
+          description: "Local receipt fixture",
+          input: Schema.Struct({ prompt: Schema.String }),
+          output: Schema.String,
+          execute: ({ prompt }) =>
+            Effect.sync(() => {
+              calls.push(prompt)
+              return pixel
+            }),
+          toModelOutput: ({ output }) => [{ type: "file", data: output, mime: "image/png" }],
+        }),
+      })
+      const prompt = "Make me a black-and-white linocut of two otters under a willow."
+      imageDecision = "new"
+      requests.length = 0
+      response = fragmentFixture("text", "fake-receipt", ["Done, your linocut is attached above."]).completeEvents
+      yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: prompt }), resume: false })
+      yield* sessions.resume(sessionID)
+      yield* replaySessionProjection(sessionID)
+      yield* sessions.resume(sessionID)
+      expect(requests).toHaveLength(1)
+      expect(calls).toEqual([prompt])
+      expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({
+        content: [{ type: "tool", state: { status: "completed", content: [{ type: "file" }] } }],
+      })
+    }),
+  )
+
+  for (const mode of [
+    "auto",
+    "confirm",
+    "decline",
+    "over-limit",
+    "approve-extra",
+    "revoke",
+    "untrusted",
+    "unknown",
+    "existing",
+    "unfinished",
+    "candidate",
+    "untrusted-glob",
+    "failed-inventory",
+    "mixed-inventory",
+    "no-inventory",
+    "attached",
+    "quoted",
+    "optional",
+    "factual",
+    "plan",
+    "deny",
+    "rejected-question",
+    "disable-before-dispatch",
+    "change-model-before-dispatch",
+    "change-api-before-dispatch",
+    "cancel-pending",
+  ] as const)
+    it.effect(`illustration plan: ${mode}, durable slot quota and text continuation`, () =>
+      Effect.gen(function* () {
+        yield* setup
+        const sessions = yield* SessionV2.Service
+        const applications = yield* ApplicationTools.Service
+        const questions = yield* QuestionV2.Service
+        const database = yield* Database.Service
+        if (mode === "plan")
+          yield* database.db
+            .update(SessionTable)
+            .set({ metadata: { scheduledApprovalMode: "plan" } })
+            .where(eq(SessionTable.id, sessionID))
+            .run()
+            .pipe(Effect.orDie)
+        if (mode === "deny") {
+          const agents = yield* AgentV2.Service
+          yield* agents.transform((editor) =>
+            editor.update(AgentV2.ID.make("build"), (agent) => {
+              agent.permissions = [{ action: "image_generation", resource: "*", effect: "deny" }]
+            }),
+          )
+        }
+        const calls: string[] = []
+        const tool = Tool.make({
+          description: "Test image transport after preflight",
+          input: Schema.Struct({ prompt: Schema.String }),
+          output: Schema.String,
+          execute: (input, ctx) =>
+            Effect.gen(function* () {
+              if (!ctx.beforeImagePost) return yield* Effect.die("unguarded implicit attempt")
+              yield* ctx.beforeImagePost("local/image", "openai-images")
+              calls.push(input.prompt)
+              if (mode === "unknown") return "aW52YWxpZA=="
+              return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            }),
+          toModelOutput: ({ output }) => [{ type: "file", data: output, mime: "image/png" }],
+        })
+        if (mode !== "untrusted") guardedImageTools.add(tool)
+        const glob = Tool.make({
+          description: "Inspect authorized project inventory",
+          input: Schema.Struct({ pattern: Schema.String }),
+          output: Schema.Array(Schema.String),
+          execute: () =>
+            mode === "failed-inventory"
+              ? Effect.fail(new ToolFailure({ message: "Inventory is incomplete" }))
+              : Effect.succeed(mode === "candidate" ? ["existing.png"] : []),
+        })
+        if (mode !== "untrusted-glob") inventoryTools.add(glob)
+        yield* applications.register({ image_generation: tool, glob })
+        const manual = [
+          "confirm",
+          "decline",
+          "rejected-question",
+          "disable-before-dispatch",
+          "change-model-before-dispatch",
+          "change-api-before-dispatch",
+          "cancel-pending",
+        ].includes(mode)
+        automatic = !manual
+        imageDecision = "unframed"
+        const subjects =
+          mode === "over-limit" || mode === "approve-extra" || mode === "revoke"
+            ? ["blue moon", "red sun", "silver shore"]
+            : ["blue moon"]
+        const slots = [
+          ...subjects.map((prompt, i) => ({
+            slot: `hero-${i}`,
+            source: mode === "existing" || mode === "optional" || mode === "factual" ? mode : "missing-original",
+            prompt,
+          })),
+          { slot: "logo", source: "existing", prompt: "" },
+          { slot: "chart", source: "factual", prompt: "" },
+        ]
+        responses = [
+          fragmentFixture("text", "plan", ["[illustra", `tions]\n${JSON.stringify({ slots })}`]).completeEvents,
+          fragmentFixture("text", "answer", ["The text portion is ready."]).completeEvents,
+        ]
+        if (mode === "unfinished") responses[0] = responses[0].filter((event) => event.type !== "finish")
+        if (automatic && mode !== "no-inventory")
+          responses.unshift([
+            LLMEvent.stepStart({ index: 0 }),
+            LLMEvent.toolCall({ id: "inspect", name: "glob", input: { pattern: inventoryPattern, limit: 1 } }),
+            ...(mode === "mixed-inventory"
+              ? [LLMEvent.toolCall({ id: "also-write", name: "echo", input: { text: "changed" } })]
+              : []),
+            LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+            LLMEvent.finish({ reason: "tool-calls" }),
+          ])
+        requests.length = 0
+        const id = SessionMessage.ID.create()
+        const input = {
+          sessionID,
+          id,
+          prompt: Prompt.make({
+            text: `${mode === "quoted" ? 'Quoted document: "blue moon". ' : ""}Design a festival landing page with illustrations: ${subjects.join(", ")}.`,
+            ...(mode === "attached"
+              ? {
+                  files: [
+                    FileAttachment.make({
+                      uri: "data:text/plain;base64,aGVsbG8=",
+                      mime: "text/plain",
+                      name: "material.txt",
+                    }),
+                  ],
+                }
+              : {}),
+          }),
+          resume: false,
+        } as const
+        yield* sessions.prompt(input)
+        const run = yield* sessions.resume(sessionID).pipe(Effect.forkChild)
+        if (
+          [
+            "confirm",
+            "decline",
+            "over-limit",
+            "approve-extra",
+            "revoke",
+            "candidate",
+            "untrusted-glob",
+            "failed-inventory",
+            "mixed-inventory",
+            "no-inventory",
+            "attached",
+            "quoted",
+            "rejected-question",
+            "disable-before-dispatch",
+            "change-model-before-dispatch",
+            "change-api-before-dispatch",
+            "cancel-pending",
+          ].includes(mode)
+        ) {
+          let pending = yield* questions.list()
+          while (!pending.length) {
+            yield* Effect.yieldNow
+            pending = yield* questions.list()
+          }
+          expect(pending[0].questions[0].question).toContain("local/image")
+          expect(calls.length).toBe(["over-limit", "approve-extra", "revoke"].includes(mode) ? 2 : 0)
+          if (mode === "revoke") automatic = false
+          if (mode === "disable-before-dispatch") imageOverrides = { enabled: false }
+          if (mode === "change-model-before-dispatch") imageOverrides = { model: "local/other" }
+          if (mode === "change-api-before-dispatch") imageOverrides = { api: "google-gemini" }
+          if (mode === "cancel-pending") {
+            yield* sessions.interrupt(sessionID)
+            expect(yield* Fiber.await(run)).toMatchObject({ _tag: "Failure" })
+            expect(calls).toEqual([])
+            expect(yield* questions.list()).toEqual([])
+            expect(yield* database.db.select().from(ImageAttemptTable).all().pipe(Effect.orDie)).toEqual([])
+            return
+          }
+          if (mode === "rejected-question") yield* questions.reject(pending[0].id)
+          else
+            yield* questions.reply({
+              requestID: pending[0].id,
+              answers: [
+                [
+                  [
+                    "decline",
+                    "over-limit",
+                    "candidate",
+                    "untrusted-glob",
+                    "failed-inventory",
+                    "mixed-inventory",
+                    "no-inventory",
+                    "attached",
+                    "quoted",
+                  ].includes(mode)
+                    ? "Skip and continue"
+                    : "Generate this one",
+                ],
+              ],
+            })
+        }
+        yield* Fiber.join(run)
+        yield* replaySessionProjection(sessionID)
+        yield* sessions.prompt(input)
+        expect(calls).toEqual(
+          [
+            "decline",
+            "untrusted",
+            "existing",
+            "candidate",
+            "unfinished",
+            "untrusted-glob",
+            "failed-inventory",
+            "mixed-inventory",
+            "no-inventory",
+            "attached",
+            "quoted",
+            "optional",
+            "factual",
+            "plan",
+            "deny",
+            "rejected-question",
+            "disable-before-dispatch",
+            "change-model-before-dispatch",
+            "change-api-before-dispatch",
+          ].includes(mode)
+            ? []
+            : subjects.slice(0, mode === "approve-extra" ? 3 : 2),
+        )
+        const rows = yield* database.db.select().from(ImageAttemptTable).all().pipe(Effect.orDie)
+        expect(rows.map((row) => row.digest)).toEqual(
+          calls.map(() => (mode === "unknown" ? null : expect.stringMatching(/^[a-f0-9]{64}$/))),
+        )
+        expect(requests).toHaveLength(manual || mode === "unfinished" || mode === "no-inventory" ? 2 : 3)
+        if (mode === "unfinished") {
+          expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({ finish: "error" })
+          return
+        }
+        expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({
+          content: [{ text: "The text portion is ready." }],
+        })
+        if (mode === "auto" || mode === "unknown") {
+          responses = [
+            fragmentFixture("text", "revision", [`[illustrations]\n${JSON.stringify({ task: id, slots })}`])
+              .completeEvents,
+            fragmentFixture("text", "answer", ["Revised copy."]).completeEvents,
+          ]
+          yield* sessions.prompt({
+            sessionID,
+            prompt: Prompt.make({ text: "Revise the landing page copy; keep the same cover." }),
+            resume: false,
+          })
+          yield* sessions.resume(sessionID)
+          expect(calls).toEqual(subjects)
+          expect(JSON.stringify((yield* sessions.context(sessionID)).at(-2))).toContain(
+            mode === "auto" ? "reuse existing attachment" : "receipt unavailable",
+          )
+        }
+      }),
+    )
+
+  for (const prompt of [
+    "做一份节日页面，只用我提供的图，不要生图。",
+    "Design a festival page. Do not generate images.",
+  ])
+    it.effect(`illustration prohibition rejects even a provider's unsolicited plan: ${prompt}`, () =>
+      Effect.gen(function* () {
+        yield* setup
+        automatic = true
+        imageDecision = "unframed"
+        const sessions = yield* SessionV2.Service
+        const database = yield* Database.Service
+        const applications = yield* ApplicationTools.Service
+        const questions = yield* QuestionV2.Service
+        const calls: string[] = []
+        const image = Tool.make({
+          description: "Must not execute",
+          input: Schema.Struct({ prompt: Schema.String }),
+          output: Schema.String,
+          execute: (input) =>
+            Effect.sync(() => {
+              calls.push(input.prompt)
+              return "invalid"
+            }),
+        })
+        guardedImageTools.add(image)
+        yield* applications.register({ image_generation: image })
+        response = fragmentFixture("text", "forbidden-plan", [
+          '[illustrations]\n{"slots":[{"slot":"cover","source":"missing-original","prompt":"festival"}]}',
+        ]).completeEvents
+        yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: prompt }), resume: false })
+        yield* sessions.resume(sessionID)
+        expect(calls).toEqual([])
+        expect(yield* questions.list()).toEqual([])
+        expect(yield* database.db.select().from(ImageAttemptTable).all().pipe(Effect.orDie)).toEqual([])
+      }),
+    )
+
+  it.effect("competing illustration slots cannot both spend the last request or reclaim an unknown dispatch", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const database = yield* Database.Service
+      const key = { session: sessionID, task: "task", slot: "a", call: "one" }
+      const keys = [key, { ...key, slot: "b", call: "two" }]
+      const reservations = yield* Effect.forEach(
+        keys,
+        (slot) => reserveImage(database.db, slot, "local/image", 1, false),
+        { concurrency: "unbounded" },
+      )
+      expect(reservations.toSorted()).toEqual(["limit", "reserved"])
+      expect(yield* reserveImage(database.db, keys[reservations.indexOf("reserved")], "local/image", 2, true)).toBe(
+        "existing",
+      )
+      expect((yield* database.db.select().from(ImageAttemptTable).all().pipe(Effect.orDie))[0].digest).toBeNull()
+    }),
+  )
+
+  it.effect("streams a text-only answer in the same turn and strips a split delivery header", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const sessions = yield* SessionV2.Service
+      requests.length = 0
+      imageDecision = "unframed"
+      response = fragmentFixture("text", "advice", ["[te", "xt]\r", "\nUse a small gouge."]).completeEvents
+      yield* sessions.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Teach me how to cut a linocut of an otter." }),
+        resume: false,
+      })
+      yield* sessions.resume(sessionID)
+      expect(requests).toHaveLength(1)
+      expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({
+        content: [{ id: "advice", text: "Use a small gouge." }],
+      })
+    }),
+  )
+
+  for (const [name, chunks, finish] of [
+    ["unframed receipt", ["Done, your linocut is attached above."], true],
+    ["truncated decision", ["[ne"], false],
+    ["missing settlement", ["[new]\n"], false],
+  ] as const)
+    it.effect(`fails closed on ${name} without making another provider request`, () =>
+      Effect.gen(function* () {
+        yield* setup
+        const sessions = yield* SessionV2.Service
+        imageDecision = "unframed"
+        requests.length = 0
+        const fixture = fragmentFixture("text", "invalid", chunks)
+        response = finish ? fixture.completeEvents : fixture.partialEvents
+        yield* sessions.prompt({
+          sessionID,
+          prompt: Prompt.make({ text: "Make a linocut of an otter." }),
+          resume: false,
+        })
+        yield* sessions.resume(sessionID)
+        expect(requests).toHaveLength(1)
+        expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({
+          finish: "error",
+          error: { type: "unknown" },
+          content: [],
+        })
+      }),
+    )
+
+  it.effect("blocks an unsolicited image tool call even if a model ignores a user's prohibition", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const sessions = yield* SessionV2.Service
+      const applications = yield* ApplicationTools.Service
+      const calls: string[] = []
+      yield* applications.register({
+        image_generation: Tool.make({
+          description: "Image fixture",
+          input: Schema.Struct({ prompt: Schema.String }),
+          output: Schema.String,
+          execute: ({ prompt }) =>
+            Effect.sync(() => {
+              calls.push(prompt)
+              return "no image"
+            }),
+        }),
+      })
+      imageDecision = "new"
+      response = [LLMEvent.toolCall({ id: "unsolicited", name: "image_generation", input: { prompt: "ignored" } })]
+      yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: "只给文字建议，不要生图" }), resume: false })
+      yield* sessions.resume(sessionID)
+      expect(calls).toEqual([])
+      expect((yield* sessions.context(sessionID)).at(-1)).toMatchObject({
+        type: "assistant",
+        error: { type: "unknown" },
+      })
+    }),
+  )
+
   it.effect("keeps hosted image generation disabled for plan, deny, and allow", () =>
     Effect.gen(function* () {
       const hosted = Model.make({
@@ -3469,7 +4238,7 @@ describe("SessionRunnerLLM", () => {
         const captured = requests[0]
         expect(captured?.providerOptions).toMatchObject({ openai: { imageGeneration: false } })
         expect(captured?.tools.some((tool) => tool.name === "marker_tool")).toBe(item.name !== "plan")
-        expect(captured?.tools.some((tool) => tool.name === "image_generation")).toBe(item.exposed)
+        expect(captured?.tools.some((tool) => tool.name === "image_generation")).toBe(false)
         expect(captured?.toolChoice).toBeUndefined()
         const prepared = yield* LLMClient.prepare(captured!)
         const tools = (prepared.body as { tools?: Array<{ type?: string; name?: string }> }).tools ?? []
@@ -3646,6 +4415,58 @@ describe("SessionRunnerLLM", () => {
       expect(yield* session.resume(sessionID).pipe(Effect.catchDefect(Effect.succeed))).toBe(
         "Tool input delta before start: call-1",
       )
+    }),
+  )
+})
+
+describe("SessionRunner automatic title integration", () => {
+  it.effect("runs title generation without blocking the main response or adding transcript messages", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const sessions = yield* SessionV2.Service
+      const { db } = yield* Database.Service
+      const current = yield* sessions.get(sessionID)
+      yield* db
+        .update(SessionTable)
+        .set({ title: `New session - ${new Date(DateTime.toEpochMillis(current.time.created)).toISOString()}` })
+        .where(eq(SessionTable.id, sessionID))
+      const started = yield* Deferred.make<void>()
+      const gate = yield* Deferred.make<void>()
+      const updated = yield* Deferred.make<void>()
+      const events = yield* EventV2.Service
+      yield* events.listen((event) =>
+        event.type === "session.updated" ? Deferred.succeed(updated, undefined).pipe(Effect.asVoid) : Effect.void,
+      )
+      const result = LLMResponse.fromEvents(fragmentFixture("text", "title", ["会话自动命名修复"]).completeEvents)
+      if (!result) return yield* Effect.die("Invalid title fixture")
+      let calls = 0
+      titleGenerate = () =>
+        Effect.sync(() => calls++).pipe(
+          Effect.andThen(Deferred.succeed(started, undefined)),
+          Effect.andThen(Deferred.await(gate)),
+          Effect.as(result),
+        )
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          titleGenerate = undefined
+        }),
+      )
+      requests.length = 0
+      responses = undefined
+      response = fragmentFixture("text", "main", ["主回答完成"]).completeEvents
+      yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: "请修复会话自动命名" }), resume: false })
+      yield* sessions.resume(sessionID)
+      yield* Deferred.await(started)
+      expect(requests).toHaveLength(1)
+      expect((yield* sessions.get(sessionID)).title).toStartWith("New session - ")
+      expect(yield* sessions.context(sessionID)).toHaveLength(2)
+      yield* Deferred.succeed(gate, undefined)
+      yield* Deferred.await(updated)
+      expect((yield* sessions.get(sessionID)).title).toBe("会话自动命名修复")
+      yield* sessions.prompt({ sessionID, prompt: Prompt.make({ text: "下一条消息" }), resume: false })
+      yield* sessions.resume(sessionID)
+      expect(calls).toBe(1)
+      expect(requests).toHaveLength(2)
     }),
   )
 })

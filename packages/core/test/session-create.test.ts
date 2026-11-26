@@ -1,6 +1,7 @@
+import { TestClock } from "effect/testing"
 import { describe, expect } from "bun:test"
 import path from "path"
-import { Effect, Layer, Stream } from "effect"
+import { Deferred, Duration, Effect, Fiber, Layer, Stream } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { asc, eq } from "drizzle-orm"
 import { Database } from "@opencode-ai/core/database/database"
@@ -21,6 +22,10 @@ import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionInput } from "@opencode-ai/core/session/input"
 import { SessionEvent } from "@opencode-ai/core/session/event"
+import { SessionTitle } from "@opencode-ai/core/session/title"
+import { SessionMessage } from "@opencode-ai/core/session/message"
+import { LLMError, Model, TransportReason } from "@opencode-ai/llm"
+import { route } from "@opencode-ai/llm/protocols/openai-chat"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { WorkspaceV2 } from "@opencode-ai/core/workspace"
@@ -305,6 +310,70 @@ describe("SessionV2.create", () => {
     }),
   )
 
+  it.effect("replays reverted inbox eligibility while preserving the admission ledger", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const sourceEvents = yield* EventV2.Service
+      const database = yield* Database.Service
+      const created = yield* session.create({ location })
+      const boundary = yield* session.prompt({
+        sessionID: created.id,
+        prompt: Prompt.make({ text: "Retained boundary" }),
+        resume: false,
+      })
+      yield* SessionInput.promoteSteers(database.db, sourceEvents, created.id, Number.MAX_SAFE_INTEGER)
+      const discarded = yield* session.prompt({
+        sessionID: created.id,
+        prompt: Prompt.make({ text: "Discarded queue" }),
+        delivery: "queue",
+        resume: false,
+      })
+      yield* sourceEvents.publish(SessionEvent.RevertEvent.Committed, {
+        sessionID: created.id,
+        messageID: boundary.id,
+        timestamp: created.time.created,
+      })
+      const expected = yield* SessionInput.find(database.db, discarded.id)
+      const pending = yield* session.pending(created.id)
+      const serialized = (yield* database.db
+        .select()
+        .from(EventTable)
+        .where(eq(EventTable.aggregate_id, created.id))
+        .orderBy(asc(EventTable.seq))
+        .all()).map((event) => ({
+        id: event.id,
+        aggregateID: event.aggregate_id,
+        seq: event.seq,
+        type: event.type,
+        data: event.data,
+      }))
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const target = AppNodeBuilder.build(
+        LayerNode.group([Database.node, EventV2.node, SessionProjector.node, SessionStore.node]),
+        [[Database.node, Database.layerFromPath(path.join(tmp.path, "reverted.sqlite"))]],
+      )
+      yield* Effect.gen(function* () {
+        const database = yield* Database.Service
+        const events = yield* EventV2.Service
+        const store = yield* SessionStore.Service
+        yield* database.db
+          .insert(ProjectTable)
+          .values({ id: ProjectV2.ID.global, worktree: location.directory, sandboxes: [] })
+          .run()
+        expect(yield* events.replayAll(serialized)).toBe(created.id)
+        expect(yield* SessionInput.find(database.db, discarded.id)).toEqual(expected)
+        expect(yield* SessionInput.pending(database.db, created.id)).toEqual(pending)
+        expect(yield* SessionInput.hasPending(database.db, created.id, "queue")).toBe(false)
+        expect(yield* store.context(created.id)).toMatchObject([{ id: boundary.id, type: "user" }])
+        expect(yield* events.replayAll(serialized)).toBe(created.id)
+        expect(yield* SessionInput.pending(database.db, created.id)).toEqual(pending)
+      }).pipe(Effect.provide(Layer.fresh(target)))
+    }),
+  )
+
   it.effect("does not mask unrelated created projector defects", () =>
     Effect.gen(function* () {
       const session = yield* SessionV2.Service
@@ -431,6 +500,220 @@ describe("SessionV2.create", () => {
             Effect.map((error) => error._tag),
           ),
       ).toBe("Session.NotFoundError")
+    }),
+  )
+})
+
+const titleModel = Model.make({ id: "title-test", provider: "local", route })
+
+describe("V2 automatic titles", () => {
+  it.effect("titles the first actually promoted input once and preserves metadata", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const created = yield* sessions.create({ location })
+      yield* db
+        .update(SessionTable)
+        .set({ metadata: { scheduledApprovalMode: "plan", custom: "keep" }, cost: 12 })
+        .where(eq(SessionTable.id, created.id))
+      const queued = yield* SessionInput.admit(db, events, {
+        id: SessionMessage.ID.create(),
+        sessionID: created.id,
+        prompt: Prompt.make({ text: "Queued later" }),
+        delivery: "queue",
+      })
+      const steer = yield* SessionInput.admit(db, events, {
+        id: SessionMessage.ID.create(),
+        sessionID: created.id,
+        prompt: Prompt.make({ text: "修复会话标题" }),
+        delivery: "steer",
+      })
+      const promoted: SessionMessage.ID[] = []
+      yield* SessionInput.promoteSteers(db, events, created.id, steer.admittedSeq, promoted)
+      let calls = 0
+      const title = SessionTitle.make(db, events, {
+        generate: () =>
+          Effect.sync(() => {
+            calls++
+            return { text: "“修复会话自动命名”\nextra" }
+          }),
+      })
+      yield* title({ session: created, promoted, model: titleModel })
+      expect((yield* sessions.get(created.id)).title).toBe("修复会话自动命名")
+      const after: SessionMessage.ID[] = []
+      yield* SessionInput.promoteNextQueued(db, events, created.id, after)
+      yield* title({ session: created, promoted: after, model: titleModel })
+      expect(calls).toBe(1)
+      expect(after).toEqual([queued.id])
+      const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, created.id)).get()
+      expect(row).toMatchObject({ cost: 12, metadata: { scheduledApprovalMode: "plan", custom: "keep" } })
+      const updates = yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, created.id)).all()
+      expect(updates.filter((event) => event.type.startsWith("session.updated"))).toHaveLength(1)
+    }),
+  )
+
+  it.effect("manual rename wins while title generation is suspended", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const created = yield* sessions.create({ location })
+      const input = yield* SessionInput.admit(db, events, {
+        id: SessionMessage.ID.create(),
+        sessionID: created.id,
+        prompt: Prompt.make({ text: "Original message" }),
+        delivery: "steer",
+      })
+      const promoted: SessionMessage.ID[] = []
+      yield* SessionInput.promoteSteers(db, events, created.id, input.admittedSeq, promoted)
+      const started = yield* Deferred.make<void>()
+      const gate = yield* Deferred.make<void>()
+      const title = SessionTitle.make(db, events, {
+        generate: () =>
+          Deferred.succeed(started, undefined).pipe(
+            Effect.andThen(Deferred.await(gate)),
+            Effect.as({ text: "Automatic title" }),
+          ),
+      })
+      const fiber = yield* title({ session: created, promoted, model: titleModel }).pipe(Effect.forkChild)
+      yield* Deferred.await(started)
+      yield* sessions.setTitle({ sessionID: created.id, title: "Manual title" })
+      yield* Deferred.succeed(gate, undefined)
+      yield* Fiber.join(fiber)
+      expect((yield* sessions.get(created.id)).title).toBe("Manual title")
+    }),
+  )
+
+  it.effect("empty output falls back to content; admission alone never names", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const created = yield* sessions.create({ location })
+      const input = yield* SessionInput.admit(db, events, {
+        id: SessionMessage.ID.create(),
+        sessionID: created.id,
+        prompt: Prompt.make({ text: "根据内容命名\n后续细节" }),
+        delivery: "queue",
+      })
+      let calls = 0
+      const title = SessionTitle.make(db, events, {
+        generate: () =>
+          Effect.sync(() => {
+            calls++
+            return { text: "" }
+          }),
+      })
+      yield* title({ session: created, promoted: [], model: titleModel })
+      expect(calls).toBe(0)
+      const promoted: SessionMessage.ID[] = []
+      yield* SessionInput.promoteNextQueued(db, events, created.id, promoted)
+      expect(promoted).toEqual([input.id])
+      yield* title({ session: created, promoted, model: titleModel })
+      expect((yield* sessions.get(created.id)).title).toBe("根据内容命名")
+      expect(calls).toBe(1)
+    }),
+  )
+})
+
+describe("V2 title failure boundaries", () => {
+  it.effect("provider failure uses content without retrying", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const created = yield* sessions.create({ location })
+      const input = yield* SessionInput.admit(db, events, {
+        id: SessionMessage.ID.create(),
+        sessionID: created.id,
+        prompt: Prompt.make({ text: "失败时使用内容标题" }),
+        delivery: "steer",
+      })
+      const promoted: SessionMessage.ID[] = []
+      yield* SessionInput.promoteSteers(db, events, created.id, input.admittedSeq, promoted)
+      let calls = 0
+      const title = SessionTitle.make(db, events, {
+        generate: () =>
+          Effect.sync(() => calls++).pipe(
+            Effect.andThen(
+              Effect.fail(
+                new LLMError({
+                  module: "test",
+                  method: "generate",
+                  reason: new TransportReason({ message: "offline" }),
+                }),
+              ),
+            ),
+          ),
+      })
+      yield* title({ session: created, promoted, model: titleModel })
+      expect(calls).toBe(1)
+      expect((yield* sessions.get(created.id)).title).toBe("失败时使用内容标题")
+    }),
+  )
+
+  it.effect("skips custom titles, child sessions, attachment-only input and deleted sessions", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const root = yield* sessions.create({ location })
+      const custom = yield* sessions.create({ location, title: "我的标题" })
+      const child = yield* sessions.create({ location, parentID: root.id })
+      let calls = 0
+      const title = SessionTitle.make(db, events, {
+        generate: () =>
+          Effect.sync(() => {
+            calls++
+            return { text: "Unexpected" }
+          }),
+      })
+      for (const created of [custom, child, root]) {
+        const input = yield* SessionInput.admit(db, events, {
+          id: SessionMessage.ID.create(),
+          sessionID: created.id,
+          prompt: Prompt.make({ text: created.id === root.id ? "" : "Text" }),
+          delivery: "steer",
+        })
+        const promoted: SessionMessage.ID[] = []
+        yield* SessionInput.promoteSteers(db, events, created.id, input.admittedSeq, promoted)
+        yield* title({ session: created, promoted, model: titleModel })
+      }
+      yield* db.delete(SessionTable).where(eq(SessionTable.id, root.id))
+      expect(
+        yield* SessionTitle.rename(db, events, { sessionID: root.id, expected: root.title, title: "No resurrection" }),
+      ).toBe(false)
+      expect(calls).toBe(0)
+      expect(SessionTitle.normalize("😀".repeat(100))).toBe("😀".repeat(80))
+    }),
+  )
+})
+
+describe("V2 title timeout", () => {
+  it.effect("bounds a stalled model request and uses content without retry", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const created = yield* sessions.create({ location })
+      const input = yield* SessionInput.admit(db, events, {
+        id: SessionMessage.ID.create(),
+        sessionID: created.id,
+        prompt: Prompt.make({ text: "超时后的内容标题" }),
+        delivery: "steer",
+      })
+      const promoted: SessionMessage.ID[] = []
+      yield* SessionInput.promoteSteers(db, events, created.id, input.admittedSeq, promoted)
+      let calls = 0
+      const title = SessionTitle.make(db, events, {
+        generate: () => Effect.sync(() => calls++).pipe(Effect.andThen(Effect.never)),
+      })
+      const fiber = yield* title({ session: created, promoted, model: titleModel }).pipe(Effect.forkChild)
+      yield* TestClock.adjust(Duration.seconds(20))
+      yield* Fiber.join(fiber)
+      expect((yield* sessions.get(created.id)).title).toBe("超时后的内容标题")
+      expect(calls).toBe(1)
     }),
   )
 })

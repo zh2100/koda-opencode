@@ -35,6 +35,7 @@ describe("ImageGenerationSettings", () => {
   })
 
   test("rejects malformed documents and incomplete enabled settings", () => {
+    for(const taskRequestLimit of [0,11,1.5]) expect(() => ImageGenerationSettings.patchDocument("{}",{...enabled,taskRequestLimit})).toThrow()
     expect(() => ImageGenerationSettings.patchDocument("{bad", enabled)).toThrow()
     expect(() => ImageGenerationSettings.patchDocument("[]", enabled)).toThrow()
     expect(() => ImageGenerationSettings.patchDocument("{}", { enabled: true })).toThrow()
@@ -54,6 +55,9 @@ describe("ImageGenerationSettings", () => {
               .image_generation,
           ).toEqual(enabled)
           expect(yield* settings.get()).toEqual(enabled)
+          const automatic = {...enabled,automaticIllustrations:true, taskRequestLimit:3}
+          yield* settings.update(automatic)
+          expect(yield* settings.get()).toEqual(automatic)
           yield* settings.update({ enabled: false })
           expect(yield* settings.get()).toEqual({ enabled: false })
           expect((yield* Effect.promise(() => fs.readdir(tmp.path))).filter((name) => name.endsWith(".tmp"))).toEqual(
@@ -70,6 +74,7 @@ describe("ImageGenerationSettings", () => {
         }).pipe(Effect.provide(layer(tmp.path))),
       ),
     ),
+    30_000,
   )
 
   it.live("uses JSONC priority and does not replace unrelated fields or lower priority documents", () =>

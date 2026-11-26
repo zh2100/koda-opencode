@@ -346,4 +346,27 @@ describe("Integration", () => {
         }),
     )
   })
+
+  it.effect("reads a stored OAuth credential without refreshing when requested", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const credentials = yield* Credential.Service
+      const integrationID = Integration.ID.make("image-check")
+      const methodID = Integration.MethodID.make("oauth")
+      const value = Credential.OAuth.make({ type: "oauth", methodID, access: "fixture", refresh: "fixture", expires: 0 })
+      yield* integrations.transform((editor) =>
+        editor.method.update({
+          integrationID,
+          method: { type: "oauth", id: methodID, label: "Fixture OAuth" },
+          authorize: () => Effect.die("Unused"),
+          refresh: () => Effect.succeed(Credential.OAuth.make({ ...value, access: "refreshed" })),
+        }),
+      )
+      const stored = yield* credentials.create({ integrationID, value })
+      const connection = { type: "credential", id: stored.id, label: "Fixture OAuth" } as const
+      expect(yield* integrations.connection.resolve(connection, { refreshOAuth: false })).toEqual(value)
+      expect((yield* credentials.get(stored.id))?.value).toEqual(value)
+      expect(yield* integrations.connection.resolve(connection)).toMatchObject({ access: "refreshed" })
+    }),
+  )
 })

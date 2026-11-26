@@ -12,6 +12,7 @@ import { ModelV2 } from "../../model"
 import { SessionEvent } from "../event"
 import { SessionMessage } from "../message"
 import { SessionSchema } from "../schema"
+import { ImageGeneration } from "../../image-generation"
 
 type Input = {
   readonly sessionID: SessionSchema.ID
@@ -82,16 +83,30 @@ const imageGenerationContent = (value: unknown): ToolOutput["content"] | undefin
   ]
 }
 
-const settledOutput = (name: string, value: ToolOutput | undefined, result: ToolResultValue): SettledOutput => {
+const settledOutput = Effect.fnUntraced(function* (
+  name: string,
+  value: ToolOutput | undefined,
+  result: ToolResultValue,
+): Effect.fn.Return<SettledOutput> {
   if (result.type === "error") return { error: { type: "unknown", message: ToolErrorProjection.toolMessage } }
-  if (name === "image_generation" && result.type === "json") {
-    const content = imageGenerationContent(result.value)
-    if (content) return { structured: record(result.value), content }
+  if (name === "image_generation") {
+    const content = value?.content ?? (result.type === "json" ? imageGenerationContent(result.value) : undefined)
+    const files = content?.filter((part) => part.type === "file")
+    const file = files?.length === 1 ? files[0] : undefined
+    const prefix = `data:${file?.mime};base64,`
+    if (
+      content &&
+      file &&
+      file.uri.startsWith(prefix) &&
+      (yield* ImageGeneration.verifyReceipt(file.uri.slice(prefix.length), file.mime))
+    )
+      return { structured: record(value?.structured ?? {}), content }
+    return { error: { type: "unknown", message: "No usable image was returned." } }
   }
   const settled = value ?? ToolOutput.fromResultValue(result)
   if (!settled) throw new Error(`Unsupported tool result: ${message(result)}`)
   return { structured: record(settled.structured), content: settled.content }
-}
+})
 
 /** Persist one provider turn without executing tools or starting a continuation turn. */
 export const createLLMEventPublisher = (events: EventV2.Interface, input: Input) => {
@@ -111,6 +126,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
   let assistantMessageID: SessionMessage.ID | undefined
   let assistantActive = false
   let assistantFailed = false
+  const imageReceipts = new Set<string>()
   let providerFailed = false
   let stepSettlement: { readonly finish: string; readonly tokens: ReturnType<typeof tokens> } | undefined
 
@@ -400,7 +416,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
           return yield* Effect.die(`Duplicate tool result: ${event.id}`)
         }
         tool.settled = true
-        const result = settledOutput(event.name, event.output, event.result)
+        const result = yield* settledOutput(event.name, event.output, event.result)
         const provider = {
           executed: event.providerExecuted === true || tool.providerExecuted,
           ...(event.providerMetadata === undefined ? {} : { metadata: event.providerMetadata }),
@@ -438,6 +454,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
           ...(provider.executed ? { result: event.result } : {}),
           provider,
         })
+        if (event.name === "image_generation") imageReceipts.add(event.id)
         return
       }
       case "tool-error": {
@@ -494,5 +511,6 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     stepSettlement: () => stepSettlement,
     startAssistant,
     assistantMessageID: assistantMessageIDForTool,
+    hasImageReceipt: (id: string) => imageReceipts.has(id),
   }
 }

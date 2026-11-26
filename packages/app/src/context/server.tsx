@@ -34,8 +34,9 @@ export function serverName(conn?: ServerConnection.Any, ignoreDisplayName = fals
 }
 
 function isLocalHost(url: string) {
-  const host = url.replace(/^https?:\/\//, "").split(":")[0]
-  if (host === "localhost" || host === "127.0.0.1") return "local"
+  if (!URL.canParse(url)) return
+  const parsed = new URL(url)
+  if (["http:", "https:"].includes(parsed.protocol) && ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) return "local"
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

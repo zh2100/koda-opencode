@@ -17,10 +17,10 @@ import { LocationHandler } from "./handlers/location"
 import { IntegrationHandler } from "./handlers/integration"
 import { CredentialHandler } from "./handlers/credential"
 import { ProjectCopyHandler } from "./handlers/project-copy"
-import { OrchestratorHandler } from "./handlers/orchestrator"
 import { RelayHandler } from "./handlers/relay"
 import { ScheduledTaskHandler } from "./handlers/scheduled-task"
 import { ImageGenerationHandler } from "./handlers/image-generation"
+import { ImageEditHandler } from "./handlers/image-edit"
 
 export const handlers = Layer.mergeAll(
   HealthHandler,
@@ -35,6 +35,7 @@ export const handlers = Layer.mergeAll(
   RelayHandler,
   ScheduledTaskHandler,
   ImageGenerationHandler,
+  ImageEditHandler,
   PermissionHandler,
   FileSystemHandler,
   CommandHandler,
@@ -44,5 +45,4 @@ export const handlers = Layer.mergeAll(
   QuestionHandler,
   ReferenceHandler,
   ProjectCopyHandler,
-  OrchestratorHandler,
 )

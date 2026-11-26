@@ -32,6 +32,7 @@ import { LocationServiceMap } from "./location-service-map"
 import { MessageDecodeError } from "./session/error"
 import { SessionEvent } from "./session/event"
 import { SessionInput } from "./session/input"
+import { SessionTitle } from "./session/title"
 import { Snapshot } from "./snapshot"
 import { SessionRevert } from "./session/revert"
 import { Revert } from "@opencode-ai/schema/revert"
@@ -144,6 +145,7 @@ export interface Interface {
     after?: number
     limit: number
   }) => Effect.Effect<{ events: ReadonlyArray<SessionEvent.DurableEvent>; hasMore: boolean }, NotFoundError>
+  readonly pending: (sessionID: SessionSchema.ID) => Effect.Effect<SessionInput.Pending, NotFoundError>
   readonly switchAgent: (input: { sessionID: SessionSchema.ID; agent: string }) => Effect.Effect<void, NotFoundError>
   readonly switchModel: (input: {
     sessionID: SessionSchema.ID
@@ -278,36 +280,8 @@ const layer = Layer.effect(
         return yield* result.get(sessionID).pipe(Effect.orDie)
       }),
       setTitle: Effect.fn("V2Session.setTitle")(function* (input) {
-        const session = yield* result.get(input.sessionID)
-        if (session.title === input.title) return
-        const now = Date.now()
-        yield* events.publish(
-          SessionV1.Event.Updated,
-          {
-            sessionID: input.sessionID,
-            info: SessionV1.SessionInfo.make({
-              id: session.id,
-              slug: session.id,
-              projectID: session.projectID,
-              workspaceID: session.location.workspaceID,
-              directory: session.location.directory,
-              path: session.subpath,
-              parentID: session.parentID,
-              cost: session.cost,
-              tokens: session.tokens,
-              title: input.title,
-              agent: session.agent,
-              model: session.model,
-              version: InstallationVersion,
-              time: {
-                created: DateTime.toEpochMillis(session.time.created),
-                updated: now,
-                archived: session.time.archived ? DateTime.toEpochMillis(session.time.archived) : undefined,
-              },
-            }),
-          },
-          { location: session.location },
-        )
+        yield* result.get(input.sessionID)
+        yield* SessionTitle.rename(db, events, input)
       }),
       get: Effect.fn("V2Session.get")(function* (sessionID) {
         const session = yield* store.get(sessionID)
@@ -447,6 +421,10 @@ const layer = Layer.effect(
           manifest: SessionDurable,
         })
       }),
+      pending: Effect.fn("V2Session.pending")(function* (sessionID) {
+        yield* result.get(sessionID)
+        return yield* SessionInput.pending(db, sessionID)
+      }),
       prompt: Effect.fn("V2Session.prompt")((input) =>
         Effect.uninterruptible(
           Effect.gen(function* () {
@@ -455,7 +433,7 @@ const layer = Layer.effect(
             const messageID = input.id ?? SessionMessage.ID.create()
             const delivery = input.delivery ?? "steer"
             const expected = { sessionID: input.sessionID, messageID, prompt, delivery }
-            const admitted = yield* SessionInput.admit(db, events, {
+            const admission = yield* SessionInput.admitOnce(db, events, {
               id: messageID,
               sessionID: input.sessionID,
               prompt,
@@ -467,10 +445,11 @@ const layer = Layer.effect(
                   : Effect.die(defect),
               ),
             )
-            if (!SessionInput.equivalent(admitted, expected))
+            if (!SessionInput.equivalent(admission.admitted, expected))
               return yield* new PromptConflictError({ sessionID: input.sessionID, messageID })
-            if (input.resume !== false) yield* execution.wake(admitted.sessionID)
-            return admitted
+            // Retrying admission must not restart provider work. Explicit continuation uses resume().
+            if (admission.created && input.resume !== false) yield* execution.wake(admission.admitted.sessionID)
+            return admission.admitted
           }),
         ),
       ),

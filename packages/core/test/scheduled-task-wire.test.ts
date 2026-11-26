@@ -1,4 +1,3 @@
-import { TesterIsolation } from "@opencode-ai/core/tester-isolation"
 import { ReadToolFileSystem } from "@opencode-ai/core/tool/read-filesystem"
 import { SkillV2 } from "@opencode-ai/core/skill"
 import { SessionTodo } from "@opencode-ai/core/session/todo"
@@ -10,6 +9,7 @@ import { Policy } from "@opencode-ai/core/policy"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { Image } from "@opencode-ai/core/image"
+import { MaskedImageEdit } from "@opencode-ai/core/masked-image-edit"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { FileSystemSearch } from "@opencode-ai/core/filesystem/search"
 import { FileSystem } from "@opencode-ai/core/filesystem"
@@ -101,9 +101,12 @@ for (const scenario of scenarios) {
                 Bun.serve({
                   hostname: "127.0.0.1",
                   port: 0,
-                  fetch() {
-                    control.requests++
-                    if (scenario === "rate-limit" && control.requests <= 3)
+                  async fetch(request) {
+                    // Count only task turns. Automatic titling can use the same streaming endpoint.
+                    const body=await request.text()
+                    const title=body.includes('Generate a concise session title')
+                    if (!title) control.requests++
+                    if (!title && scenario === "rate-limit" && control.requests <= 3)
                       return Response.json(
                         { error: { message: marker, type: "rate_limit_error" } },
                         { status: 429, headers: { "retry-after-ms": "0" } },
@@ -295,6 +298,7 @@ for (const scenario of scenarios) {
                   Layer.mock(FileSystemSearch.Service, {}),
                   Layer.mock(Watcher.Service, {}),
                   Layer.mock(Image.Service, {}),
+                  Layer.mock(MaskedImageEdit.Service, {}),
                   integrations,
                   Layer.succeed(Location.Service, location({ directory })),
                   Layer.mock(LocationMutation.Service, {}),
@@ -315,7 +319,6 @@ for (const scenario of scenarios) {
                   Layer.mock(ReadToolFileSystem.Service, {}),
                   Layer.mock(ToolRegistry.Service, {}),
                   Layer.mock(ToolOutputStore.Service, {}),
-                  Layer.mock(TesterIsolation.Service, {}),
                 ),
               ),
             )

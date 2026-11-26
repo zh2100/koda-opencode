@@ -1,10 +1,11 @@
-import { Effect, Stream } from "effect"
+import { Duration, Effect, Stream } from "effect"
 import { HttpClientResponse } from "effect/unstable/http"
 
 export const collectBoundedResponseBody = (
   response: HttpClientResponse.HttpClientResponse,
   maximumBytes: number,
   tooLarge: () => Error,
+  idle?: { duration: Duration.Input; onTimeout: () => Error },
 ) =>
   Effect.gen(function* () {
     const contentLength = response.headers["content-length"]
@@ -14,7 +15,13 @@ export const collectBoundedResponseBody = (
     if (declaredSize !== undefined && declaredSize > maximumBytes) return yield* Effect.fail(tooLarge())
     let body = Buffer.allocUnsafe(Math.min(maximumBytes, declaredSize || 64 * 1024))
     let size = 0
-    yield* Stream.runForEach(response.stream, (chunk) => {
+    const stream = idle
+      ? response.stream.pipe(
+          Stream.filter((chunk) => chunk.byteLength > 0),
+          Stream.timeoutOrElse({ duration: idle.duration, orElse: () => Stream.fail(idle.onTimeout()) }),
+        )
+      : response.stream
+    yield* Stream.runForEach(stream, (chunk) => {
       if (chunk.byteLength === 0) return Effect.void
       if (size + chunk.byteLength > maximumBytes) return Effect.fail(tooLarge())
       if (size + chunk.byteLength > body.byteLength) {

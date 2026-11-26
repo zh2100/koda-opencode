@@ -1,7 +1,7 @@
 export const dict = {
   "desktop.menu.about": "O programu Koda",
   "desktop.about.title": "Koda Desktop v{{version}}",
-  "desktop.about.detail": "Prilagojeno na osnovi OpenCode\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+  "desktop.about.detail": "Prilagojeno na osnovi OpenCode\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Na voljo je Koda v{{version}}. Odprem stran izdaje za nadgradnjo?",
   "desktop.koda.update.open": "Odpri stran izdaje",
   "command.project.create": "Nov projekt",

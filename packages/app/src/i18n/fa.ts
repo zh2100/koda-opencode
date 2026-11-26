@@ -2,7 +2,7 @@ export const dict = {
   "desktop.menu.about": "دربارهٔ Koda",
   "desktop.about.title": "نسخهٔ رومیزی Koda v{{version}}",
   "desktop.about.detail":
-    "با استفاده از OpenCode به‌عنوان هسته تغییر یافته است\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+    "با استفاده از OpenCode به‌عنوان هسته تغییر یافته است\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Koda v{{version}} در دسترس است. صفحهٔ انتشار برای ارتقا باز شود؟",
   "desktop.koda.update.open": "باز کردن صفحهٔ انتشار",
   "command.project.create": "پروژهٔ جدید",

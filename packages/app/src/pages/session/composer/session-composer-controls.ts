@@ -3,7 +3,7 @@ import { createQuery } from "@tanstack/solid-query"
 import { useNavigate, useSearchParams } from "@solidjs/router"
 import { type Accessor, createComponent, createMemo } from "solid-js"
 import type { PromptInputControls } from "@/components/prompt-input/contracts"
-import type { PromptProjectControls } from "@/components/prompt-project-selector"
+import type { PromptProject, PromptProjectControls } from "@/components/prompt-project-selector"
 import { useDirectoryPicker } from "@/components/directory-picker"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobal } from "@/context/global"
@@ -17,6 +17,7 @@ import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { useProviders } from "@/hooks/use-providers"
 import { pathKey } from "@/utils/path-key"
+import { closeHomeProject } from "@/pages/layout/helpers"
 
 export function createPromptInputController(input: {
   sessionKey: Accessor<string>
@@ -32,7 +33,10 @@ export function createPromptInputController(input: {
   const view = layout.view(input.sessionKey)
   const agentsQuery = createQuery(() => input.queryOptions.agents(pathKey(sdk().directory)))
   const globalProvidersQuery = createQuery(() => ({ ...input.queryOptions.providers(null), initialData: undefined }))
-  const providersQuery = createQuery(() => ({ ...input.queryOptions.providers(pathKey(sdk().directory)), initialData: undefined }))
+  const providersQuery = createQuery(() => ({
+    ...input.queryOptions.providers(pathKey(sdk().directory)),
+    initialData: undefined,
+  }))
 
   return createMemo<PromptInputControls>(() => {
     return {
@@ -125,6 +129,24 @@ export function createPromptProjectControls() {
     })
   }
 
+  const removeProject = (project: PromptProject) => {
+    const conn = project.server
+      ? server.list.find((item) => ServerConnection.key(item) === project.server?.key)
+      : projectServer()
+    if (!conn) return
+    const key = ServerConnection.key(conn)
+    const directory = pathKey(sdk().directory)
+    const active =
+      key === ServerConnection.key(projectServer()) &&
+      [project.worktree, ...(project.sandboxes ?? [])].some((item) => pathKey(item) === directory)
+    const list = global.ensureServerCtx(conn).projects
+    const next = list.list().find((item) => pathKey(item.worktree) !== pathKey(project.worktree))
+    if (active && next) selectProject(next.worktree, project.server?.key)
+    if (active && !next) navigate("/")
+    const selection = closeHomeProject(layout.home.selection(), key, list, project.worktree)
+    if (selection) layout.home.setSelection(selection)
+  }
+
   const createProject = (serverKey?: string) => {
     const conn = serverKey ? server.list.find((conn) => ServerConnection.key(conn) === serverKey) : projectServer()
     if (!conn) return
@@ -143,6 +165,7 @@ export function createPromptProjectControls() {
     directory: sdk().directory,
     server: server.list.length > 1 ? ServerConnection.key(projectServer()) : undefined,
     select: selectProject,
+    remove: removeProject,
     add: addProject,
     create: createProject,
   }))

@@ -1,4 +1,8 @@
 import scheduledRunOwnerMigration from "@opencode-ai/core/database/migration/20261107102331_scheduled-run-owner"
+import imageAttemptMigration from "@opencode-ai/core/database/migration/20261123190132_image_attempt"
+import imageEditMigration from "@opencode-ai/core/database/migration/20261124051520_image_edit"
+import sessionInputInvalidationMigration from "@opencode-ai/core/database/migration/20261124150601_session_input_invalidation"
+import { reserveImage } from "@opencode-ai/core/session/image-attempt"
 import { describe, expect, test } from "bun:test"
 import { $ } from "bun"
 import { fileURLToPath } from "url"
@@ -40,6 +44,109 @@ const run = <A, E>(effect: Effect.Effect<A, E, SqlClientService>) =>
 const makeDb = EffectDrizzleSqlite.makeWithDefaults()
 
 describe("DatabaseMigration", () => {
+  test("adds input eligibility without deleting pending or promoted admission identities", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`
+          CREATE TABLE session_input (
+            id text PRIMARY KEY,
+            session_id text NOT NULL,
+            admitted_seq integer NOT NULL,
+            promoted_seq integer,
+            delivery text NOT NULL,
+            prompt text NOT NULL,
+            time_created integer NOT NULL
+          )
+        `)
+        yield* db.run(sql`
+          INSERT INTO session_input VALUES
+            ('msg_pending', 'ses_preserved', 1, NULL, 'queue', '{"text":"pending"}', 100),
+            ('msg_promoted', 'ses_preserved', 2, 3, 'steer', '{"text":"promoted"}', 200)
+        `)
+        yield* DatabaseMigration.applyOnly(db, [sessionInputInvalidationMigration])
+        expect(yield* db.all(sql`SELECT * FROM session_input ORDER BY admitted_seq`)).toEqual([
+          {
+            id: "msg_pending",
+            session_id: "ses_preserved",
+            admitted_seq: 1,
+            promoted_seq: null,
+            delivery: "queue",
+            prompt: '{"text":"pending"}',
+            time_created: 100,
+            invalidated_seq: null,
+          },
+          {
+            id: "msg_promoted",
+            session_id: "ses_preserved",
+            admitted_seq: 2,
+            promoted_seq: 3,
+            delivery: "steer",
+            prompt: '{"text":"promoted"}',
+            time_created: 200,
+            invalidated_seq: null,
+          },
+        ])
+      }),
+    )
+  })
+
+  test("image attempt migration preserves existing session data and enforces slot identity", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY, title text NOT NULL)`)
+        yield* db.run(sql`INSERT INTO session VALUES ('ses_preserved', 'keep this title')`)
+        yield* DatabaseMigration.applyOnly(db, [imageAttemptMigration])
+        expect(yield* db.get(sql`SELECT * FROM session`)).toEqual({ id: "ses_preserved", title: "keep this title" })
+        const key = { session: "ses_preserved", task: "msg_task", slot: "cover", call: "call_cover" }
+        expect(yield* reserveImage(db, key, "local/image", 2, false)).toBe("reserved")
+        expect(yield* reserveImage(db, { ...key, call: "other_call" }, "local/image", 2, true)).toBe("existing")
+        expect(yield* db.get(sql`SELECT count(*) AS count FROM image_attempt`)).toEqual({ count: 1 })
+        yield* db.run(sql`update image_attempt set digest='old-receipt'`)
+        yield* DatabaseMigration.applyOnly(db, [imageEditMigration])
+        expect(yield* db.get(sql`select digest from image_attempt`)).toEqual({digest:'old-receipt'})
+        expect(yield* db.get(sql`select count(*) as count from image_edit`)).toEqual({count:0})
+      }),
+    )
+  })
+
+  test("unknown image attempts survive a database close and reopen without regaining quota", async () => {
+    await using tmp = await tmpdir()
+    const filename = path.join(tmp.path, "image-attempt.sqlite")
+    const key = { session: "ses_image_reopen", task: "msg_task", slot: "cover", call: "call_cover" }
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database.Service
+        yield* database.db
+          .insert(ProjectTable)
+          .values({ id: ProjectV2.ID.global, worktree: AbsolutePath.make(tmp.path), sandboxes: [] })
+          .run()
+        yield* database.db
+          .insert(SessionTable)
+          .values({
+            id: SessionSchema.ID.make(key.session),
+            project_id: ProjectV2.ID.global,
+            slug: "image-reopen",
+            directory: tmp.path,
+            title: "keep",
+            version: "test",
+          })
+          .run()
+        expect(yield* reserveImage(database.db, key, "local/image", 1, false)).toBe("reserved")
+      }).pipe(Effect.provide(Database.layerFromPath(filename)), Effect.scoped),
+    )
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database.Service
+        expect(yield* reserveImage(database.db, key, "local/image", 1, false)).toBe("existing")
+        expect(
+          yield* reserveImage(database.db, { ...key, slot: "second", call: "second" }, "local/image", 1, false),
+        ).toBe("limit")
+        expect(yield* database.db.get(sql`SELECT digest FROM image_attempt`)).toEqual({ digest: null })
+      }).pipe(Effect.provide(Database.layerFromPath(filename)), Effect.scoped),
+    )
+  })
   test("defaults missing workspace names while preserving legacy workspace data", async () => {
     await run(
       Effect.gen(function* () {

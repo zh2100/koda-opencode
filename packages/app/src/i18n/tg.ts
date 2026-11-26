@@ -2,7 +2,7 @@ export const dict = {
   "desktop.menu.about": "Дар бораи Koda",
   "desktop.about.title": "Барномаи мизи кории Koda v{{version}}",
   "desktop.about.detail":
-    "Бо истифода аз OpenCode ҳамчун асос тағйир дода шудааст\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+    "Бо истифода аз OpenCode ҳамчун асос тағйир дода шудааст\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Koda v{{version}} дастрас аст. Саҳифаи нашр барои навсозӣ кушода шавад?",
   "desktop.koda.update.open": "Кушодани саҳифаи нашр",
   "command.project.create": "Лоиҳаи нав",

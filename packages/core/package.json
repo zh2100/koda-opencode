@@ -10,7 +10,7 @@
     "db": "bun drizzle-kit",
     "migration": "bun run script/migration.ts",
     "fix-node-pty": "bun run script/fix-node-pty.ts",
-    "test": "bun test --only-failures",
+    "test": "bun run script/test.ts",
     "typecheck": "tsgo --noEmit"
   },
   "bin": {
@@ -119,6 +119,10 @@
     "htmlparser2": "8.0.2",
     "immer": "11.1.4",
     "ignore": "7.0.5",
+    "image-size": "1.2.1",
+    "jszip": "3.10.2",
+    "pptxgenjs": "4.0.1",
+    "saxes": "5.0.1",
     "jsonc-parser": "3.3.1",
     "mime-types": "3.0.2",
     "minimatch": "10.2.5",

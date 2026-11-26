@@ -19,6 +19,8 @@ import type {
   SessionsSwitchAgentOutput,
   SessionsSwitchModelInput,
   SessionsSwitchModelOutput,
+  SessionsPendingInput,
+  SessionsPendingOutput,
   SessionsPromptInput,
   SessionsPromptOutput,
   SessionsCompactInput,
@@ -103,6 +105,12 @@ import type {
   ImageGenerationGetOutput,
   ImageGenerationUpdateInput,
   ImageGenerationUpdateOutput,
+  ImageEditTargetInput,
+  ImageEditTargetOutput,
+  ImageEditStatusInput,
+  ImageEditStatusOutput,
+  ImageEditSubmitInput,
+  ImageEditSubmitOutput,
   PermissionsListRequestsInput,
   PermissionsListRequestsOutput,
   PermissionsListSavedInput,
@@ -154,12 +162,6 @@ import type {
   ProjectCopiesRemoveOutput,
   ProjectCopiesRefreshInput,
   ProjectCopiesRefreshOutput,
-  ServerOrchestratorCreateInput,
-  ServerOrchestratorCreateOutput,
-  ServerOrchestratorGetInput,
-  ServerOrchestratorGetOutput,
-  ServerOrchestratorControlInput,
-  ServerOrchestratorControlOutput,
 } from "./types"
 import { ClientError } from "./client-error"
 
@@ -172,6 +174,11 @@ export interface ClientOptions {
 export interface RequestOptions {
   readonly signal?: AbortSignal
   readonly headers?: HeadersInit
+}
+
+export interface SseOptions extends RequestOptions {
+  readonly maxEventBytes?: number
+  readonly onReady?: () => void
 }
 
 interface RequestDescriptor {
@@ -237,21 +244,57 @@ export function make(options: ClientOptions) {
     return (await json(response)) as A
   }
 
-  const sse = <A>(descriptor: RequestDescriptor, requestOptions?: RequestOptions): AsyncIterable<A> => ({
+  const sse = <A>(descriptor: RequestDescriptor, requestOptions?: SseOptions): AsyncIterable<A> => ({
     async *[Symbol.asyncIterator]() {
+      const limit = requestOptions?.maxEventBytes ?? 1_048_576
+      if (!Number.isSafeInteger(limit) || limit < 1) throw new RangeError("Invalid SSE event byte limit")
       const response = await execute(descriptor, requestOptions)
       if (response.status !== descriptor.successStatus) await responseError(response, descriptor)
       if (!isContentType(response, "text/event-stream")) {
-        try {
-          await response.body?.cancel()
-        } catch {}
+        await response.body?.cancel().catch(() => {})
         throw new ClientError("UnsupportedContentType")
       }
       if (response.body === null) throw new ClientError("MalformedResponse")
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
-      let buffer = ""
+      let pieces: Uint8Array[] = []
+      let lineBytes = 0
+      let eventBytes = 0
+      let carriageReturn = false
+      let data: string[] = []
+      const requireSize = (bytes: number) => {
+        if (bytes > limit)
+          throw new ClientError("MalformedResponse", {
+            cause: { reason: "SseEventTooLarge", limit, observedBytes: bytes },
+          })
+      }
+      const append = (bytes: Uint8Array) => {
+        requireSize(eventBytes + lineBytes + bytes.byteLength)
+        if (bytes.byteLength === 0) return
+        pieces.push(bytes.slice())
+        lineBytes += bytes.byteLength
+      }
+      const finishLine = (endingBytes: number) => {
+        if (lineBytes === 0) {
+          const value = data.join("\n")
+          data = []
+          eventBytes = 0
+          if (value === "") return
+          try {
+            return { value: JSON.parse(value) as A }
+          } catch (cause) {
+            throw new ClientError("MalformedResponse", { cause })
+          }
+        }
+        requireSize(eventBytes + lineBytes + endingBytes)
+        eventBytes += lineBytes + endingBytes
+        const line = pieces.map((piece) => decoder.decode(piece, { stream: true })).join("") + decoder.decode()
+        pieces = []
+        lineBytes = 0
+        if (line.startsWith("data:")) data.push(line.slice(5).trimStart())
+      }
       try {
+        requestOptions?.onReady?.()
         while (true) {
           let next
           try {
@@ -259,36 +302,40 @@ export function make(options: ClientOptions) {
           } catch (cause) {
             throw new ClientError("Transport", { cause })
           }
-          buffer += decoder.decode(next.value, { stream: !next.done })
-          if (buffer.length > 1_048_576) throw new ClientError("MalformedResponse")
-          const trailingCarriageReturn = !next.done && buffer.endsWith("\r")
-          if (trailingCarriageReturn) buffer = buffer.slice(0, -1)
-          buffer = buffer.replaceAll("\r\n", "\n").replaceAll("\r", "\n")
-          if (trailingCarriageReturn) buffer += "\r"
-          if (next.done && buffer !== "") buffer += "\n\n"
-          let boundary = buffer.indexOf("\n\n")
-          while (boundary >= 0) {
-            const block = buffer.slice(0, boundary)
-            buffer = buffer.slice(boundary + 2)
-            const data = block
-              .split("\n")
-              .flatMap((line) => (line.startsWith("data:") ? [line.slice(5).trimStart()] : []))
-              .join("\n")
-            if (data !== "") {
-              try {
-                yield JSON.parse(data) as A
-              } catch (cause) {
-                throw new ClientError("MalformedResponse", { cause })
+          if (next.done) {
+            const line = finishLine(carriageReturn ? 1 : 0)
+            if (line) yield line.value
+            const tail = finishLine(0)
+            if (tail) yield tail.value
+            return
+          }
+          const bytes = next.value
+          let start = 0
+          for (let index = 0; index < bytes.length; index++) {
+            const byte = bytes[index]
+            if (carriageReturn) {
+              carriageReturn = false
+              const event = finishLine(byte === 10 ? 2 : 1)
+              if (event) yield event.value
+              if (byte === 10) {
+                start = index + 1
+                continue
               }
             }
-            boundary = buffer.indexOf("\n\n")
+            if (byte !== 10 && byte !== 13) continue
+            append(bytes.subarray(start, index))
+            start = index + 1
+            if (byte === 13) {
+              carriageReturn = true
+              continue
+            }
+            const event = finishLine(1)
+            if (event) yield event.value
           }
-          if (next.done) return
+          append(bytes.subarray(start))
         }
       } finally {
-        try {
-          await reader.cancel()
-        } catch {}
+        await reader.cancel().catch(() => {})
         reader.releaseLock()
       }
     },
@@ -438,6 +485,17 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
+      pending: (input: SessionsPendingInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionsPendingOutput }>(
+          {
+            method: "GET",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/input`,
+            successStatus: 200,
+            declaredStatuses: [404, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
       prompt: (input: SessionsPromptInput, requestOptions?: RequestOptions) =>
         request<{ readonly data: SessionsPromptOutput }>(
           {
@@ -540,7 +598,7 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      events: (input: SessionsEventsInput, requestOptions?: RequestOptions): AsyncIterable<SessionsEventsOutput> =>
+      events: (input: SessionsEventsInput, requestOptions?: SseOptions): AsyncIterable<SessionsEventsOutput> =>
         sse<SessionsEventsOutput>(
           {
             method: "GET",
@@ -1002,9 +1060,63 @@ export function make(options: ClientOptions) {
           {
             method: "PUT",
             path: `/api/settings/image-generation`,
-            body: { enabled: input?.["enabled"], model: input?.["model"], api: input?.["api"] },
+            body: {
+              enabled: input?.["enabled"],
+              automaticIllustrations: input?.["automaticIllustrations"],
+              taskRequestLimit: input?.["taskRequestLimit"],
+              model: input?.["model"],
+              api: input?.["api"],
+            },
             successStatus: 200,
             declaredStatuses: [400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ),
+    },
+    imageEdit: {
+      target: (input?: ImageEditTargetInput, requestOptions?: RequestOptions) =>
+        request<ImageEditTargetOutput>(
+          {
+            method: "GET",
+            path: `/api/image-edit/target`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      status: (input?: ImageEditStatusInput, requestOptions?: RequestOptions) =>
+        request<ImageEditStatusOutput>(
+          {
+            method: "GET",
+            path: `/api/image-edit/status`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      submit: (input: ImageEditSubmitInput, requestOptions?: RequestOptions) =>
+        request<ImageEditSubmitOutput>(
+          {
+            method: "POST",
+            path: `/api/image-edit`,
+            query: { location: input["location"] },
+            body: {
+              id: input["id"],
+              scope: input["scope"],
+              source: input["source"],
+              target: input["target"],
+              confirmed: input["confirmed"],
+              reconcile: input["reconcile"],
+              mask: input["mask"],
+              prompt: input["prompt"],
+            },
+            successStatus: 200,
+            declaredStatuses: [400, 409, 503, 401],
             empty: false,
           },
           requestOptions,
@@ -1173,7 +1285,7 @@ export function make(options: ClientOptions) {
         ),
     },
     events: {
-      subscribe: (requestOptions?: RequestOptions): AsyncIterable<EventsSubscribeOutput> =>
+      subscribe: (requestOptions?: SseOptions): AsyncIterable<EventsSubscribeOutput> =>
         sse<EventsSubscribeOutput>(
           { method: "GET", path: `/api/event`, successStatus: 200, declaredStatuses: [401, 400], empty: false },
           requestOptions,
@@ -1346,52 +1458,6 @@ export function make(options: ClientOptions) {
             query: { location: input["location"] },
             successStatus: 204,
             declaredStatuses: [400, 401],
-            empty: true,
-          },
-          requestOptions,
-        ),
-    },
-    "server.orchestrator": {
-      create: (input: ServerOrchestratorCreateInput, requestOptions?: RequestOptions) =>
-        request<ServerOrchestratorCreateOutput>(
-          {
-            method: "POST",
-            path: `/experimental/orchestrator`,
-            query: { location: input["location"] },
-            body: {
-              sessionID: input["sessionID"],
-              projectID: input["projectID"],
-              workspaceKey: input["workspaceKey"],
-              prompt: input["prompt"],
-              models: input["models"],
-            },
-            successStatus: 200,
-            declaredStatuses: [400, 401],
-            empty: false,
-          },
-          requestOptions,
-        ),
-      get: (input: ServerOrchestratorGetInput, requestOptions?: RequestOptions) =>
-        request<ServerOrchestratorGetOutput>(
-          {
-            method: "GET",
-            path: `/experimental/orchestrator/${encodeURIComponent(input.taskID)}`,
-            query: { location: input["location"] },
-            successStatus: 200,
-            declaredStatuses: [404, 401, 400],
-            empty: false,
-          },
-          requestOptions,
-        ),
-      control: (input: ServerOrchestratorControlInput, requestOptions?: RequestOptions) =>
-        request<ServerOrchestratorControlOutput>(
-          {
-            method: "POST",
-            path: `/experimental/orchestrator/${encodeURIComponent(input.taskID)}/control`,
-            query: { location: input["location"] },
-            body: { action: input["action"] },
-            successStatus: 204,
-            declaredStatuses: [404, 401, 400],
             empty: true,
           },
           requestOptions,

@@ -8,15 +8,32 @@ import { DecodeError, ResizerUnavailableError, SizeError } from "../image"
 
 const JPEG_QUALITIES = [80, 85, 70, 55, 40]
 
-export const make = Effect.gen(function* () {
+const load = Effect.suspend(() => {
   ;(globalThis as typeof globalThis & { __OPENCODE_PHOTON_WASM_PATH?: string }).__OPENCODE_PHOTON_WASM_PATH =
     path.isAbsolute(photonWasm) ? photonWasm : fileURLToPath(new URL(photonWasm, import.meta.url))
-  const loadPhoton = yield* Effect.cached(
-    Effect.tryPromise({
-      try: () => import("@silvia-odwyer/photon-node"),
-      catch: () => new ResizerUnavailableError(),
-    }),
-  )
+  return Effect.tryPromise({
+    try: () => import("@silvia-odwyer/photon-node"),
+    catch: () => new ResizerUnavailableError(),
+  })
+})
+
+export const pixels = Effect.fn("Image.Photon.pixels")(function* (resource: string, bytes: Uint8Array) {
+  const photon = yield* load
+  return yield* Effect.try({
+    try: () => {
+      const decoded = photon.PhotonImage.new_from_byteslice(bytes)
+      try {
+        return { width: decoded.get_width(), height: decoded.get_height(), rgba: decoded.get_raw_pixels() }
+      } finally {
+        decoded.free()
+      }
+    },
+    catch: () => new DecodeError({ resource }),
+  })
+})
+
+export const make = Effect.gen(function* () {
+  const loadPhoton = yield* Effect.cached(load)
   return Effect.fn("Image.Photon.normalize")(function* (
     resource: string,
     content: FileSystem.Content & { readonly encoding: "base64" },

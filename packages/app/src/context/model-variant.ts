@@ -18,6 +18,31 @@ type VariantInput = {
   configured: string | undefined
 }
 
+export const modelVariantLabelKey = (id: string) => {
+  switch (id) {
+    case "default":
+      return "model.variant.default"
+    case "none":
+      return "model.variant.none"
+    case "minimal":
+      return "model.variant.minimal"
+    case "low":
+      return "model.variant.low"
+    case "medium":
+      return "model.variant.medium"
+    case "high":
+      return "model.variant.high"
+    case "xhigh":
+      return "model.variant.xhigh"
+    case "max":
+      return "model.variant.max"
+    case "native-ultra":
+      return "model.variant.ultra"
+    default:
+      return undefined
+  }
+}
+
 export function getConfiguredAgentVariant(input: { agent: Agent | undefined; model: Model | undefined }) {
   if (!input.agent?.variant) return undefined
   if (!input.agent.model) return undefined

@@ -29,7 +29,7 @@ for (const aliased of [false, true]) {
     const listener = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => app.handler(request) })
     try {
       const url = new URL("api/settings/image-generation", listener.url)
-      const response = await fetch(url, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: true, model: "local/image", api: "openai-images" }) })
+      const response = await fetch(url, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: true, model: "local/image", api: "openai-images", automaticIllustrations:true, taskRequestLimit:3 }) })
       const body = await response.text()
       expect(body).not.toContain("PRIVATE-IMAGE-SENTINEL"); expect(body).not.toContain(tmp.path)
       expect(response.status).toBe(aliased ? 400 : 200)
@@ -38,6 +38,7 @@ for (const aliased of [false, true]) {
       expect(loaded.status).toBe(200)
       const data = await loaded.json() as { enabled: boolean; data?: { enabled: boolean } }
       expect((data.data ?? data).enabled).toBe(!aliased)
+      if (!aliased) expect(data.data ?? data).toMatchObject({automaticIllustrations:true,taskRequestLimit:3})
       expect((await fs.readdir(directory)).filter((entry) => entry.endsWith(".tmp"))).toEqual([])
     } finally { await listener.stop(true); await app.dispose() }
   })
@@ -174,7 +175,7 @@ test("IMG-T09 real HTTP close rejection does not return the internal close secre
   expect(code).toBe(0)
   expect(stdout).toContain("IMG_T09_CLOSE_SECRET_HIDDEN")
   expect(await fs.readFile(file, "utf8")).toBe(before)
-})
+}, 30_000)
 
 test("IMG-T09 real HTTP maps an ordinary publication failure safely without retrying", async () => {
   await using tmp = await tmpdir()

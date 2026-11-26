@@ -103,6 +103,31 @@ function waitForRequest() {
 }
 
 describe("PermissionV2", () => {
+  it.effect("does not let an old approval override a switch to plan mode", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "*", resource: "*", effect: "ask" }])
+      const service = yield* PermissionV2.Service
+      const database = yield* Database.Service
+      const running = yield* service
+        .assert(assertion({ action: "image_generation", resources: ["local/image"] }))
+        .pipe(Effect.exit, Effect.forkScoped)
+      let pending = yield* service.list()
+      while (!pending.length) {
+        yield* Effect.yieldNow
+        pending = yield* service.list()
+      }
+      yield* database.db
+        .update(SessionTable)
+        .set({ metadata: { scheduledApprovalMode: "plan" } })
+        .where(eq(SessionTable.id, SessionV2.ID.make("ses_test")))
+        .run()
+        .pipe(Effect.orDie)
+      yield* service.reply({ requestID: pending[0].id, reply: "once" })
+      const result = yield* Fiber.join(running)
+      expect(result._tag).toBe("Failure")
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
   it.effect("returns the evaluated effect and only queues prompts", () =>
     Effect.gen(function* () {
       yield* setup([{ action: "read", resource: "*", effect: "allow" }])

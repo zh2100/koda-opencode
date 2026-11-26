@@ -200,6 +200,7 @@ type ServerSDKBase = {
   currentApi: ServerApi
   generatedApi: GeneratedApi
   event: {
+    onRecovery: (listener: () => void) => () => void
     on: ServerEventEmitter["on"]
     listen: ServerEventEmitter["listen"]
     start: () => Promise<void> | undefined
@@ -281,6 +282,12 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
   let run: Promise<void> | undefined
   let started = false
   let generation = 0
+  let disconnected = false
+  const recovery = new Set<() => void>()
+  const recover = () => {
+    flush()
+    recovery.forEach((listener) => listener())
+  }
 
   const start = () => {
     if (started) return run
@@ -301,7 +308,15 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
           const events =
             kind === "v1"
               ? (await eventSdk.global.event({ signal: attempt.signal })).stream
-              : eventApi.events.subscribe({ signal: attempt.signal })
+              : eventApi.events.subscribe({
+                  signal: attempt.signal,
+                  maxEventBytes: platform.platform === "desktop" ? 8 * 1024 * 1024 : undefined,
+                  onReady: () => {
+                    if (!disconnected || !started || generation !== active) return
+                    disconnected = false
+                    recover()
+                  },
+                })
           let yielded = Date.now()
           for await (const event of events) {
             streamErrorLogged = false
@@ -331,6 +346,8 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
         }
 
         if (abort.signal.aborted || !started || generation !== active) return
+        disconnected = true
+        recover()
         await wait(RECONNECT_DELAY_MS)
       }
     })().finally(() => {
@@ -379,6 +396,12 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     currentApi,
     generatedApi,
     event: {
+      onRecovery(listener) {
+        recovery.add(listener)
+        return () => {
+          recovery.delete(listener)
+        }
+      },
       on: emitter.on.bind(emitter),
       listen: emitter.listen.bind(emitter),
       start,
@@ -430,7 +453,10 @@ type SDKEventMap = {
   [key in Event["type"]]: Extract<ServerEvent, { type: key }>
 }
 
-function createDirSdkContext(directory: string, serverSDK: ServerSDKBase): {
+function createDirSdkContext(
+  directory: string,
+  serverSDK: ServerSDKBase,
+): {
   scope: ServerScope
   protocol: Promise<ServerProtocol>
   directory: string

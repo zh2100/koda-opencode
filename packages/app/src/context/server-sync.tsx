@@ -8,7 +8,18 @@ import type {
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@/utils/toast"
 import { getFilename } from "@opencode-ai/core/util/path"
-import { type Accessor, batch, createEffect, createMemo, createRoot, createSignal, getOwner, onCleanup, onMount, untrack } from "solid-js"
+import {
+  type Accessor,
+  batch,
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  getOwner,
+  onCleanup,
+  onMount,
+  untrack,
+} from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import type { InitError } from "../pages/error"
@@ -53,6 +64,7 @@ import type { ServerApi } from "@/utils/server"
 import type { SessionsActiveOutput, SkillsListOutput } from "@opencode-ai/client"
 import { toggleMcp } from "./global-sync/mcp"
 import { createServerSession, type ServerSession } from "./server-session"
+import { createStreamRecovery } from "./server-stream-recovery"
 
 type GlobalStore = {
   ready: boolean
@@ -286,7 +298,8 @@ export function createActiveSessionRefresh(input: {
       refreshed: [] as readonly string[],
       failed: new Set([...Object.keys(freshActive), ...Object.keys(freshBefore)]),
     }))
-    const failed = result && typeof result === "object" && result.failed instanceof Set ? result.failed : new Set<string>()
+    const failed =
+      result && typeof result === "object" && result.failed instanceof Set ? result.failed : new Set<string>()
     const attempted = new Set([...Object.keys(freshActive), ...Object.keys(freshBefore)])
     const succeeded = [...attempted].filter((sessionID) => !failed.has(sessionID))
     for (const sessionID of succeeded) retry.delete(sessionID)
@@ -339,9 +352,11 @@ export function createActiveSessionRefresh(input: {
       before = captured.before
       const request = drain()
       producer = request
-      tail = request.catch(() => false).finally(() => {
-        if (producer === request) producer = undefined
-      })
+      tail = request
+        .catch(() => false)
+        .finally(() => {
+          if (producer === request) producer = undefined
+        })
       return request
     },
     dispose() {
@@ -397,7 +412,11 @@ export function seedActiveSessionStatuses(
 ) {
   for (const sessionID of Object.keys(active)) {
     if (versions && versions.current.current(sessionID) !== (versions.started.get(sessionID) ?? 0)) continue
-    if (!versions && session.data.session_status[sessionID] !== undefined && session.data.session_status[sessionID]?.type !== "idle")
+    if (
+      !versions &&
+      session.data.session_status[sessionID] !== undefined &&
+      session.data.session_status[sessionID]?.type !== "idle"
+    )
       continue
     const status = active[sessionID]
     session.set("session_status", sessionID, status?.type === "running" ? { type: "busy" } : status)
@@ -415,12 +434,7 @@ export function syncActiveSessionStatuses(
     produce((draft) => {
       for (const sessionID of Object.keys(draft)) {
         if (activeIDs.has(sessionID)) continue
-        if (
-          versions &&
-          !versions.started.has(sessionID) &&
-          versions.current.current(sessionID) !== 0
-        )
-          continue
+        if (versions && !versions.started.has(sessionID) && versions.current.current(sessionID) !== 0) continue
         if (versions && versions.current.current(sessionID) !== (versions.started.get(sessionID) ?? 0)) continue
         delete draft[sessionID]
       }
@@ -598,6 +612,12 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     protocol: serverSDK.protocol,
     scope: String(serverSDK.scope),
   })
+  const streamRecovery = createStreamRecovery(() => session.recover())
+  const unsubscribeRecovery = serverSDK.event.onRecovery(() => streamRecovery.request())
+  onCleanup(() => {
+    unsubscribeRecovery()
+    streamRecovery.dispose()
+  })
   const queryOptionsApi = makeQueryOptionsApi(
     serverSDK.scope,
     () => serverSDK.client,
@@ -680,6 +700,15 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   })
   onCleanup(() => activeRefresh.dispose())
   const refreshActiveStatuses = () => activeRefresh.refresh().then(() => undefined)
+  // A drain may stop before publishing its first assistant event. Reconcile optimistic
+  // busy states even when the SSE connection stays healthy and sends no terminal event.
+  onMount(() => {
+    const timer = setInterval(() => {
+      if (!Object.values(untrack(() => session.data.session_status)).some((status) => status?.type === "busy")) return
+      void refreshActiveStatuses().catch(() => undefined)
+    }, 5_000)
+    onCleanup(() => clearInterval(timer))
+  })
   createEffect(() => {
     const active = activeSessionsQuery.data
     if (!active || !statusMerge.initial(active)) return

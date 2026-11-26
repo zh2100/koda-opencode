@@ -58,5 +58,5 @@ export const AuthState = Schema.Struct({
 export const ProviderID = Schema.Literal("leidiandonghua").pipe(Schema.brand("Relay.ProviderID"))
 export type ProviderID = typeof ProviderID.Type
 
-export const Effort = Schema.Literals(["low", "medium", "high", "xhigh"]).annotate({ identifier: "Relay.Effort" })
+export const Effort = Schema.Literals(["none", "low", "medium", "high", "xhigh", "max", "ultra"]).annotate({ identifier: "Relay.Effort" })
 export type Effort = typeof Effort.Type

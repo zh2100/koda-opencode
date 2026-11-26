@@ -39,6 +39,10 @@ export namespace TimelineRow {
   export class Retry extends Data.TaggedClass("Retry")<{
     userMessageID: string
   }> {}
+  export class TaskStatus extends Data.TaggedClass("TaskStatus")<{
+    userMessageID: string
+    state: "running" | "completed"
+  }> {}
 
   export type TimelineRow =
     | TurnGap
@@ -50,6 +54,7 @@ export namespace TimelineRow {
     | DiffSummary
     | Error
     | Retry
+    | TaskStatus
 
   export const key = (row: TimelineRow) => {
     switch (row._tag) {
@@ -71,6 +76,8 @@ export namespace TimelineRow {
         return `error:${row.userMessageID}`
       case "Retry":
         return `retry:${row.userMessageID}`
+      case "TaskStatus":
+        return `task-status:${row.userMessageID}`
     }
   }
 

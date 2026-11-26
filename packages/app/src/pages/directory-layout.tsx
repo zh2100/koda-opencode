@@ -13,6 +13,7 @@ import { Schema } from "effect"
 import type { ServerConnection } from "@/context/server"
 import { sessionHref } from "@/utils/session-route"
 import { useServerSync } from "@/context/server-sync"
+import { useImageEditor } from "@/components/dialog-image-edit"
 
 export function DirectoryDataProvider(
   props: ParentProps<{
@@ -29,6 +30,7 @@ export function DirectoryDataProvider(
   const serverSDK = useServerSDK()
   const serverSync = useServerSync()
   const directory = () => (typeof props.directory === "function" ? props.directory() : props.directory)
+  const openGeneratedImage = useImageEditor(() => params.id, directory)
   const slug = createMemo(() => base64Encode(directory()))
   const href = (sessionID: string) => {
     const server = props.server?.()
@@ -67,6 +69,7 @@ export function DirectoryDataProvider(
           data={sync().data}
           directory={directory}
           sessionID={params.id}
+          onOpenGeneratedImage={openGeneratedImage}
           onNavigateToSession={(sessionID: string) => navigate(href(sessionID))}
           onSessionHref={href}
           onRetrySession={(sessionID) => {

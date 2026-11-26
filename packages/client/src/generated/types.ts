@@ -125,14 +125,6 @@ export type ProjectCopyError = {
 export const isProjectCopyError = (value: unknown): value is ProjectCopyError =>
   typeof value === "object" && value !== null && "name" in value && value["name"] === "ProjectCopyError"
 
-export type OrchestratorTaskNotFoundError = {
-  readonly _tag: "OrchestratorTaskNotFoundError"
-  readonly taskID: string
-  readonly message: string
-}
-export const isOrchestratorTaskNotFoundError = (value: unknown): value is OrchestratorTaskNotFoundError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "OrchestratorTaskNotFoundError"
-
 export type HealthGetOutput = {
   readonly healthy: true
   readonly gates?:
@@ -471,6 +463,38 @@ export type SessionsSwitchModelInput = {
 
 export type SessionsSwitchModelOutput = void
 
+export type SessionsPendingInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type SessionsPendingOutput = {
+  readonly data: {
+    readonly sessionID: string
+    readonly sequence: number
+    readonly inputs: ReadonlyArray<{
+      readonly admittedSeq: number
+      readonly id: string
+      readonly sessionID: string
+      readonly prompt: {
+        readonly text: string
+        readonly files?: ReadonlyArray<{
+          readonly uri: string
+          readonly mime: string
+          readonly name?: string
+          readonly description?: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+        readonly agents?: ReadonlyArray<{
+          readonly name: string
+          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        }>
+      }
+      readonly delivery: "steer" | "queue"
+      readonly timeCreated: number
+      readonly promotedSeq?: number
+      readonly invalidatedSeq?: number
+    }>
+  }
+}["data"]
+
 export type SessionsPromptInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
   readonly id?: {
@@ -569,6 +593,7 @@ export type SessionsPromptOutput = {
     readonly delivery: "steer" | "queue"
     readonly timeCreated: number
     readonly promotedSeq?: number
+    readonly invalidatedSeq?: number
   }
 }["data"]
 
@@ -2643,7 +2668,7 @@ export type ServerRelaySyncOutput = {
     readonly vendorId: string
     readonly modelId: string
     readonly visible: boolean
-    readonly reasoningCapabilities: ReadonlyArray<"low" | "medium" | "high" | "xhigh">
+    readonly reasoningCapabilities: ReadonlyArray<"none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra">
     readonly assignmentSource: "manual" | "owned_by" | "prefix" | "unassigned" | "conflict"
     readonly lastSeenAt: number
     readonly upstreamPresent: boolean
@@ -2716,7 +2741,7 @@ export type ServerRelayManagedOutput = ReadonlyArray<{
   readonly vendorId: string
   readonly modelId: string
   readonly visible: boolean
-  readonly reasoningCapabilities: ReadonlyArray<"low" | "medium" | "high" | "xhigh">
+  readonly reasoningCapabilities: ReadonlyArray<"none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra">
   readonly assignmentSource: "manual" | "owned_by" | "prefix" | "unassigned" | "conflict"
   readonly lastSeenAt: number
   readonly upstreamPresent: boolean
@@ -2777,7 +2802,7 @@ export type ServerRelayVisibilityOutput = ReadonlyArray<{
   readonly vendorId: string
   readonly modelId: string
   readonly visible: boolean
-  readonly reasoningCapabilities: ReadonlyArray<"low" | "medium" | "high" | "xhigh">
+  readonly reasoningCapabilities: ReadonlyArray<"none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra">
   readonly assignmentSource: "manual" | "owned_by" | "prefix" | "unassigned" | "conflict"
   readonly lastSeenAt: number
   readonly upstreamPresent: boolean
@@ -2806,7 +2831,7 @@ export type ServerScheduledTaskListOutput = ReadonlyArray<{
   readonly timezone: string
   readonly runAt: number
   readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-  readonly effort?: "low" | "medium" | "high" | "xhigh"
+  readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
   readonly approvalMode: "ask" | "auto" | "plan"
   readonly enabled: boolean
   readonly revision: number
@@ -2837,7 +2862,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["name"]
@@ -2863,7 +2888,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["projectID"]
@@ -2889,7 +2914,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["location"]
@@ -2915,7 +2940,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["prompt"]
@@ -2941,7 +2966,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["schedule"]
@@ -2967,7 +2992,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["timezone"]
@@ -2993,7 +3018,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["runAt"]
@@ -3019,7 +3044,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["model"]
@@ -3045,7 +3070,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["effort"]
@@ -3071,7 +3096,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["approvalMode"]
@@ -3097,7 +3122,7 @@ export type ServerScheduledTaskCreateInput = {
     readonly timezone: string
     readonly runAt: number
     readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly effort?: "low" | "medium" | "high" | "xhigh"
+    readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
     readonly approvalMode: "ask" | "auto" | "plan"
     readonly enabled: boolean
   }["enabled"]
@@ -3126,7 +3151,7 @@ export type ServerScheduledTaskCreateOutput = {
   readonly timezone: string
   readonly runAt: number
   readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-  readonly effort?: "low" | "medium" | "high" | "xhigh"
+  readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
   readonly approvalMode: "ask" | "auto" | "plan"
   readonly enabled: boolean
   readonly revision: number
@@ -3232,7 +3257,7 @@ export type ServerScheduledTaskEnableOutput = {
   readonly timezone: string
   readonly runAt: number
   readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
-  readonly effort?: "low" | "medium" | "high" | "xhigh"
+  readonly effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
   readonly approvalMode: "ask" | "auto" | "plan"
   readonly enabled: boolean
   readonly revision: number
@@ -3242,6 +3267,8 @@ export type ServerScheduledTaskEnableOutput = {
 
 export type ImageGenerationGetOutput = {
   readonly enabled?: boolean | undefined
+  readonly automaticIllustrations?: boolean | undefined
+  readonly taskRequestLimit?: number | undefined
   readonly model?: string | undefined
   readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
 }
@@ -3249,16 +3276,36 @@ export type ImageGenerationGetOutput = {
 export type ImageGenerationUpdateInput = {
   readonly enabled?: {
     readonly enabled?: boolean | undefined
+    readonly automaticIllustrations?: boolean | undefined
+    readonly taskRequestLimit?: number | undefined
     readonly model?: string | undefined
     readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
   }["enabled"]
+  readonly automaticIllustrations?: {
+    readonly enabled?: boolean | undefined
+    readonly automaticIllustrations?: boolean | undefined
+    readonly taskRequestLimit?: number | undefined
+    readonly model?: string | undefined
+    readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
+  }["automaticIllustrations"]
+  readonly taskRequestLimit?: {
+    readonly enabled?: boolean | undefined
+    readonly automaticIllustrations?: boolean | undefined
+    readonly taskRequestLimit?: number | undefined
+    readonly model?: string | undefined
+    readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
+  }["taskRequestLimit"]
   readonly model?: {
     readonly enabled?: boolean | undefined
+    readonly automaticIllustrations?: boolean | undefined
+    readonly taskRequestLimit?: number | undefined
     readonly model?: string | undefined
     readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
   }["model"]
   readonly api?: {
     readonly enabled?: boolean | undefined
+    readonly automaticIllustrations?: boolean | undefined
+    readonly taskRequestLimit?: number | undefined
     readonly model?: string | undefined
     readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
   }["api"]
@@ -3266,9 +3313,210 @@ export type ImageGenerationUpdateInput = {
 
 export type ImageGenerationUpdateOutput = {
   readonly enabled?: boolean | undefined
+  readonly automaticIllustrations?: boolean | undefined
+  readonly taskRequestLimit?: number | undefined
   readonly model?: string | undefined
   readonly api?: "openai-images" | "google-gemini" | "alibaba-dashscope" | "openai-chat" | undefined
 }
+
+export type ImageEditTargetInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type ImageEditTargetOutput = {
+  readonly model: string
+  readonly protocol: "openai-mask"
+  readonly endpoint: string
+  readonly binding: string
+} | null
+
+export type ImageEditStatusInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type ImageEditStatusOutput = {
+  readonly generation: {
+    readonly model?: string | undefined
+    readonly state:
+      | "unconfigured"
+      | "disabled"
+      | "unavailable"
+      | "unknown"
+      | "documented"
+      | "compatible"
+      | "unsupported"
+      | "failed"
+  }
+  readonly editor:
+    | { readonly state: "unconfigured" }
+    | { readonly state: "unavailable"; readonly model: string }
+    | {
+        readonly state: "configured"
+        readonly target: {
+          readonly model: string
+          readonly protocol: "openai-mask"
+          readonly endpoint: string
+          readonly binding: string
+        }
+        readonly source?: "generation" | "explicit" | undefined
+      }
+}
+
+export type ImageEditSubmitInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly id: {
+    readonly id: string
+    readonly scope: { readonly type: "draft"; readonly id: string } | { readonly type: "session"; readonly id: string }
+    readonly source:
+      | { readonly type: "upload"; readonly image: string }
+      | { readonly type: "generated"; readonly messageID: string; readonly callID: string; readonly digest: string }
+      | { readonly type: "edit"; readonly id: string }
+    readonly target: {
+      readonly model: string
+      readonly protocol: "openai-mask"
+      readonly endpoint: string
+      readonly binding: string
+    }
+    readonly confirmed: true
+    readonly reconcile?: true | undefined
+    readonly mask: string
+    readonly prompt: string
+  }["id"]
+  readonly scope: {
+    readonly id: string
+    readonly scope: { readonly type: "draft"; readonly id: string } | { readonly type: "session"; readonly id: string }
+    readonly source:
+      | { readonly type: "upload"; readonly image: string }
+      | { readonly type: "generated"; readonly messageID: string; readonly callID: string; readonly digest: string }
+      | { readonly type: "edit"; readonly id: string }
+    readonly target: {
+      readonly model: string
+      readonly protocol: "openai-mask"
+      readonly endpoint: string
+      readonly binding: string
+    }
+    readonly confirmed: true
+    readonly reconcile?: true | undefined
+    readonly mask: string
+    readonly prompt: string
+  }["scope"]
+  readonly source: {
+    readonly id: string
+    readonly scope: { readonly type: "draft"; readonly id: string } | { readonly type: "session"; readonly id: string }
+    readonly source:
+      | { readonly type: "upload"; readonly image: string }
+      | { readonly type: "generated"; readonly messageID: string; readonly callID: string; readonly digest: string }
+      | { readonly type: "edit"; readonly id: string }
+    readonly target: {
+      readonly model: string
+      readonly protocol: "openai-mask"
+      readonly endpoint: string
+      readonly binding: string
+    }
+    readonly confirmed: true
+    readonly reconcile?: true | undefined
+    readonly mask: string
+    readonly prompt: string
+  }["source"]
+  readonly target: {
+    readonly id: string
+    readonly scope: { readonly type: "draft"; readonly id: string } | { readonly type: "session"; readonly id: string }
+    readonly source:
+      | { readonly type: "upload"; readonly image: string }
+      | { readonly type: "generated"; readonly messageID: string; readonly callID: string; readonly digest: string }
+      | { readonly type: "edit"; readonly id: string }
+    readonly target: {
+      readonly model: string
+      readonly protocol: "openai-mask"
+      readonly endpoint: string
+      readonly binding: string
+    }
+    readonly confirmed: true
+    readonly reconcile?: true | undefined
+    readonly mask: string
+    readonly prompt: string
+  }["target"]
+  readonly confirmed: {
+    readonly id: string
+    readonly scope: { readonly type: "draft"; readonly id: string } | { readonly type: "session"; readonly id: string }
+    readonly source:
+      | { readonly type: "upload"; readonly image: string }
+      | { readonly type: "generated"; readonly messageID: string; readonly callID: string; readonly digest: string }
+      | { readonly type: "edit"; readonly id: string }
+    readonly target: {
+      readonly model: string
+      readonly protocol: "openai-mask"
+      readonly endpoint: string
+      readonly binding: string
+    }
+    readonly confirmed: true
+    readonly reconcile?: true | undefined
+    readonly mask: string
+    readonly prompt: string
+  }["confirmed"]
+  readonly reconcile?: {
+    readonly id: string
+    readonly scope: { readonly type: "draft"; readonly id: string } | { readonly type: "session"; readonly id: string }
+    readonly source:
+      | { readonly type: "upload"; readonly image: string }
+      | { readonly type: "generated"; readonly messageID: string; readonly callID: string; readonly digest: string }
+      | { readonly type: "edit"; readonly id: string }
+    readonly target: {
+      readonly model: string
+      readonly protocol: "openai-mask"
+      readonly endpoint: string
+      readonly binding: string
+    }
+    readonly confirmed: true
+    readonly reconcile?: true | undefined
+    readonly mask: string
+    readonly prompt: string
+  }["reconcile"]
+  readonly mask: {
+    readonly id: string
+    readonly scope: { readonly type: "draft"; readonly id: string } | { readonly type: "session"; readonly id: string }
+    readonly source:
+      | { readonly type: "upload"; readonly image: string }
+      | { readonly type: "generated"; readonly messageID: string; readonly callID: string; readonly digest: string }
+      | { readonly type: "edit"; readonly id: string }
+    readonly target: {
+      readonly model: string
+      readonly protocol: "openai-mask"
+      readonly endpoint: string
+      readonly binding: string
+    }
+    readonly confirmed: true
+    readonly reconcile?: true | undefined
+    readonly mask: string
+    readonly prompt: string
+  }["mask"]
+  readonly prompt: {
+    readonly id: string
+    readonly scope: { readonly type: "draft"; readonly id: string } | { readonly type: "session"; readonly id: string }
+    readonly source:
+      | { readonly type: "upload"; readonly image: string }
+      | { readonly type: "generated"; readonly messageID: string; readonly callID: string; readonly digest: string }
+      | { readonly type: "edit"; readonly id: string }
+    readonly target: {
+      readonly model: string
+      readonly protocol: "openai-mask"
+      readonly endpoint: string
+      readonly binding: string
+    }
+    readonly confirmed: true
+    readonly reconcile?: true | undefined
+    readonly mask: string
+    readonly prompt: string
+  }["prompt"]
+}
+
+export type ImageEditSubmitOutput = { readonly id: string; readonly mime: string; readonly data: string }
 
 export type PermissionsListRequestsInput = {
   readonly location?: {
@@ -3817,163 +4065,3 @@ export type ProjectCopiesRefreshInput = {
 }
 
 export type ProjectCopiesRefreshOutput = void
-
-export type ServerOrchestratorCreateInput = {
-  readonly location?: {
-    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
-  }["location"]
-  readonly sessionID: {
-    readonly sessionID: string
-    readonly projectID: string
-    readonly workspaceKey: string
-    readonly prompt: string
-    readonly models: {
-      readonly mode?: "sequential" | "parallel" | undefined
-      readonly planner?: string | undefined
-      readonly worker: string
-      readonly reviewer?: string | undefined
-      readonly tester?: string | undefined
-      readonly finalizer?: string | undefined
-      readonly fallback?: string | undefined
-      readonly timeoutMs?: number | undefined
-      readonly maxRetries?: number | undefined
-    }
-  }["sessionID"]
-  readonly projectID: {
-    readonly sessionID: string
-    readonly projectID: string
-    readonly workspaceKey: string
-    readonly prompt: string
-    readonly models: {
-      readonly mode?: "sequential" | "parallel" | undefined
-      readonly planner?: string | undefined
-      readonly worker: string
-      readonly reviewer?: string | undefined
-      readonly tester?: string | undefined
-      readonly finalizer?: string | undefined
-      readonly fallback?: string | undefined
-      readonly timeoutMs?: number | undefined
-      readonly maxRetries?: number | undefined
-    }
-  }["projectID"]
-  readonly workspaceKey: {
-    readonly sessionID: string
-    readonly projectID: string
-    readonly workspaceKey: string
-    readonly prompt: string
-    readonly models: {
-      readonly mode?: "sequential" | "parallel" | undefined
-      readonly planner?: string | undefined
-      readonly worker: string
-      readonly reviewer?: string | undefined
-      readonly tester?: string | undefined
-      readonly finalizer?: string | undefined
-      readonly fallback?: string | undefined
-      readonly timeoutMs?: number | undefined
-      readonly maxRetries?: number | undefined
-    }
-  }["workspaceKey"]
-  readonly prompt: {
-    readonly sessionID: string
-    readonly projectID: string
-    readonly workspaceKey: string
-    readonly prompt: string
-    readonly models: {
-      readonly mode?: "sequential" | "parallel" | undefined
-      readonly planner?: string | undefined
-      readonly worker: string
-      readonly reviewer?: string | undefined
-      readonly tester?: string | undefined
-      readonly finalizer?: string | undefined
-      readonly fallback?: string | undefined
-      readonly timeoutMs?: number | undefined
-      readonly maxRetries?: number | undefined
-    }
-  }["prompt"]
-  readonly models: {
-    readonly sessionID: string
-    readonly projectID: string
-    readonly workspaceKey: string
-    readonly prompt: string
-    readonly models: {
-      readonly mode?: "sequential" | "parallel" | undefined
-      readonly planner?: string | undefined
-      readonly worker: string
-      readonly reviewer?: string | undefined
-      readonly tester?: string | undefined
-      readonly finalizer?: string | undefined
-      readonly fallback?: string | undefined
-      readonly timeoutMs?: number | undefined
-      readonly maxRetries?: number | undefined
-    }
-  }["models"]
-}
-
-export type ServerOrchestratorCreateOutput = {
-  readonly id: string
-  readonly sessionID: string
-  readonly status: "pending" | "running" | "completed" | "failed" | "paused" | "aborted"
-  readonly currentStep: number
-  readonly failureReason?: string | undefined
-  readonly steps?:
-    | ReadonlyArray<{
-        readonly role: "planner" | "worker" | "reviewer" | "tester" | "finalizer"
-        readonly status: "pending" | "running" | "needs_revision" | "failed" | "completed"
-        readonly startedAt?: number | undefined
-        readonly finishedAt?: number | undefined
-      }>
-    | undefined
-  readonly workers?:
-    | ReadonlyArray<{
-        readonly id: string
-        readonly title: string
-        readonly status: "pending" | "running" | "completed" | "failed"
-        readonly startedAt?: number | undefined
-        readonly finishedAt?: number | undefined
-        readonly failureReason?: string | undefined
-      }>
-    | undefined
-}
-
-export type ServerOrchestratorGetInput = {
-  readonly taskID: { readonly taskID: string }["taskID"]
-  readonly location?: {
-    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
-  }["location"]
-}
-
-export type ServerOrchestratorGetOutput = {
-  readonly id: string
-  readonly sessionID: string
-  readonly status: "pending" | "running" | "completed" | "failed" | "paused" | "aborted"
-  readonly currentStep: number
-  readonly failureReason?: string | undefined
-  readonly steps?:
-    | ReadonlyArray<{
-        readonly role: "planner" | "worker" | "reviewer" | "tester" | "finalizer"
-        readonly status: "pending" | "running" | "needs_revision" | "failed" | "completed"
-        readonly startedAt?: number | undefined
-        readonly finishedAt?: number | undefined
-      }>
-    | undefined
-  readonly workers?:
-    | ReadonlyArray<{
-        readonly id: string
-        readonly title: string
-        readonly status: "pending" | "running" | "completed" | "failed"
-        readonly startedAt?: number | undefined
-        readonly finishedAt?: number | undefined
-        readonly failureReason?: string | undefined
-      }>
-    | undefined
-}
-
-export type ServerOrchestratorControlInput = {
-  readonly taskID: { readonly taskID: string }["taskID"]
-  readonly location?: {
-    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
-  }["location"]
-  readonly action: { readonly action: "pause" | "abort" | "retry" }["action"]
-}
-
-export type ServerOrchestratorControlOutput = void

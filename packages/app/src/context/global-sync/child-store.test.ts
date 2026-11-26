@@ -16,12 +16,25 @@ const persist: typeof import("@/utils/persist").persisted = (_target, store) => 
 ]
 
 const child = () => createStore({} as State)
-const provider = { all: new Map(), connected: [], default: {} } satisfies NormalizedProviderListResponse
+const globalProvider = {
+  all: new Map([["global", { id: "global", name: "Global", source: "api", env: [], options: {}, models: {} }]]),
+  connected: ["global"],
+  default: { global: "global-model" },
+} satisfies NormalizedProviderListResponse
+const directoryProvider = {
+  all: new Map([["directory", { id: "directory", name: "Directory", source: "api", env: [], options: {}, models: {} }]]),
+  connected: ["directory"],
+  default: { directory: "directory-model" },
+} satisfies NormalizedProviderListResponse
+const provider = directoryProvider
 
 const queryOptionsApi = {
   globalConfig: () => ({ queryKey: ["globalConfig"], queryFn: async () => ({}) }),
   projects: () => ({ queryKey: ["projects"], queryFn: async () => [] }),
-  providers: (directory: string | null) => ({ queryKey: [directory, "providers"], queryFn: async () => provider }),
+  providers: (directory: string | null) => ({
+    queryKey: [directory, "providers"],
+    queryFn: async () => (directory ? directoryProvider : globalProvider),
+  }),
   path: (directory: string | null) => ({
     queryKey: [directory, "path"],
     queryFn: async () => ({
@@ -62,7 +75,9 @@ beforeAll(async () => {
           if (options().queryKey?.[1] === "path") throw new Error("pending path data read")
           if (options().queryKey?.[1] === "mcp") return options().enabled ? { demo: { status: "disabled" } } : undefined
           if (options().queryKey?.[1] === "lsp") return []
-          if (options().queryKey?.[1] === "providers") return provider
+          if (options().queryKey?.[1] === "providers") {
+            return options().enabled ? directoryProvider : undefined
+          }
           return undefined
         },
       }
@@ -294,6 +309,7 @@ describe("createChildStoreManager", () => {
       expect(queries[5]?.().enabled).toBe(false)
       expect(store.path.directory).toBe("/project")
       expect(store.provider_ready).toBe(false)
+      expect(store.provider).toEqual({ all: new Map(), connected: [], default: {} })
       expect(store.lsp_ready).toBe(false)
       expect(bootstraps).toEqual([])
 

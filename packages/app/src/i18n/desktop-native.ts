@@ -270,7 +270,7 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.menu.shareFeedback": "Share Feedback",
   "desktop.menu.about": "About Koda",
   "desktop.about.title": "Koda Desktop v{{version}}",
-  "desktop.about.detail": "Modified from OpenCode as its core\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+  "desktop.about.detail": "Modified from OpenCode as its core\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Koda v{{version}} is available. Open the release page to upgrade?",
   "desktop.koda.update.open": "Open release page",
   "desktop.menu.reportBug": "Report a Bug",

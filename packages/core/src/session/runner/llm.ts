@@ -1,4 +1,4 @@
-import { ToolErrorProjection } from "@opencode-ai/llm"
+import { ToolErrorProjection, ToolFailure } from "@opencode-ai/llm"
 import { sessionPermissions } from "../../session-policy"
 import {
   LLM,
@@ -13,6 +13,10 @@ import {
 import { Cause, DateTime, Effect, FiberSet, Layer, Option, Semaphore, Stream } from "effect"
 import { AgentV2 } from "../../agent"
 import { Config } from "../../config"
+import { ImageGenerationSettings } from "../../image-generation-settings"
+import { illustrate, illustrationInstruction, inventoryInstruction } from "./illustration-plan"
+import { inventoryPattern } from "../../tool/illustration-capability"
+import { reserveImage } from "../image-attempt"
 import { Database } from "../../database/database"
 import { EventV2 } from "../../event"
 import { Location } from "../../location"
@@ -31,12 +35,14 @@ import { SessionCompaction } from "../compaction"
 import { SessionEvent } from "../event"
 import { SessionHistory } from "../history"
 import { SessionInput } from "../input"
+import { SessionTitle } from "../title"
 import { SessionMessage } from "../message"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
 import { SessionRunnerModel } from "./model"
 import { createLLMEventPublisher } from "./publish-llm-event"
+import { deliverImage, imageResponseFrame, imageRouting, imageRoutingInstruction } from "./image-intent"
 import { normalizeDocumentAttachments, toLLMMessages } from "./to-llm-message"
 import { MAX_STEPS_PROMPT } from "./max-steps"
 import { Snapshot } from "../../snapshot"
@@ -108,9 +114,13 @@ const layer = Layer.effect(
     const skillGuidance = yield* SkillGuidance.Service
     const referenceGuidance = yield* ReferenceGuidance.Service
     const config = yield* Config.Service
+    const settings = yield* ImageGenerationSettings.Service
+    const questions = yield* QuestionV2.Service
     const snapshots = yield* Snapshot.Service
     const fs = yield* FSUtil.Service
     const db = (yield* Database.Service).db
+    const titleScope = yield* Effect.scope
+    const title = SessionTitle.make(db, events, llm)
     const compaction = SessionCompaction.make({ events, llm, config: yield* config.entries() })
     const getSession = Effect.fn("SessionRunner.getSession")(function* (sessionID: SessionSchema.ID) {
       const session = yield* store.get(sessionID)
@@ -221,10 +231,12 @@ const layer = Layer.effect(
         concurrency: "unbounded",
       }).pipe(Effect.map(SystemContext.combine))
 
+    type Inventory = { user: SessionMessage.ID; empty: boolean }
     const runTurnAttempt = Effect.fn("SessionRunner.runTurn")(function* (
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       step: number,
+      inventory?: Inventory,
       recoverOverflow?: typeof compaction.compactAfterOverflow,
     ) {
       const session = yield* getSession(sessionID)
@@ -234,30 +246,101 @@ const layer = Layer.effect(
       const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContext(agent), session.id)
       const toolFibers = yield* FiberSet.make<void, ToolOutputStore.Error>()
       let needsContinuation = false
+      let inspectedMaterials = false
+      let toolCalls = 0
+      let emptyInventory = false
+      const promotedMessages: SessionMessage.ID[] = []
       let currentStep = step
       if (promotion) {
         const cutoff = yield* EventV2.latestSequence(db, session.id)
         let promoted = 0
-        if (promotion === "steer") promoted = yield* SessionInput.promoteSteers(db, events, session.id, cutoff)
+        if (promotion === "steer")
+          promoted = yield* SessionInput.promoteSteers(db, events, session.id, cutoff, promotedMessages)
         if (promotion === "queue") {
-          promoted += Number(yield* SessionInput.promoteNextQueued(db, events, session.id))
-          promoted += yield* SessionInput.promoteSteers(db, events, session.id, cutoff)
+          promoted += Number(yield* SessionInput.promoteNextQueued(db, events, session.id, promotedMessages))
+          promoted += yield* SessionInput.promoteSteers(db, events, session.id, cutoff, promotedMessages)
         }
         if (promoted > 0) currentStep = 1
       }
       const system =
         initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContext(agent), session.id))
-      const model = yield* models.resolve(session)
+      const model = yield* models.resolve(session).pipe(
+        Effect.tapError(() => {
+          if (!session.model) return Effect.void
+          // Resolution happens before the provider publisher exists. Persist a safe terminal
+          // failure here so an admitted prompt cannot remain visually unanswered forever.
+          return createLLMEventPublisher(events, {
+            sessionID: session.id,
+            agent: agent.id,
+            model: session.model,
+          }).failAssistant(
+            "The selected conversation model could not be initialized. Check its availability and provider connection. No provider request was sent for this turn.",
+          )
+        }),
+      )
+      if (promotedMessages.length > 0)
+        yield* title({
+          session,
+          promoted: promotedMessages,
+          model,
+          resolveModel: Effect.gen(function* () {
+            const configured = yield* agents.get(AgentV2.ID.make("title"))
+            return configured?.model
+              ? yield* models
+                  .resolve({ ...session, model: configured.model })
+                  .pipe(Effect.catch(() => Effect.succeed(model)))
+              : model
+          }),
+        }).pipe(
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterrupts(cause),
+            () => Effect.logWarning("Session title generation failed"),
+          ),
+          Effect.forkIn(titleScope),
+        )
       const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
       const context = entries.map((entry) => entry.message)
-      const normalizedContext = yield* normalizeDocumentAttachments(context, (filepath) =>
-        fs.readFile(filepath).pipe(Effect.catch(() => Effect.succeed(undefined))),
+      const latest = context.at(-1)
+      // An explicit resume is not a new image request or an answer to a clarification.
+      if (
+        !promotedMessages.length &&
+        latest?.type === "assistant" &&
+        latest.content.some(
+          (part) =>
+            (part.type === "tool" && part.id.startsWith("image-msg_")) ||
+            (part.type === "text" && part.id.startsWith("image-intent-")),
+        )
       )
+        return { needsContinuation: false, step: currentStep }
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
       const toolMaterialization = isLastStep
         ? undefined
         : yield* tools.materialize(sessionPermissions(session.approvalMode, agent.info?.permissions ?? []))
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
+      const routeImage =
+        latest?.type === "user" && promotedMessages.length === 1 && promotedMessages[0] === latest.id
+          ? imageRouting(context, latest)
+          : undefined
+      // Inventory tools can run before planning. Carry only the active drain's admitted
+      // task identity; explicit resumes, batched steers and post-crash runs cannot reopen it.
+      const task = promotedMessages.length
+        ? routeImage && latest?.type === "user"
+          ? latest
+          : undefined
+        : context.find((m) => m.type === "user" && m.id === inventory?.user)
+      const planning = task?.type === "user" ? task : undefined
+      const publication = {
+        sessionID: session.id,
+        agent: agent.id,
+        model: {
+          id: ModelV2.ID.make(model.id),
+          providerID: ProviderV2.ID.make(model.provider),
+          ...(session.model?.variant === undefined ? {} : { variant: session.model.variant }),
+        },
+      }
+      const normalizedContext = yield* normalizeDocumentAttachments(context, (filepath) =>
+        fs.readFile(filepath).pipe(Effect.catch(() => Effect.succeed(undefined))),
+      )
       const request = LLM.request({
         model,
         http: {
@@ -268,34 +351,35 @@ const layer = Layer.effect(
           },
         },
         providerOptions: { openai: { promptCacheKey, imageGeneration: false } },
-        system: [agent.info?.system, system.baseline, languageInstruction(context)]
+        system: [
+          agent.info?.system,
+          system.baseline,
+          routeImage || planning ? imageRoutingInstruction : undefined,
+          routeImage?.instruction,
+          planning ? illustrationInstruction : undefined,
+          planning ? inventoryInstruction : undefined,
+          languageInstruction(context),
+        ]
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
         messages: [
           ...toLLMMessages(normalizedContext, model),
           ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : []),
         ],
-        tools: toolMaterialization?.definitions ?? [],
+        tools: toolMaterialization?.definitions.filter((tool) => tool.name !== "image_generation") ?? [],
         toolChoice: isLastStep ? "none" : undefined,
       })
       if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request }))
         return yield* Effect.die(continueAfterCompaction(currentStep))
       const startSnapshot = yield* snapshots.capture()
-      const publisher = createLLMEventPublisher(events, {
-        sessionID: session.id,
-        agent: agent.id,
-        model: {
-          id: ModelV2.ID.make(model.id),
-          providerID: ProviderV2.ID.make(model.provider),
-          ...(session.model?.variant === undefined ? {} : { variant: session.model.variant }),
-        },
-        snapshot: startSnapshot,
-      })
+      const publisher = createLLMEventPublisher(events, { ...publication, snapshot: startSnapshot })
       const withPublication = Semaphore.makeUnsafe(1).withPermit
       const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = []) =>
         withPublication(publisher.publish(event, outputPaths))
       let overflowFailure: ProviderErrorEvent | undefined
+      const frame = routeImage || planning ? imageResponseFrame() : undefined
       const providerStream = llm.stream(request).pipe(
+        Stream.flatMap((event) => Stream.fromIterable(frame ? frame.read(event) : [event])),
         Stream.runForEach((event) =>
           Effect.gen(function* () {
             if (overflowFailure || publisher.hasProviderError()) return
@@ -305,8 +389,31 @@ const layer = Layer.effect(
                 return
               }
             }
+            // A provider can return an unadvertised call. Never settle it with billing authority.
+            // Only Core-issued text IDs may represent a pending image confirmation after replay.
+            if (
+              (event.type === "text-start" || event.type === "text-delta" || event.type === "text-end") &&
+              (event.id.startsWith("image-intent-") || event.id.startsWith("provider:"))
+            ) {
+              const id = `provider:${event.id}`
+              return yield* publish(
+                event.type === "text-start"
+                  ? LLMEvent.textStart({ ...event, id })
+                  : event.type === "text-delta"
+                    ? LLMEvent.textDelta({ ...event, id })
+                    : LLMEvent.textEnd({ ...event, id }),
+              )
+            }
+            if ("name" in event && event.name === "image_generation") {
+              if (event.type === "tool-call")
+                yield* publish(LLMEvent.providerError({ message: "Blocked an unrequested image call" }))
+              return
+            }
             yield* publish(event)
-            if (event.type !== "tool-call" || event.providerExecuted) return
+            if (event.type !== "tool-call") return
+            toolCalls++
+            if (event.providerExecuted) return
+            if (["glob", "grep", "read", "list"].includes(event.name)) inspectedMaterials = true
             if (!toolMaterialization) {
               yield* withPublication(publisher.failUnsettledTools("Tools are disabled after the maximum agent steps"))
               return
@@ -322,8 +429,22 @@ const layer = Layer.effect(
                   call: event,
                 }),
               ).pipe(
-                Effect.flatMap((settlement) =>
-                  publish(
+                Effect.flatMap((settlement) => {
+                  if (
+                    event.name === "glob" &&
+                    toolMaterialization.projectInventory &&
+                    typeof event.input === "object" &&
+                    event.input !== null &&
+                    "pattern" in event.input &&
+                    event.input.pattern === inventoryPattern &&
+                    !("path" in event.input) &&
+                    "limit" in event.input &&
+                    event.input.limit === 1 &&
+                    Array.isArray(settlement.output?.structured) &&
+                    settlement.output.structured.length === 0
+                  )
+                    emptyInventory = true
+                  return publish(
                     LLMEvent.toolResult({
                       id: event.id,
                       name: event.name,
@@ -331,8 +452,8 @@ const layer = Layer.effect(
                       output: settlement.output,
                     }),
                     settlement.outputPaths ?? [],
-                  ),
-                ),
+                  )
+                }),
               ),
             ).pipe(FiberSet.run(toolFibers))
           }),
@@ -378,6 +499,73 @@ const layer = Layer.effect(
             yield* withPublication(publisher.failUnsettledTools(ToolErrorProjection.toolMessage))
           }
           const stepSettlement = publisher.stepSettlement()
+          if (frame?.incomplete() && stream._tag === "Success" && !publisher.hasProviderError()) {
+            yield* publisher.failAssistant("Incomplete response header. No image request was sent.")
+            return { needsContinuation: false, step: currentStep }
+          }
+          const decision = frame?.decision()
+          const slots = frame?.illustrations()
+          if (slots && planning && stream._tag === "Success" && !publisher.hasProviderError()) {
+            if (stepSettlement?.finish !== "stop") {
+              yield* publisher.failAssistant("Incomplete illustration plan. No image request was sent.")
+              return { needsContinuation: false, step: currentStep }
+            }
+            yield* restore(
+              illustrate({
+                plan: slots,
+                emptyInventory: inventory?.user === planning.id && inventory.empty,
+                user: planning,
+                history: context,
+                settings,
+                questions,
+                db,
+                publication,
+                publisher,
+                tools: toolMaterialization,
+              }),
+            )
+            needsContinuation = !isLastStep
+          }
+          if (decision && !routeImage) {
+            yield* publisher.failAssistant("Standalone image authorization cannot be inferred from tool output.")
+            return { needsContinuation: false, step: currentStep }
+          }
+          if (
+            decision &&
+            routeImage &&
+            latest?.type === "user" &&
+            stream._tag === "Success" &&
+            !publisher.hasProviderError()
+          ) {
+            if (stepSettlement?.finish === "stop") {
+              yield* restore(
+                deliverImage(
+                  routeImage.resolve(decision),
+                  latest,
+                  publication,
+                  events,
+                  publisher,
+                  questions,
+                  toolMaterialization,
+                  (model) =>
+                    reserveImage(
+                      db,
+                      { session: session.id, task: latest.id, slot: "standalone", call: `image-${latest.id}` },
+                      model,
+                      1,
+                      false,
+                    ).pipe(
+                      Effect.flatMap((result) =>
+                        result === "reserved"
+                          ? Effect.void
+                          : Effect.fail(new ToolFailure({ message: "This image request was already attempted." })),
+                      ),
+                    ),
+                ),
+              )
+            } else yield* publisher.failAssistant("Incomplete image decision. No image request was sent.")
+            return { needsContinuation: false, step: currentStep }
+          }
           if (stepSettlement && !publisher.hasProviderError()) {
             const endSnapshot = yield* snapshots.capture()
             const files =
@@ -406,7 +594,14 @@ const layer = Layer.effect(
           if (stream._tag === "Failure") return yield* Effect.failCause(stream.cause)
           if (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause))
             return yield* Effect.failCause(settled.cause)
-          return { needsContinuation: !publisher.hasProviderError() && needsContinuation, step: currentStep }
+          return {
+            needsContinuation: !publisher.hasProviderError() && needsContinuation,
+            inventory:
+              !slots && needsContinuation && inspectedMaterials && planning
+                ? { user: planning.id, empty: emptyInventory && toolCalls === 1 }
+                : undefined,
+            step: currentStep,
+          }
         }),
       )
     }, Effect.scoped)
@@ -414,10 +609,14 @@ const layer = Layer.effect(
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       step: number,
-    ) => Effect.Effect<{ readonly needsContinuation: boolean; readonly step: number }, RunError>
+      inventory?: Inventory,
+    ) => Effect.Effect<
+      { readonly needsContinuation: boolean; readonly step: number; readonly inventory?: Inventory },
+      RunError
+    >
 
-    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step) {
-      return yield* runTurnAttempt(sessionID, promotion, step).pipe(
+    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step, inventory) {
+      return yield* runTurnAttempt(sessionID, promotion, step, inventory).pipe(
         Effect.catchCause(
           Effect.fnUntraced(function* (cause) {
             const transition = turnTransition(cause)
@@ -431,8 +630,8 @@ const layer = Layer.effect(
       )
     })
 
-    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step) {
-      return yield* runTurnAttempt(sessionID, promotion, step, compaction.compactAfterOverflow).pipe(
+    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step, inventory) {
+      return yield* runTurnAttempt(sessionID, promotion, step, inventory, compaction.compactAfterOverflow).pipe(
         Effect.catchCause(
           Effect.fnUntraced(function* (cause) {
             const transition = turnTransition(cause)
@@ -459,8 +658,10 @@ const layer = Layer.effect(
       while (shouldRun) {
         let needsContinuation = true
         let step = 1
+        let inventory: Inventory | undefined
         while (needsContinuation) {
-          const result = yield* runTurn(input.sessionID, promotion, step)
+          const result = yield* runTurn(input.sessionID, promotion, step, inventory)
+          inventory = result.inventory
           needsContinuation = result.needsContinuation
           step = result.step + 1
           promotion = "steer"
@@ -492,6 +693,8 @@ export const node = makeLocationNode({
     SkillGuidance.node,
     ReferenceGuidance.node,
     Config.node,
+    ImageGenerationSettings.node,
+    QuestionV2.node,
     Snapshot.node,
     FSUtil.node,
     Database.node,

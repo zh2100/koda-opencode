@@ -5,7 +5,7 @@ type Keys = keyof typeof en
 export const dict = {
   "desktop.menu.about": "Über Koda",
   "desktop.about.title": "Koda Desktop v{{version}}",
-  "desktop.about.detail": "Auf Basis von OpenCode angepasst\nGitHub: https://github.com/zh2100/koda-opencode\n数元AI",
+  "desktop.about.detail": "Auf Basis von OpenCode angepasst\nGitHub: https://github.com/zh2100/koda-opencode",
   "desktop.koda.update.available": "Koda v{{version}} ist verfügbar. Release-Seite zum Aktualisieren öffnen?",
   "desktop.koda.update.open": "Release-Seite öffnen",
   "command.project.create": "Neues Projekt",

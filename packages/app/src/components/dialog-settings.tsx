@@ -9,7 +9,6 @@ import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsServers } from "./settings-servers"
-import { SettingsCollaboration } from "./settings-collaboration"
 import { SettingsComputerUse } from "./settings-computer-use"
 
 export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
@@ -67,17 +66,12 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
                       <Icon name="sliders" />
                       {language.t("settings.computerUse.title")}
                     </Tabs.Trigger>
-                    <Tabs.Trigger value="collaboration">
-                      <Icon name="brain" />
-                      {language.t("settings.tab.collaboration")}
-                    </Tabs.Trigger>
                   </div>
                 </div>
               </div>
             </div>
              <div class="flex flex-col gap-1 pl-1 py-1 text-12-medium text-text-weak">
                <span>{language.t("app.name.desktop")}</span>
-               <span class="text-11-regular">数元AI</span>
                <span class="text-11-regular">v{import.meta.env.VITE_KODA_VERSION}</span>
              </div>
           </div>
@@ -99,9 +93,6 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
         </Tabs.Content>
         <Tabs.Content value="computer-use" class="no-scrollbar">
           <SettingsComputerUse />
-        </Tabs.Content>
-        <Tabs.Content value="collaboration" class="no-scrollbar">
-          <SettingsCollaboration />
         </Tabs.Content>
       </Tabs>
     </Dialog>

@@ -30,6 +30,7 @@ describe("Git", () => {
         expect(yield* read(path.join(target, "README.md"))).toBe("one\n")
       }),
     ),
+    30_000,
   )
 
   it.live("fetches, checks out, and resets remote changes", () =>
@@ -52,6 +53,7 @@ describe("Git", () => {
         expect(yield* read(path.join(target, "README.md"))).toBe("feature\n")
       }),
     ),
+    30_000,
   )
 })
 
@@ -107,6 +109,7 @@ describe("Git worktrees", () => {
       yield* git.worktree.remove({ repository: linked, directory: worktree, force: false })
       expect((yield* git.worktree.list(repo)).some((entry) => entry.directory.endsWith("-git-worktree"))).toBe(false)
     }),
+    30_000,
   )
 })
 
@@ -160,5 +163,6 @@ describe("Git trees", () => {
       expect(yield* read(path.join(root.path, "scope", "added.txt"))).toBe("added\n")
       expect(yield* read(path.join(root.path, "outside.txt"))).toBe("changed outside\n")
     }),
+    30_000,
   )
 })

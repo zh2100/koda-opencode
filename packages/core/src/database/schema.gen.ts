@@ -167,6 +167,47 @@ export default {
         );
       `)
       yield* tx.run(`
+        CREATE TABLE \`image_attempt\` (
+          \`session_id\` text NOT NULL,
+          \`task_id\` text NOT NULL,
+          \`slot\` text NOT NULL,
+          \`call_id\` text NOT NULL,
+          \`model\` text NOT NULL,
+          \`digest\` text,
+          CONSTRAINT \`image_attempt_pk\` PRIMARY KEY(\`session_id\`, \`task_id\`, \`slot\`),
+          CONSTRAINT \`fk_image_attempt_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`image_edit\` (
+          \`id\` text PRIMARY KEY,
+          \`session_id\` text NOT NULL,
+          \`state\` text NOT NULL,
+          \`binding\` text NOT NULL,
+          \`source_ref\` text NOT NULL,
+          \`source_digest\` text NOT NULL,
+          \`preview\` text,
+          \`prompt\` text NOT NULL,
+          \`model\` text NOT NULL,
+          \`endpoint\` text NOT NULL,
+          \`expires\` integer NOT NULL,
+          \`status\` integer,
+          \`result\` text,
+          \`digest\` text,
+          CONSTRAINT \`fk_image_edit_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
+        CREATE TABLE \`masked_image_edit\` (
+          \`id\` text PRIMARY KEY,
+          \`scope\` text NOT NULL,
+          \`session_id\` text,
+          \`fingerprint\` text NOT NULL,
+          \`result\` text,
+          CONSTRAINT \`fk_masked_image_edit_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
         CREATE TABLE \`message\` (
           \`id\` text PRIMARY KEY,
           \`session_id\` text NOT NULL,
@@ -204,6 +245,7 @@ export default {
           \`delivery\` text NOT NULL,
           \`admitted_seq\` integer NOT NULL,
           \`promoted_seq\` integer,
+          \`invalidated_seq\` integer,
           \`time_created\` integer NOT NULL,
           CONSTRAINT \`fk_session_input_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
         );
@@ -345,6 +387,8 @@ export default {
       yield* tx.run(
         `CREATE UNIQUE INDEX \`scheduled_task_run_task_scheduled_idx\` ON \`scheduled_task_run\` (\`task_id\`,\`scheduled_at\`);`,
       )
+      yield* tx.run(`CREATE INDEX \`image_edit_session_idx\` ON \`image_edit\` (\`session_id\`,\`expires\`);`)
+      yield* tx.run(`CREATE INDEX \`masked_image_edit_session_idx\` ON \`masked_image_edit\` (\`session_id\`);`)
       yield* tx.run(
         `CREATE INDEX \`message_session_time_created_id_idx\` ON \`message\` (\`session_id\`,\`time_created\`,\`id\`);`,
       )

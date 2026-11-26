@@ -1,12 +1,11 @@
 import type { useLocal } from "@/context/local"
 import type { Prompt, usePrompt } from "@/context/prompt"
 import type { PromptInputHistory } from "./history-store"
-import type { FollowupDraft, createPromptSubmit } from "./submit"
+import type { FollowupDraft } from "./submit"
 
 export type PromptInputState = ReturnType<typeof usePrompt>
 
 export type PromptInputSubmission = {
-  collaboration?: ReturnType<typeof createPromptSubmit>["collaboration"]
   abort: () => Promise<void> | void
   handleSubmit: (event: Event) => Promise<void> | void
 }

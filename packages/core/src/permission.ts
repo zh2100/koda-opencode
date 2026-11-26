@@ -91,6 +91,7 @@ export function merge(...rulesets: Permission.Ruleset[]): Permission.Ruleset {
 }
 
 export interface Interface {
+  /** Non-interactive policy snapshot for a separately confirmed image upload. Missing support fails closed. */
   readonly ask: (input: AssertInput) => EffectRuntime.Effect<AskResult, SessionV2.NotFoundError>
   readonly assert: (input: AssertInput) => EffectRuntime.Effect<void, Error | SessionV2.NotFoundError>
   readonly reply: (input: ReplyInput) => EffectRuntime.Effect<void, NotFoundError>
@@ -213,6 +214,13 @@ const layer = Layer.effect(
           const item = yield* create(request(input), input.agent)
           return yield* restore(Deferred.await(item.deferred)).pipe(
             EffectRuntime.catchTag("PermissionV2.DeclinedError", (error) => EffectRuntime.die(error)),
+            EffectRuntime.andThen(
+              EffectRuntime.gen(function* () {
+                // An old approval cannot override a new deny or a switch to plan mode.
+                const latest = yield* evaluateInput(input)
+                if (latest.effect === "deny") return yield* new BlockedError({ rules: relevant(input, latest.rules) })
+              }),
+            ),
             EffectRuntime.ensuring(
               EffectRuntime.sync(() => {
                 pending.delete(item.request.id)

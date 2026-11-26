@@ -230,6 +230,20 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         ),
     )
     .add(
+      HttpApiEndpoint.get("session.pending", "/api/session/:sessionID/input", {
+        params: { sessionID: Session.ID },
+        success: Schema.Struct({ data: SessionInput.Pending }),
+        error: SessionNotFoundError,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "v2.session.pending",
+          summary: "Read pending inputs",
+          description:
+            "Read a durable, sequence-stamped snapshot of unpromoted eligible inputs without scheduling execution.",
+        }),
+      ),
+    )
+    .add(
       HttpApiEndpoint.post("session.prompt", "/api/session/:sessionID/prompt", {
         params: { sessionID: Session.ID },
         payload: Schema.Struct({

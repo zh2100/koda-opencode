@@ -118,8 +118,6 @@ import type {
   McpStatusResponses,
   ModelRef,
   MoveSessionDestination,
-  OrchestratorControlPayload,
-  OrchestratorCreatePayload,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -313,12 +311,6 @@ import type {
   V2LocationGetResponses,
   V2ModelListErrors,
   V2ModelListResponses,
-  V2OrchestratorControlErrors,
-  V2OrchestratorControlResponses,
-  V2OrchestratorCreateErrors,
-  V2OrchestratorCreateResponses,
-  V2OrchestratorGetErrors,
-  V2OrchestratorGetResponses,
   V2PermissionRequestListErrors,
   V2PermissionRequestListResponses,
   V2PermissionSavedCreateErrors,
@@ -7813,127 +7805,6 @@ export class ProjectCopy2 extends HeyApiClient {
   }
 }
 
-export class Orchestrator extends HeyApiClient {
-  /**
-   * Create a collaboration task
-   *
-   * Create a planner/worker/reviewer/tester/finalizer task and start it in the background.
-   */
-  public create<ThrowOnError extends boolean = false>(
-    parameters?: {
-      location?: {
-        directory?: string
-        workspace?: string
-      }
-      orchestratorCreatePayload?: OrchestratorCreatePayload
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "location" },
-            { key: "orchestratorCreatePayload", map: "body" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<
-      V2OrchestratorCreateResponses,
-      V2OrchestratorCreateErrors,
-      ThrowOnError
-    >({
-      url: "/experimental/orchestrator",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Get a collaboration task
-   *
-   * Read the current status of a collaboration task.
-   */
-  public get<ThrowOnError extends boolean = false>(
-    parameters: {
-      taskID: string
-      location?: {
-        directory?: string
-        workspace?: string
-      }
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "taskID" },
-            { in: "query", key: "location" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<V2OrchestratorGetResponses, V2OrchestratorGetErrors, ThrowOnError>({
-      url: "/experimental/orchestrator/{taskID}",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Control a collaboration task
-   *
-   * Pause, abort, or retry a collaboration task.
-   */
-  public control<ThrowOnError extends boolean = false>(
-    parameters: {
-      taskID: string
-      location?: {
-        directory?: string
-        workspace?: string
-      }
-      orchestratorControlPayload?: OrchestratorControlPayload
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "taskID" },
-            { in: "query", key: "location" },
-            { key: "orchestratorControlPayload", map: "body" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<
-      V2OrchestratorControlResponses,
-      V2OrchestratorControlErrors,
-      ThrowOnError
-    >({
-      url: "/experimental/orchestrator/{taskID}/control",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-}
-
 export class V2 extends HeyApiClient {
   private _health?: Health
   get health(): Health {
@@ -8028,11 +7899,6 @@ export class V2 extends HeyApiClient {
   private _projectCopy?: ProjectCopy2
   get projectCopy(): ProjectCopy2 {
     return (this._projectCopy ??= new ProjectCopy2({ client: this.client }))
-  }
-
-  private _orchestrator?: Orchestrator
-  get orchestrator(): Orchestrator {
-    return (this._orchestrator ??= new Orchestrator({ client: this.client }))
   }
 }
 
