@@ -63,7 +63,9 @@ jobs:
         run: |
           options=()
           if [[ "$RUNNER_OS" == 'macOS' && -z "$CSC_LINK" ]]; then options+=('-c.mac.identity=-' '-c.dmg.sign=false'); fi
-          bun run package:${{ matrix.platform }} ${{ matrix.targets }} --${{ matrix.arch }} --publish never "${options[@]}"
+          bun run prepare:gdal
+          bun run prepare:computer-use
+          bunx --no-install electron-builder --${{ matrix.platform }} ${{ matrix.targets }} --config electron-builder.config.ts --${{ matrix.arch }} --publish never "${options[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.platform }}-${{ matrix.arch }}
