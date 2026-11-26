@@ -40,7 +40,9 @@ if (!existsSync(archive) || !createHash("sha512").update(await readFile(archive)
 
 await rm(destination, { recursive: true, force: true })
 await mkdir(destination, { recursive: true })
-execFileSync("tar", ["-xzf", archive, "-C", destination, "--strip-components=1"], {
+// Git Bash's GNU tar interprets a Windows drive letter as a remote host.
+const tar = process.platform === "win32" ? join(process.env.SystemRoot!, "System32", "tar.exe") : "tar"
+execFileSync(tar, ["-xzf", archive, "-C", destination, "--strip-components=1"], {
   cwd: tmpdir(),
   timeout: 120_000,
   stdio: "inherit",
