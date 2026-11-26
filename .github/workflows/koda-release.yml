@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: windows-2025, platform: win, arch: x64, targets: nsis }
+          - { runner: windows-2022, platform: win, arch: x64, targets: nsis }
           - { runner: macos-15, platform: mac, arch: arm64, targets: "dmg zip" }
           - { runner: macos-15-intel, platform: mac, arch: x64, targets: "dmg zip" }
           - { runner: ubuntu-24.04, platform: linux, arch: x64, targets: "AppImage deb" }
@@ -62,7 +62,10 @@ jobs:
           CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
         run: |
           options=()
-          if [[ "$RUNNER_OS" == 'macOS' && -z "$CSC_LINK" ]]; then options+=('-c.mac.identity=-' '-c.dmg.sign=false'); fi
+          if [[ -z "$CSC_LINK" ]]; then
+            unset CSC_LINK CSC_KEY_PASSWORD
+            if [[ "$RUNNER_OS" == 'macOS' ]]; then options+=('-c.mac.identity=-' '-c.dmg.sign=false'); fi
+          fi
           bun run prepare:gdal
           bun run prepare:computer-use
           bunx --no-install electron-builder --${{ matrix.platform }} ${{ matrix.targets }} --config electron-builder.config.ts --${{ matrix.arch }} --publish never "${options[@]}"

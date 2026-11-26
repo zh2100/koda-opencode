@@ -4,7 +4,9 @@ Koda 是一款 AI 编程桌面应用。打开本地项目后，你可以在同�
 
 **安装桌面版** · [下载最新公开版本](https://github.com/zh2100/koda-opencode/releases/latest)
 
-截至 2026 年 11 月 21 日，GitHub 最新公开安装包为 **v1.0.5**，提供 Windows x64 安装程序、macOS Apple 芯片 DMG，以及 Linux amd64 和 arm64 的 DEB 包。Windows 用户请在发布页的 **Assets** 中下载并运行 `Koda-desktop-win-x64.exe`。已安装的用户可以从 **帮助 → 检查更新** 查看新版本。
+[最新稳定版下载](https://github.com/zh2100/koda-opencode/releases/latest)始终指向已经发布的版本。在 **Assets** 中按系统和处理器选择安装包：Windows x64 下载 `Koda-desktop-win-x64.exe`，macOS 下载对应架构的 `.dmg`，Linux 下载 `.deb` 或 `.AppImage`（以该版附件为准）。桌面版可从 **帮助 → 检查更新** 查看新版本；若系统不支持应用内安装，请从同一发布页手动更新。
+
+维护者发布新版时，先更新 `packages/desktop/package.json` 的版本并推送至 `dev`，再运行 [Koda desktop release](https://github.com/zh2100/koda-opencode/actions/workflows/koda-release.yml)。GitHub Actions 会从同一提交构建各平台安装包，校验更新清单、生成 `SHA256SUMS.txt`，并在所有附件上传成功后将该版本设为 **Latest**。
 
 当前 `dev` 分支的桌面源码为 **v1.0.7**。要使用下文的提供商模型列表和独立图像生成设置，可以按本文末尾的步骤从源码构建。
 
