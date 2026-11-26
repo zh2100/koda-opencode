@@ -48,7 +48,9 @@ jobs:
         shell: pwsh
         working-directory: packages/desktop
         run: |
-          python -m pip install conda-pack==0.8.1
+          # The acquisition script intentionally runs micromamba --no-rc.
+          Remove-Item Env:CONDARC -ErrorAction SilentlyContinue
+          python -m pip install conda-pack==0.8.1 'setuptools<81'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:KODA_GDAL_WORK = Join-Path $env:RUNNER_TEMP 'gdal'
           $env:KODA_GDAL_LOCK = (Resolve-Path scripts/gdal-win-x64.lock).Path
