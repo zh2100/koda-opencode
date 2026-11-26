@@ -1,0 +1,103 @@
+name: Koda desktop release
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+concurrency: koda-desktop-release
+
+jobs:
+  build:
+    if: github.repository == 'zh2100/koda-opencode' && github.ref == 'refs/heads/dev'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2025, platform: win, arch: x64, targets: nsis }
+          - { runner: macos-15, platform: mac, arch: arm64, targets: "dmg zip" }
+          - { runner: macos-15-intel, platform: mac, arch: x64, targets: "dmg zip" }
+          - { runner: ubuntu-24.04, platform: linux, arch: x64, targets: "AppImage deb" }
+          - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64, targets: "AppImage deb" }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 100
+    env:
+      OPENCODE_CHANNEL: prod
+      OPENCODE_ELECTRON_ARCH: ${{ matrix.arch }}
+      NODE_OPTIONS: --max-old-space-size=4096
+      BUN_CONFIG_MAX_CONCURRENCY: 2
+      HUSKY: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Set release version and check native runner
+        shell: bash
+        run: |
+          node -e "if (process.arch !== process.env.OPENCODE_ELECTRON_ARCH) process.exit(1)"
+          echo "OPENCODE_VERSION=$(node -p "require('./packages/desktop/package.json').version")" >> "$GITHUB_ENV"
+      - run: bun run --cwd packages/core build:native-lock
+      - run: bun run --cwd packages/desktop build
+      - uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462 # v2
+        if: runner.os == 'Windows'
+        with:
+          init-shell: none
+      - name: Build bundled Windows GDAL from pinned packages
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: packages/desktop
+        run: |
+          python -m pip install conda-pack==0.8.1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:KODA_GDAL_WORK = Join-Path $env:RUNNER_TEMP 'gdal'
+          $env:KODA_GDAL_LOCK = (Resolve-Path scripts/gdal-win-x64.lock).Path
+          bun run acquire:gdal
+      - name: Package desktop and updater assets
+        working-directory: packages/desktop
+        shell: bash
+        env:
+          KODA_BUNDLE_GDAL: ${{ runner.os == 'Windows' && '1' || '0' }}
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+        run: |
+          options=()
+          if [[ "$RUNNER_OS" == 'macOS' && -z "$CSC_LINK" ]]; then options+=('-c.mac.identity=-' '-c.dmg.sign=false'); fi
+          bun run package:${{ matrix.platform }} ${{ matrix.targets }} --${{ matrix.arch }} --publish never "${options[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            packages/desktop/dist/Koda-desktop-*
+            packages/desktop/dist/latest*.yml
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: installers
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+      - name: Validate assets and assemble the update feeds
+        run: bun packages/desktop/scripts/release-assets.ts installers release
+      - name: Publish only a complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(node -p "require('./packages/desktop/package.json').version")
+          tag="v$version"
+          gh release create "$tag" --draft --target "$GITHUB_SHA" --title "Koda v$version" --notes-file release-notes.md
+          gh release upload "$tag" release/*
+          gh release edit "$tag" --draft=false --latest
