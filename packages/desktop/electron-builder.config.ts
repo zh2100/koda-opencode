@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process"
+import { createHash } from "node:crypto"
 import { statSync } from "node:fs"
+import { readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -37,6 +39,7 @@ const channel = (() => {
 })()
 
 const targetArch = process.env.OPENCODE_ELECTRON_ARCH || process.env.npm_config_arch || process.arch
+const lockName = `process-lock-darwin-${targetArch}.node`
 const foreignNativeArch = targetArch === "arm64" ? "x64" : "arm64"
 const gdalTarget = `${process.platform}-${targetArch}`
 const gdalResource = path.join(packageDir, "resources", "gdal", gdalTarget)
@@ -104,6 +107,7 @@ const getBase = (appId: string): Configuration => ({
     "out/**/*",
     "resources/**/*",
     "!resources/opencode-cli*",
+    "!resources/process-lock-*",
     "!resources/gdal/**/*",
     "!resources/open-computer-use/**/*",
     ...excludeForeignNativeModules(),
@@ -138,6 +142,28 @@ const getBase = (appId: string): Configuration => ({
     category: "public.app-category.developer-tools",
     icon: `resources/icons/icon.icns`,
     hardenedRuntime: true,
+    ...(channel === "prod" && {
+      // Sign the sidecar once, before sealing its manifest into the outer app.
+      signIgnore: `/Contents/Resources/${lockName.replace(".", "\\.")}$`,
+      sign: async (options) => {
+        const { signAsync } = await import("@electron/osx-sign")
+        const resources = path.join(options.app, "Contents/Resources")
+        const file = path.join(resources, lockName)
+        const manifest = path.join(resources, "process-lock-manifest.json")
+        const entry = JSON.parse(await readFile(manifest, "utf8"))
+        const digest = async () => createHash("sha256").update(await readFile(file)).digest("hex")
+        if (!options.identity || entry.file !== lockName || entry.sha256 !== (await digest())) {
+          throw new Error("Cannot sign an unverified process-lock module")
+        }
+        await execFileAsync("codesign", [
+          "--force", "--sign", options.identity, "--options", "runtime",
+          ...(options.keychain ? ["--keychain", options.keychain] : []),
+          ...(options.identity === "-" ? [] : ["--timestamp"]), file,
+        ])
+        await writeFile(manifest, JSON.stringify({ ...entry, sha256: await digest() }, null, 2))
+        await signAsync(options)
+      },
+    }),
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
     entitlementsInherit: "resources/entitlements.plist",

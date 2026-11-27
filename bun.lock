@@ -389,7 +389,7 @@
     },
     "packages/desktop": {
       "name": "@opencode-ai/desktop",
-      "version": "1.0.7",
+      "version": "1.0.8",
       "dependencies": {
         "@zip.js/zip.js": "2.7.62",
         "drizzle-orm": "catalog:",
@@ -403,6 +403,7 @@
       },
       "devDependencies": {
         "@actions/artifact": "4.0.0",
+        "@electron/osx-sign": "1.3.3",
         "@lydell/node-pty": "catalog:",
         "@opencode-ai/app": "workspace:*",
         "@opencode-ai/ui": "workspace:*",

@@ -71,6 +71,39 @@ jobs:
           bun run prepare:gdal
           bun run prepare:computer-use
           bunx --no-install electron-builder --${{ matrix.platform }} ${{ matrix.targets }} --config electron-builder.config.ts --${{ matrix.arch }} --publish never "${options[@]}"
+      - name: Stage and load the native lock from each final installer
+        working-directory: packages/desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          case "$RUNNER_OS" in
+            macOS)
+              ditto -x -k dist/*.zip "$work/zip"
+              bun scripts/check-release-lock.ts "$work/zip/Koda.app/Contents/Resources"
+              mkdir "$work/dmg"
+              hdiutil attach -readonly -nobrowse -mountpoint "$work/dmg" dist/*.dmg
+              trap 'hdiutil detach "$work/dmg"' EXIT
+              bun scripts/check-release-lock.ts "$work/dmg/Koda.app/Contents/Resources"
+              ;;
+            Windows)
+              dest=$(cygpath -w "$work/exe")
+              7z x dist/*.exe "-o$dest" -y >/dev/null
+              archive=$(find "$work/exe" -name app-64.7z -print -quit)
+              if [[ -n "$archive" ]]; then 7z x "$archive" "-o$dest" -y >/dev/null; fi
+              bun scripts/check-release-lock.ts "$(cygpath -w "$work/exe/resources")"
+              ;;
+            Linux)
+              image=$(realpath dist/*.AppImage)
+              (cd "$work" && "$image" --appimage-extract >/dev/null)
+              dpkg-deb -x dist/*.deb "$work/deb"
+              for tree in "$work/squashfs-root" "$work/deb"; do
+                cli=$(find "$tree" -type f -path '*/resources/opencode-cli' -print -quit)
+                test -n "$cli"
+                bun scripts/check-release-lock.ts "$(dirname "$cli")"
+              done
+              ;;
+          esac
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.platform }}-${{ matrix.arch }}

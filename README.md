@@ -8,7 +8,7 @@ Koda 是一款 AI 编程桌面应用。打开本地项目后，你可以在同�
 
 维护者发布新版时，先更新 `packages/desktop/package.json` 的版本并推送至 `dev`，再运行 [Koda desktop release](https://github.com/zh2100/koda-opencode/actions/workflows/koda-release.yml)。GitHub Actions 会从同一提交构建各平台安装包，校验更新清单、生成 `SHA256SUMS.txt`，并在所有附件上传成功后将该版本设为 **Latest**。
 
-当前 `dev` 分支的桌面源码为 **v1.0.7**。要使用下文的提供商模型列表和独立图像生成设置，可以按本文末尾的步骤从源码构建。
+当前 `dev` 分支的桌面源码为 **v1.0.8**。要使用下文的提供商模型列表和独立图像生成设置，可以按本文末尾的步骤从源码构建。
 
 ## 连接提供商并选择模型
 
